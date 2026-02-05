@@ -12,6 +12,7 @@ module RbrunCore
       class Error < StandardError; end
       class AuthenticationError < Error; end
       class ConnectionError < Error; end
+
       class CommandError < Error
         attr_reader :exit_code, :output
 
@@ -33,7 +34,7 @@ module RbrunCore
       end
 
       # Execute a command on the remote server.
-      def execute(command, cwd: nil, timeout: nil, raise_on_error: true)
+      def execute(command, cwd: nil, timeout: nil, raise_on_error: true, &)
         full_command = build_command(command, cwd:)
 
         with_ssh_session(timeout:) do |ssh|
@@ -48,12 +49,12 @@ module RbrunCore
 
               ch2.on_data do |_, data|
                 output << data
-                yield_lines(data) { |line| yield line } if block_given?
+                yield_lines(data, &) if block_given?
               end
 
               ch2.on_extended_data do |_, _, data|
                 output << data
-                yield_lines(data) { |line| yield line } if block_given?
+                yield_lines(data, &) if block_given?
               end
 
               ch2.on_request("exit-status") do |_, data|
@@ -77,6 +78,20 @@ module RbrunCore
         end
       end
 
+      # Execute a command with retry on ConnectionError.
+      def execute_with_retry(command, retries: 3, backoff: 2, **)
+        attempts = 0
+        begin
+          execute(command, **)
+        rescue ConnectionError
+          attempts += 1
+          raise if attempts >= retries
+
+          sleep(backoff**attempts)
+          retry
+        end
+      end
+
       # Execute a command, ignoring errors.
       def execute_ignore_errors(command, cwd: nil)
         execute(command, cwd:, raise_on_error: false)
@@ -96,8 +111,9 @@ module RbrunCore
 
       # Wait for SSH to become available.
       def wait_until_ready(max_attempts: 60, interval: 5)
-        max_attempts.times do |attempt|
+        max_attempts.times do |_attempt|
           return true if available?(timeout: 10)
+
           sleep(interval)
         end
         raise ConnectionError, "SSH not available after #{max_attempts} attempts"
@@ -135,7 +151,7 @@ module RbrunCore
       # Read a remote file's content.
       def read_file(remote_path)
         result = execute("cat #{Shellwords.escape(remote_path)}", raise_on_error: false)
-        result[:exit_code] == 0 ? result[:output] : nil
+        result[:exit_code].zero? ? result[:output] : nil
       end
 
       # Write content to a remote file.
@@ -159,18 +175,16 @@ module RbrunCore
           end
         end
 
-        def with_ssh_session(timeout: nil)
+        def with_ssh_session(timeout: nil, &)
           options = {
-            key_data: [@private_key],
+            key_data: [ @private_key ],
             non_interactive: true,
             verify_host_key: @strict_mode ? :accept_new : :never,
             logger: Logger.new(IO::NULL),
             timeout: timeout || 30
           }
 
-          Net::SSH.start(@host, @user, options) do |ssh|
-            yield ssh
-          end
+          Net::SSH.start(@host, @user, options, &)
         rescue Net::SSH::AuthenticationFailed => e
           raise AuthenticationError, "SSH authentication failed for #{@user}@#{@host}: #{e.message}"
         rescue Net::SSH::ConnectionTimeout => e

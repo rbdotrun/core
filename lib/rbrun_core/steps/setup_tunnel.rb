@@ -3,7 +3,7 @@
 module RbrunCore
   module Steps
     class SetupTunnel
-      HTTP_NODE_PORT = 30080
+      HTTP_NODE_PORT = 30_080
 
       def initialize(ctx, on_log: nil)
         @ctx = ctx
@@ -34,9 +34,10 @@ module RbrunCore
           zone = @ctx.zone
 
           if config.app?
-            config.app_config.processes.each do |name, process|
+            config.app_config.processes.each_value do |process|
               subdomain = config.resolve(process.subdomain, target: @ctx.target)
               next unless subdomain && process.port
+
               hostname = "#{subdomain}.#{zone}"
               rules << {
                 hostname:,
@@ -46,9 +47,10 @@ module RbrunCore
             end
           end
 
-          config.service_configs.each do |name, svc_config|
+          config.service_configs.each_value do |svc_config|
             subdomain = config.resolve(svc_config.subdomain, target: @ctx.target)
             next unless subdomain && svc_config.port
+
             hostname = "#{subdomain}.#{zone}"
             rules << {
               hostname:,
@@ -67,16 +69,18 @@ module RbrunCore
           config = @ctx.config
 
           if config.app?
-            config.app_config.processes.each do |name, process|
+            config.app_config.processes.each_value do |process|
               subdomain = config.resolve(process.subdomain, target: @ctx.target)
               next unless subdomain
+
               cf_client.ensure_dns_record(zone_id, "#{subdomain}.#{@ctx.zone}", tunnel_id)
             end
           end
 
-          config.service_configs.each do |name, svc_config|
+          config.service_configs.each_value do |svc_config|
             subdomain = config.resolve(svc_config.subdomain, target: @ctx.target)
             next unless subdomain
+
             cf_client.ensure_dns_record(zone_id, "#{subdomain}.#{@ctx.zone}", tunnel_id)
           end
         end

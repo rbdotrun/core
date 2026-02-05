@@ -17,16 +17,20 @@ module RbrunCore
         def initialize(api_key:)
           @api_key = api_key
           raise RbrunCore::Error, "Hetzner API key not configured" if @api_key.nil? || @api_key.empty?
+
           super(timeout: 300)
         end
 
-        def find_or_create_server(name:, server_type:, image: "ubuntu-22.04", location: nil, ssh_keys: [], user_data: nil, labels: {}, firewalls: nil, networks: nil)
+        def find_or_create_server(name:, server_type:, image: "ubuntu-22.04", location: nil, ssh_keys: [],
+                                  user_data: nil, labels: {}, firewalls: nil, networks: nil)
           existing = find_server(name)
           return existing if existing
+
           create_server(name:, server_type:, image:, location:, ssh_keys:, user_data:, labels:, firewalls:, networks:)
         end
 
-        def create_server(name:, server_type:, image: "ubuntu-22.04", location: nil, ssh_keys: [], user_data: nil, labels: {}, firewalls: nil, networks: nil)
+        def create_server(name:, server_type:, image: "ubuntu-22.04", location: nil, ssh_keys: [], user_data: nil,
+                          labels: {}, firewalls: nil, networks: nil)
           payload = {
             name:, server_type:, image:, location:,
             start_after_create: true, labels: labels || {}
@@ -45,6 +49,7 @@ module RbrunCore
           to_server(response["server"])
         rescue HttpErrors::ApiError => e
           raise unless e.not_found?
+
           nil
         end
 
@@ -65,6 +70,7 @@ module RbrunCore
           max_attempts.times do
             server = get_server(id)
             return server if server && server.status == "running"
+
             sleep(interval)
           end
           raise RbrunCore::Error, "Server #{id} did not become running after #{max_attempts} attempts"
@@ -79,6 +85,7 @@ module RbrunCore
             get("/firewalls")["firewalls"].each do |fw|
               fw["applied_to"]&.each do |applied|
                 next unless applied["type"] == "server" && applied.dig("server", "id") == server_id
+
                 remove_firewall_from_server(fw["id"], server_id)
               rescue StandardError
               end
@@ -90,6 +97,7 @@ module RbrunCore
             end
           rescue HttpErrors::ApiError => e
             return nil if e.not_found?
+
             raise
           end
 
@@ -104,6 +112,7 @@ module RbrunCore
         def find_or_create_ssh_key(name:, public_key:)
           existing = find_ssh_key(name)
           return existing if existing
+
           response = post("/ssh_keys", { name:, public_key: })
           to_ssh_key(response["ssh_key"])
         end
@@ -132,9 +141,9 @@ module RbrunCore
 
           network_zone = NETWORK_ZONES[location] || "eu-central"
           response = post("/networks", {
-            name:, ip_range:,
-            subnets: [{ type: "cloud", ip_range: subnet_range, network_zone: }]
-          })
+                            name:, ip_range:,
+                            subnets: [ { type: "cloud", ip_range: subnet_range, network_zone: } ]
+                          })
           to_network(response["network"])
         end
 
@@ -153,6 +162,7 @@ module RbrunCore
           delete("/networks/#{id.to_i}")
         rescue HttpErrors::ApiError => e
           raise unless e.not_found?
+
           nil
         end
 
@@ -161,7 +171,7 @@ module RbrunCore
           return existing if existing
 
           rules ||= [
-            { direction: "in", protocol: "tcp", port: "22", source_ips: ["0.0.0.0/0", "::/0"] }
+            { direction: "in", protocol: "tcp", port: "22", source_ips: [ "0.0.0.0/0", "::/0" ] }
           ]
           response = post("/firewalls", { name:, rules: })
           to_firewall(response["firewall"])
@@ -177,6 +187,7 @@ module RbrunCore
           delete("/firewalls/#{id.to_i}")
         rescue HttpErrors::ApiError => e
           raise unless e.not_found?
+
           nil
         end
 
@@ -185,6 +196,7 @@ module RbrunCore
           true
         rescue HttpErrors::ApiError => e
           raise RbrunCore::Error, "Hetzner credentials invalid: #{e.message}" if e.unauthorized?
+
           raise
         end
 
@@ -192,14 +204,15 @@ module RbrunCore
         def find_or_create_volume(name:, size:, location:, labels: {}, format: "xfs")
           existing = find_volume(name)
           return existing if existing
+
           create_volume(name:, size:, location:, labels:, format:)
         end
 
         def create_volume(name:, size:, location:, labels: {}, format: "xfs")
           response = post("/volumes", {
-            name:, size:, location:, labels: labels || {},
-            automount: false, format:
-          })
+                            name:, size:, location:, labels: labels || {},
+                            automount: false, format:
+                          })
           to_volume(response["volume"])
         end
 
@@ -208,6 +221,7 @@ module RbrunCore
           to_volume(response["volume"])
         rescue HttpErrors::ApiError => e
           raise unless e.not_found?
+
           nil
         end
 
@@ -231,8 +245,8 @@ module RbrunCore
           end
 
           response = post("/volumes/#{volume_id.to_i}/actions/attach", {
-            server: server_id.to_i, automount:
-          })
+                            server: server_id.to_i, automount:
+                          })
           wait_for_action(response["action"]["id"]) if response["action"]
           get_volume(volume_id)
         end
@@ -248,6 +262,7 @@ module RbrunCore
           delete("/volumes/#{id.to_i}")
         rescue HttpErrors::ApiError => e
           raise unless e.not_found?
+
           nil
         end
 
@@ -262,7 +277,12 @@ module RbrunCore
             response = get("/actions/#{action_id}")
             status = response.dig("action", "status")
             return true if status == "success"
-            raise RbrunCore::Error, "Action #{action_id} failed: #{response.dig('action', 'error', 'message')}" if status == "error"
+
+            if status == "error"
+              raise RbrunCore::Error,
+                    "Action #{action_id} failed: #{response.dig('action', 'error', 'message')}"
+            end
+
             sleep(interval)
           end
           raise RbrunCore::Error, "Action #{action_id} timed out after #{max_attempts * interval} seconds"
@@ -312,8 +332,8 @@ module RbrunCore
 
           def remove_firewall_from_server(firewall_id, server_id)
             post("/firewalls/#{firewall_id}/actions/remove_from_resources", {
-              remove_from: [{ type: "server", server: { id: server_id } }]
-            })
+                   remove_from: [ { type: "server", server: { id: server_id } } ]
+                 })
           end
 
           def detach_server_from_network(server_id, network_id)

@@ -15,12 +15,14 @@ class NamingTest < Minitest::Test
 
   def test_generate_slug_returns_6_hex_chars
     slug = RbrunCore::Naming.generate_slug
+
     assert_equal 6, slug.length
     assert_match(/\A[a-f0-9]{6}\z/, slug)
   end
 
   def test_generate_slug_returns_unique_values
     slugs = 100.times.map { RbrunCore::Naming.generate_slug }
+
     assert_equal 100, slugs.uniq.size
   end
 
@@ -67,7 +69,7 @@ class NamingTest < Minitest::Test
 
   def test_self_hosted_preview_url_returns_https
     assert_equal "https://rbrun-sandbox-a1b2c3.rb.run",
-      RbrunCore::Naming.self_hosted_preview_url(VALID_SLUG, "rb.run")
+                 RbrunCore::Naming.self_hosted_preview_url(VALID_SLUG, "rb.run")
   end
 
   def test_worker_returns_prefixed_worker_name
@@ -91,6 +93,7 @@ class NamingTest < Minitest::Test
     slug = RbrunCore::Naming.generate_slug
     resource = RbrunCore::Naming.resource(slug)
     extracted = resource.match(RbrunCore::Naming.resource_regex)[1]
+
     assert_equal slug, extracted
   end
 end

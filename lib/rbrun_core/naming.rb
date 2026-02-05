@@ -26,6 +26,7 @@ module RbrunCore
       # Raises: ArgumentError with descriptive message.
       def validate_slug!(slug)
         return if valid_slug?(slug)
+
         raise ArgumentError, "Invalid slug format: #{slug.inspect}. Expected #{SLUG_LENGTH} hex chars."
       end
 

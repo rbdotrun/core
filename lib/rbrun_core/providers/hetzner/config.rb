@@ -42,8 +42,15 @@ module RbrunCore
         def validate!
           raise ConfigurationError, "compute.api_key is required for Hetzner" if api_key.nil? || api_key.empty?
           raise ConfigurationError, "compute.ssh_key_path is required" if ssh_key_path.nil? || ssh_key_path.empty?
-          raise ConfigurationError, "SSH private key not found: #{ssh_key_path}" unless File.exist?(File.expand_path(ssh_key_path))
-          raise ConfigurationError, "SSH public key not found: #{ssh_key_path}.pub" unless File.exist?(File.expand_path("#{ssh_key_path}.pub"))
+
+          unless File.exist?(File.expand_path(ssh_key_path))
+            raise ConfigurationError,
+                  "SSH private key not found: #{ssh_key_path}"
+          end
+          return if File.exist?(File.expand_path("#{ssh_key_path}.pub"))
+
+          raise ConfigurationError,
+                "SSH public key not found: #{ssh_key_path}.pub"
         end
 
         def ssh_private_key

@@ -20,7 +20,11 @@ module RbrunCore
 
         def validate!
           raise ConfigurationError, "compute.api_key is required for Scaleway" if api_key.nil? || api_key.empty?
-          raise ConfigurationError, "compute.project_id is required for Scaleway" if project_id.nil? || project_id.empty?
+
+          return unless project_id.nil? || project_id.empty?
+
+          raise ConfigurationError,
+                "compute.project_id is required for Scaleway"
         end
 
         def client

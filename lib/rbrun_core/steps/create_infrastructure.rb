@@ -15,7 +15,7 @@ module RbrunCore
         log("network", "Finding or creating network")
         network = compute_client.find_or_create_network(
           @ctx.prefix,
-          location: location
+          location:
         )
 
         log("ssh_key", "Finding or creating SSH key")
@@ -25,7 +25,7 @@ module RbrunCore
         )
 
         log("server", "Finding or creating server")
-        server = create_server!(firewall_id: firewall.id, network_id: network.id, ssh_key_ids: [ssh_key.id])
+        server = create_server!(firewall_id: firewall.id, network_id: network.id, ssh_key_ids: [ ssh_key.id ])
 
         @ctx.server_id = server.id
         @ctx.server_ip = server.public_ipv4
@@ -37,10 +37,10 @@ module RbrunCore
       private
 
         def create_firewall!
-          rules = [
-            { direction: "in", protocol: "tcp", port: "22", source_ips: ["0.0.0.0/0", "::/0"] },
-            { direction: "in", protocol: "tcp", port: "6443", source_ips: ["10.0.0.0/16"] }
-          ]
+          rules = [ { direction: "in", protocol: "tcp", port: "22", source_ips: [ "0.0.0.0/0", "::/0" ] } ]
+          if @ctx.target != :sandbox
+            rules << { direction: "in", protocol: "tcp", port: "6443", source_ips: [ "10.0.0.0/16" ] }
+          end
           compute_client.find_or_create_firewall(@ctx.prefix, rules:)
         end
 
@@ -51,12 +51,12 @@ module RbrunCore
           compute_client.find_or_create_server(
             name: @ctx.prefix,
             server_type:,
-            location: location,
+            location:,
             image: @ctx.config.compute_config.image,
             user_data:,
             labels: { purpose: @ctx.target.to_s },
-            firewalls: [firewall_id],
-            networks: [network_id],
+            firewalls: [ firewall_id ],
+            networks: [ network_id ],
             ssh_keys: ssh_key_ids
           )
         end

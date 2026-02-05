@@ -16,6 +16,9 @@ module RbrunCore
         Steps::SetupApplication.new(@ctx, on_log: @on_log).run
 
         change_state(:running)
+      rescue StandardError
+        change_state(:failed)
+        raise
       end
 
       private

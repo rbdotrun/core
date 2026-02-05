@@ -26,26 +26,64 @@ module RbrunCore
           log("apt_packages", "Installing packages")
           ssh!("sudo apt-get update && sudo apt-get install -y curl git jq rsync docker.io docker-compose-v2 ca-certificates gnupg")
 
-          log("docker", "Starting Docker")
-          ssh!("sudo systemctl enable docker && sudo systemctl start docker")
+          unless command_exists?("docker")
+            log("docker", "Starting Docker")
+            ssh!("sudo systemctl enable docker && sudo systemctl start docker")
+          end
 
+          install_node!
+          install_claude_code!
+          install_gh_cli!
           setup_git_auth!
+        end
+
+        def install_node!
+          return if command_exists?("node")
+
+          log("node", "Installing Node.js 20.x")
+          ssh!(<<~BASH)
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && \
+          sudo apt-get install -y nodejs
+        BASH
+        end
+
+        def install_claude_code!
+          return if command_exists?("claude")
+
+          log("claude_code", "Installing Claude Code")
+          ssh!("sudo npm install -g @anthropic-ai/claude-code")
+        end
+
+        def install_gh_cli!
+          return if command_exists?("gh")
+
+          log("gh_cli", "Installing GitHub CLI")
+          ssh!(<<~BASH)
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+          sudo apt-get update && sudo apt-get install -y gh
+        BASH
         end
 
         def setup_git_auth!
           git_config = @ctx.config.git_config
           pat = git_config.pat
 
-          if pat && !pat.empty?
-            log("gh_auth", "Configuring git auth")
-            ssh!("git config --global user.name '#{git_config.username}' && git config --global user.email '#{git_config.email}'")
-          end
+          return unless pat && !pat.empty?
+
+          log("gh_auth", "Configuring git auth")
+          ssh!("git config --global user.name '#{git_config.username}' && git config --global user.email '#{git_config.email}'")
+          ssh!("echo #{Shellwords.escape(pat)} | gh auth login --with-token", raise_on_error: false)
+        end
+
+        def command_exists?(cmd)
+          ssh!("command -v #{cmd}", raise_on_error: false)[:exit_code].zero?
         end
 
         def clone_repo!
           log("clone", "Cloning repository")
           result = ssh!("test -d #{WORKSPACE}/.git", raise_on_error: false, timeout: 10)
-          return if result[:exit_code] == 0
+          return if result[:exit_code].zero?
 
           clone_url = git_clone_url
           ssh!("git clone #{Shellwords.escape(clone_url)} #{WORKSPACE}", timeout: 120)
@@ -81,6 +119,7 @@ module RbrunCore
 
           config.setup_commands.each do |cmd|
             next if cmd.nil? || cmd.empty?
+
             docker_compose!("run --rm web sh -c #{Shellwords.escape(cmd)}")
           end
 
@@ -106,8 +145,8 @@ module RbrunCore
           ssh!("cd #{WORKSPACE} && docker compose -f #{COMPOSE_FILE} #{args}", raise_on_error:, timeout:)
         end
 
-        def ssh!(command, **opts)
-          @ctx.ssh_client.execute(command, **opts)
+        def ssh!(command, **)
+          @ctx.ssh_client.execute(command, **)
         end
 
         def log(category, message = nil)

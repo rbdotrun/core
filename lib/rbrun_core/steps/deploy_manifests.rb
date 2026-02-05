@@ -3,7 +3,7 @@
 module RbrunCore
   module Steps
     class DeployManifests
-      HTTP_NODE_PORT = 30080
+      HTTP_NODE_PORT = 30_080
 
       def initialize(ctx, on_log: nil)
         @ctx = ctx
@@ -40,6 +40,7 @@ module RbrunCore
 
         def existing_db_password
           return nil unless @ctx.server_ip && @ctx.ssh_private_key
+
           result = @ctx.ssh_client.execute(
             "kubectl get secret #{@ctx.prefix}-postgres-secret -o jsonpath='{.data.DB_PASSWORD}' 2>/dev/null | base64 -d",
             raise_on_error: false
@@ -59,15 +60,19 @@ module RbrunCore
             kubectl.rollout_status("#{@ctx.prefix}-#{name}", timeout: 120)
           end
 
-          if @ctx.config.app?
-            @ctx.config.app_config.processes.each_key do |name|
-              kubectl.rollout_status("#{@ctx.prefix}-#{name}", timeout: 300)
-            end
+          return unless @ctx.config.app?
+
+          @ctx.config.app_config.processes.each_key do |name|
+            kubectl.rollout_status("#{@ctx.prefix}-#{name}", timeout: 300)
           end
         end
 
         def kubectl
           @kubectl ||= Kubernetes::Kubectl.new(@ctx.ssh_client)
+        end
+
+        def ssh_with_retry!(command, raise_on_error: true, timeout: 300)
+          @ctx.ssh_client.execute_with_retry(command, raise_on_error:, timeout:)
         end
 
         def log(category, message = nil)

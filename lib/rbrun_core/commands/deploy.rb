@@ -16,10 +16,16 @@ module RbrunCore
         Steps::SetupK3s.new(@ctx, on_log: @on_log).run
         Steps::ProvisionVolume.new(@ctx, on_log: @on_log).run if needs_volume?
         Steps::SetupTunnel.new(@ctx, on_log: @on_log).run if needs_tunnel?
-        Steps::BuildImage.new(@ctx, on_log: @on_log).run if has_app?
+        if has_app?
+          Steps::BuildImage.new(@ctx, on_log: @on_log).run
+          Steps::CleanupImages.new(@ctx, on_log: @on_log).run
+        end
         Steps::DeployManifests.new(@ctx, on_log: @on_log).run
 
         change_state(:deployed)
+      rescue StandardError
+        change_state(:failed)
+        raise
       end
 
       private

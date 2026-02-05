@@ -12,23 +12,23 @@ module RbrunCore
       PROFILES = {
         database: {
           requests: { memory: "512Mi", cpu: "250m" },
-          limits:   { memory: "1536Mi" }
+          limits: { memory: "1536Mi" }
         },
         platform: {
           requests: { memory: "64Mi", cpu: "50m" },
-          limits:   { memory: "256Mi" }
+          limits: { memory: "256Mi" }
         },
         small: {
           requests: { memory: "512Mi", cpu: "100m" },
-          limits:   { memory: "1536Mi" }
+          limits: { memory: "1536Mi" }
         },
         medium: {
           requests: { memory: "768Mi", cpu: "200m" },
-          limits:   { memory: "2Gi" }
+          limits: { memory: "2Gi" }
         },
         large: {
           requests: { memory: "1Gi", cpu: "300m" },
-          limits:   { memory: "3Gi" }
+          limits: { memory: "3Gi" }
         }
       }.freeze
 
@@ -61,7 +61,7 @@ module RbrunCore
         end
 
         def auto_size_for_node(node_memory_bytes)
-          node_gi = node_memory_bytes / (1024 ** 3)
+          node_gi = node_memory_bytes / (1024**3)
           return PROFILES.dup if node_gi <= 8
 
           profiles = deep_copy(PROFILES)
@@ -74,32 +74,32 @@ module RbrunCore
 
         private
 
-        def priority_class(name, value, description, global_default: false)
-          {
-            apiVersion: "scheduling.k8s.io/v1",
-            kind: "PriorityClass",
-            metadata: { name: name },
-            value: value,
-            globalDefault: global_default,
-            preemptionPolicy: "PreemptLowerPriority",
-            description: description
-          }
-        end
-
-        def deep_copy(hash)
-          Marshal.load(Marshal.dump(hash))
-        end
-
-        def deep_stringify_keys(obj)
-          case obj
-          when Hash
-            obj.each_with_object({}) { |(k, v), h| h[k.to_s] = deep_stringify_keys(v) }
-          when Array
-            obj.map { |v| deep_stringify_keys(v) }
-          else
-            obj
+          def priority_class(name, value, description, global_default: false)
+            {
+              apiVersion: "scheduling.k8s.io/v1",
+              kind: "PriorityClass",
+              metadata: { name: },
+              value:,
+              globalDefault: global_default,
+              preemptionPolicy: "PreemptLowerPriority",
+              description:
+            }
           end
-        end
+
+          def deep_copy(hash)
+            Marshal.load(Marshal.dump(hash))
+          end
+
+          def deep_stringify_keys(obj)
+            case obj
+            when Hash
+              obj.each_with_object({}) { |(k, v), h| h[k.to_s] = deep_stringify_keys(v) }
+            when Array
+              obj.map { |v| deep_stringify_keys(v) }
+            else
+              obj
+            end
+          end
       end
     end
   end

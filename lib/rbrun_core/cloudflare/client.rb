@@ -14,6 +14,7 @@ module RbrunCore
         @account_id = account_id
         raise RbrunCore::Error, "Cloudflare API token not configured" if @api_token.nil? || @api_token.empty?
         raise RbrunCore::Error, "Cloudflare account ID not configured" if @account_id.nil? || @account_id.empty?
+
         super(timeout: 60, open_timeout: 10)
       end
 
@@ -30,6 +31,7 @@ module RbrunCore
       def get_zone_id(domain)
         zone = find_zone(domain)
         raise RbrunCore::Error, "Zone not found for domain: #{domain}" unless zone
+
         zone["id"]
       end
 
@@ -45,8 +47,8 @@ module RbrunCore
 
         secret = SecureRandom.base64(32)
         response = post("/accounts/#{@account_id}/cfd_tunnel", {
-          name:, tunnel_secret: secret, config_src: "cloudflare"
-        })
+                          name:, tunnel_secret: secret, config_src: "cloudflare"
+                        })
         result = response["result"]
         { id: result["id"], name: result["name"], token: result["token"] }
       end
@@ -55,6 +57,7 @@ module RbrunCore
         response = get("/accounts/#{@account_id}/cfd_tunnel", name:, is_deleted: "false")
         result = response.dig("result", 0)
         return nil unless result
+
         { id: result["id"], name: result["name"], token: result["token"] }
       end
 
@@ -62,9 +65,11 @@ module RbrunCore
         response = get("/accounts/#{@account_id}/cfd_tunnel/#{tunnel_id}")
         result = response["result"]
         return nil unless result
+
         { id: result["id"], name: result["name"], status: result["status"] }
       rescue HttpErrors::ApiError => e
         raise unless e.not_found?
+
         nil
       end
 
@@ -80,8 +85,8 @@ module RbrunCore
 
       def configure_tunnel_ingress(tunnel_id, rules)
         put("/accounts/#{@account_id}/cfd_tunnel/#{tunnel_id}/configurations", {
-          config: { ingress: rules }
-        })
+              config: { ingress: rules }
+            })
       end
 
       def get_tunnel_configuration(tunnel_id)
@@ -90,7 +95,11 @@ module RbrunCore
       end
 
       def delete_tunnel(tunnel_id)
-        delete("/accounts/#{@account_id}/cfd_tunnel/#{tunnel_id}/connections") rescue nil
+        begin
+          delete("/accounts/#{@account_id}/cfd_tunnel/#{tunnel_id}/connections")
+        rescue StandardError
+          nil
+        end
         delete("/accounts/#{@account_id}/cfd_tunnel/#{tunnel_id}")
       end
 
@@ -101,6 +110,7 @@ module RbrunCore
 
         if existing
           return existing if existing["content"] == content
+
           return update_dns_record(zone_id, existing["id"], hostname, content)
         end
 
@@ -125,9 +135,9 @@ module RbrunCore
       def setup_tunnel(tunnel_name:, hostname:, service_url:, zone_domain:)
         tunnel = find_or_create_tunnel(tunnel_name)
         configure_tunnel_ingress(tunnel[:id], [
-          { hostname:, service: service_url },
-          { service: "http_status:404" }
-        ])
+                                   { hostname:, service: service_url },
+                                   { service: "http_status:404" }
+                                 ])
 
         zone_id = get_zone_id(zone_domain)
         ensure_dns_record(zone_id, hostname, tunnel[:id])
@@ -140,7 +150,11 @@ module RbrunCore
         tunnel = find_tunnel(tunnel_name)
         return unless tunnel
 
-        zone_id = get_zone_id(zone_domain) rescue nil
+        zone_id = begin
+          get_zone_id(zone_domain)
+        rescue StandardError
+          nil
+        end
         if zone_id
           record = find_dns_record(zone_id, hostname)
           delete_dns_record(zone_id, record["id"]) if record
@@ -162,7 +176,7 @@ module RbrunCore
         metadata = {
           main_module: "worker.js",
           compatibility_date: "2024-01-01",
-          bindings: Worker.bindings(slug, access_token, ws_url: ws_url, api_url: api_url)
+          bindings: Worker.bindings(slug, access_token, ws_url:, api_url:)
         }
         body = Worker.build_multipart(boundary, metadata, Worker.script)
 
@@ -197,6 +211,7 @@ module RbrunCore
         true
       rescue HttpErrors::ApiError => e
         raise RbrunCore::Error, "Cloudflare credentials invalid: #{e.message}" if e.unauthorized?
+
         raise
       end
 
@@ -214,15 +229,15 @@ module RbrunCore
 
         def create_dns_record(zone_id, hostname, content)
           response = post("/zones/#{zone_id}/dns_records", {
-            type: "CNAME", name: hostname, content:, proxied: true, ttl: 1
-          })
+                            type: "CNAME", name: hostname, content:, proxied: true, ttl: 1
+                          })
           response["result"]
         end
 
         def update_dns_record(zone_id, record_id, hostname, content)
           response = put("/zones/#{zone_id}/dns_records/#{record_id}", {
-            type: "CNAME", name: hostname, content:, proxied: true, ttl: 1
-          })
+                           type: "CNAME", name: hostname, content:, proxied: true, ttl: 1
+                         })
           response["result"]
         end
 

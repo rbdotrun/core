@@ -34,14 +34,14 @@ module RbrunCore
           services
         end
 
-        def app_service(name, process)
+        def app_service(_name, process)
           service = {
             "build" => ".",
-            "volumes" => [".:/app"],
+            "volumes" => [ ".:/app" ],
             "environment" => resolved_env_vars
           }
           service["command"] = process.command if process.command
-          service["ports"] = ["#{process.port}:#{process.port}"] if process.port
+          service["ports"] = [ "#{process.port}:#{process.port}" ] if process.port
 
           depends = []
           depends += @config.database_configs.keys.map(&:to_s)
@@ -62,22 +62,23 @@ module RbrunCore
         def postgres_service(db_config)
           {
             "image" => db_config.image,
-            "volumes" => ["postgres_data:/var/lib/postgresql/data"],
-            "environment" => { "POSTGRES_USER" => "app", "POSTGRES_PASSWORD" => "app", "POSTGRES_DB" => "app_development" }
+            "volumes" => [ "postgres_data:/var/lib/postgresql/data" ],
+            "environment" => { "POSTGRES_USER" => "app", "POSTGRES_PASSWORD" => "app",
+                               "POSTGRES_DB" => "app_development" }
           }
         end
 
         def redis_service(db_config)
-          { "image" => db_config.image, "volumes" => ["redis_data:/data"] }
+          { "image" => db_config.image, "volumes" => [ "redis_data:/data" ] }
         end
 
         def service_service(name, service_config)
           service = { "image" => service_config.image }
-          service["ports"] = ["#{service_config.port}:#{service_config.port}"] if service_config.port
+          service["ports"] = [ "#{service_config.port}:#{service_config.port}" ] if service_config.port
 
           case name
-          when :redis then service["volumes"] = ["#{name}_data:/data"]
-          when :meilisearch then service["volumes"] = ["#{name}_data:/meili_data"]
+          when :redis then service["volumes"] = [ "#{name}_data:/data" ]
+          when :meilisearch then service["volumes"] = [ "#{name}_data:/meili_data" ]
           end
 
           service
@@ -85,13 +86,13 @@ module RbrunCore
 
         def generate_volumes
           volumes = {}
-          @config.database_configs.each do |type, _|
+          @config.database_configs.each_key do |type|
             case type
             when :postgres then volumes["postgres_data"] = nil
             when :redis then volumes["redis_data"] = nil
             end
           end
-          @config.service_configs.each { |name, _| volumes["#{name}_data"] = nil }
+          @config.service_configs.each_key { |name| volumes["#{name}_data"] = nil }
           volumes.any? ? volumes : nil
         end
 

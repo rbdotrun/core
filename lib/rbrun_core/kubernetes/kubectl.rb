@@ -24,7 +24,8 @@ module RbrunCore
         cmd += " #{name}" if name
         cmd += " -n #{namespace} -o json"
         result = run!(cmd, raise_on_error: false)
-        return nil unless result[:exit_code] == 0
+        return nil unless result[:exit_code].zero?
+
         JSON.parse(result[:output])
       end
 

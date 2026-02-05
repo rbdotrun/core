@@ -2,8 +2,8 @@
 
 module RbrunCore
   class Configuration
-    attr_reader :compute_config, :cloudflare_config, :git_config, :claude_config,
-                :database_configs, :service_configs, :app_config, :storage_config
+    attr_reader :compute_config, :cloudflare_config, :git_config, :claude_config, :database_configs, :service_configs,
+                :app_config, :storage_config, :setup_commands, :env_vars
     attr_accessor :websocket_url, :api_url
 
     def initialize
@@ -21,15 +21,15 @@ module RbrunCore
     # Compute Provider DSL
     # ─────────────────────────────────────────────────────────────
 
-    def compute(provider, &block)
-      @compute_config = Providers::Registry.build(provider, &block)
+    def compute(provider, &)
+      @compute_config = Providers::Registry.build(provider, &)
     end
 
     # ─────────────────────────────────────────────────────────────
     # Cloudflare DSL
     # ─────────────────────────────────────────────────────────────
 
-    def cloudflare(&block)
+    def cloudflare
       @cloudflare_config ||= Cloudflare::Config.new
       yield @cloudflare_config if block_given?
       @cloudflare_config
@@ -39,12 +39,12 @@ module RbrunCore
     # Git & Claude DSL
     # ─────────────────────────────────────────────────────────────
 
-    def git(&block)
+    def git
       yield @git_config if block_given?
       @git_config
     end
 
-    def claude(&block)
+    def claude
       yield @claude_config if block_given?
       @claude_config
     end
@@ -53,7 +53,7 @@ module RbrunCore
     # Unified Database DSL
     # ─────────────────────────────────────────────────────────────
 
-    def database(type, &block)
+    def database(type)
       config = DatabaseConfig.new(type)
       yield config if block_given?
       @database_configs[type.to_sym] = config
@@ -67,7 +67,7 @@ module RbrunCore
     # Unified Service DSL
     # ─────────────────────────────────────────────────────────────
 
-    def service(name, &block)
+    def service(name)
       config = ServiceConfig.new(name)
       yield config if block_given?
       @service_configs[name.to_sym] = config
@@ -81,7 +81,7 @@ module RbrunCore
     # Unified App DSL
     # ─────────────────────────────────────────────────────────────
 
-    def app(&block)
+    def app
       @app_config ||= AppConfig.new
       yield @app_config if block_given?
       @app_config
@@ -95,7 +95,7 @@ module RbrunCore
     # Unified Storage DSL
     # ─────────────────────────────────────────────────────────────
 
-    def storage(&block)
+    def storage
       @storage_config ||= StorageConfig.new
       yield @storage_config if block_given?
       @storage_config
@@ -113,16 +113,8 @@ module RbrunCore
       @setup_commands = commands.flatten
     end
 
-    def setup_commands
-      @setup_commands
-    end
-
     def env(vars = {})
       @env_vars = vars
-    end
-
-    def env_vars
-      @env_vars
     end
 
     # ─────────────────────────────────────────────────────────────
@@ -143,6 +135,7 @@ module RbrunCore
 
     def validate!
       raise ConfigurationError, "Compute provider not configured" unless @compute_config
+
       @compute_config.validate!
       @cloudflare_config&.validate!
       @git_config.validate!
@@ -209,7 +202,7 @@ module RbrunCore
       @database = "app"
     end
 
-    def backup(&block)
+    def backup
       @backup_config = BackupConfig.new
       yield @backup_config if block_given?
       @backup_config
@@ -276,7 +269,7 @@ module RbrunCore
       @platform = "linux/amd64"
     end
 
-    def process(name, &block)
+    def process(name)
       config = ProcessConfig.new(name)
       yield config if block_given?
       @processes[name.to_sym] = config

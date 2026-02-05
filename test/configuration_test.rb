@@ -12,6 +12,7 @@ class ConfigurationTest < Minitest::Test
 
   def test_compute_creates_hetzner_config_with_defaults
     @config.compute(:hetzner) { |c| c.api_key = "key" }
+
     assert_equal :hetzner, @config.compute_config.provider_name
     assert_equal "cpx11", @config.compute_config.server_type
     assert_equal "ash", @config.compute_config.location
@@ -19,7 +20,11 @@ class ConfigurationTest < Minitest::Test
   end
 
   def test_compute_creates_scaleway_config
-    @config.compute(:scaleway) { |c| c.api_key = "key"; c.project_id = "proj" }
+    @config.compute(:scaleway) do |c|
+      c.api_key = "key"
+      c.project_id = "proj"
+    end
+
     assert_equal :scaleway, @config.compute_config.provider_name
   end
 
@@ -31,6 +36,7 @@ class ConfigurationTest < Minitest::Test
 
   def test_database_creates_postgres_config_with_defaults
     @config.database(:postgres)
+
     assert @config.database?(:postgres)
     assert_equal "postgres:16-alpine", @config.database_configs[:postgres].image
     assert_equal "app", @config.database_configs[:postgres].username
@@ -39,6 +45,7 @@ class ConfigurationTest < Minitest::Test
 
   def test_database_creates_redis_config
     @config.database(:redis)
+
     assert_equal "redis:7-alpine", @config.database_configs[:redis].image
   end
 
@@ -51,6 +58,7 @@ class ConfigurationTest < Minitest::Test
       db.database = "mydb"
     end
     pg = @config.database_configs[:postgres]
+
     assert_equal "pgvector/pgvector:pg17", pg.image
     assert_equal "50Gi", pg.volume_size
     assert_equal "secret", pg.password
@@ -59,29 +67,34 @@ class ConfigurationTest < Minitest::Test
   end
 
   def test_database_returns_false_when_none
-    refute @config.database?
+    refute_predicate @config, :database?
   end
 
   # ── Service ──
 
   def test_service_creates_config_with_subdomain
     @config.service(:meilisearch) { |s| s.subdomain = "search" }
+
     assert @config.service?(:meilisearch)
     assert_equal "search", @config.service_configs[:meilisearch].subdomain
   end
 
   def test_service_returns_false_when_none
-    refute @config.service?
+    refute_predicate @config, :service?
   end
 
   # ── App ──
 
   def test_app_creates_processes
     @config.app do |a|
-      a.process(:web) { |p| p.command = "bin/rails server"; p.port = 3000 }
+      a.process(:web) do |p|
+        p.command = "bin/rails server"
+        p.port = 3000
+      end
       a.process(:worker) { |p| p.command = "bin/jobs" }
     end
-    assert @config.app?
+
+    assert_predicate @config, :app?
     assert_equal 2, @config.app_config.processes.size
     assert_equal 3000, @config.app_config.processes[:web].port
   end
@@ -90,6 +103,7 @@ class ConfigurationTest < Minitest::Test
     @config.app do |a|
       a.process(:web) { |p| p.replicas = { sandbox: 1, release: 2 } }
     end
+
     assert_equal({ sandbox: 1, release: 2 }, @config.app_config.processes[:web].replicas)
   end
 
@@ -97,7 +111,8 @@ class ConfigurationTest < Minitest::Test
 
   def test_storage_creates_config
     @config.storage { |s| s.subdomain = "assets" }
-    assert @config.storage?
+
+    assert_predicate @config, :storage?
     assert_equal "assets", @config.storage_config.subdomain
   end
 
@@ -109,6 +124,7 @@ class ConfigurationTest < Minitest::Test
 
   def test_resolve_extracts_target_key
     value = { sandbox: "dev", production: "prod" }
+
     assert_equal "dev", @config.resolve(value, target: :sandbox)
     assert_equal "prod", @config.resolve(value, target: :production)
   end
@@ -124,6 +140,7 @@ class ConfigurationTest < Minitest::Test
       h.api_key = "test"
       h.server_type = { sandbox: "cpx11", staging: "cpx21" }
     end
+
     assert_nil @config.validate_for_target!(:staging)
   end
 
@@ -164,18 +181,23 @@ class ConfigurationTest < Minitest::Test
       cf.account_id = "cf-account"
       cf.domain = "example.com"
     end
+
     assert_equal "cf-token", @config.cloudflare_config.api_token
-    assert @config.cloudflare_configured?
+    assert_predicate @config, :cloudflare_configured?
   end
 
   def test_cloudflare_configured_false_when_not_set
-    refute @config.cloudflare_configured?
+    refute_predicate @config, :cloudflare_configured?
   end
 
   # ── Git ──
 
   def test_git_yields_and_stores_with_defaults
-    @config.git { |g| g.pat = "token"; g.repo = "owner/repo" }
+    @config.git do |g|
+      g.pat = "token"
+      g.repo = "owner/repo"
+    end
+
     assert_equal "token", @config.git_config.pat
     assert_equal "rbrun", @config.git_config.username
     assert_equal "sandbox@rbrun.dev", @config.git_config.email
@@ -186,50 +208,69 @@ class ConfigurationTest < Minitest::Test
 
   def test_claude_yields_and_stores
     @config.claude { |c| c.auth_token = "key" }
+
     assert_equal "key", @config.claude_config.auth_token
     assert_equal "https://api.anthropic.com", @config.claude_config.base_url
-    assert @config.claude_configured?
+    assert_predicate @config, :claude_configured?
   end
 
   # ── Setup & Env ──
 
   def test_defaults_to_empty
-    assert_equal [], @config.setup_commands
-    assert_equal({}, @config.env_vars)
+    assert_empty @config.setup_commands
+    assert_empty(@config.env_vars)
   end
 
   def test_setup_collects_commands
     @config.setup("bundle install", "rails db:prepare")
-    assert_equal ["bundle install", "rails db:prepare"], @config.setup_commands
+
+    assert_equal [ "bundle install", "rails db:prepare" ], @config.setup_commands
   end
 
   def test_env_collects_variables
     @config.env(RAILS_ENV: { sandbox: "dev", release: "production" })
+
     assert_equal({ sandbox: "dev", release: "production" }, @config.env_vars[:RAILS_ENV])
   end
 
   # ── Validation ──
 
   def test_validate_raises_without_compute
-    @config.git { |g| g.pat = "t"; g.repo = "r" }
+    @config.git do |g|
+      g.pat = "t"
+      g.repo = "r"
+    end
     assert_raises(RbrunCore::ConfigurationError) { @config.validate! }
   end
 
   def test_validate_raises_without_api_key
     @config.compute(:hetzner)
-    @config.git { |g| g.pat = "t"; g.repo = "r" }
+    @config.git do |g|
+      g.pat = "t"
+      g.repo = "r"
+    end
     assert_raises(RbrunCore::ConfigurationError) { @config.validate! }
   end
 
   def test_validate_raises_without_git_pat
-    @config.compute(:hetzner) { |c| c.api_key = "k"; c.ssh_key_path = TEST_SSH_KEY_PATH }
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
     @config.git { |g| g.repo = "r" }
     assert_raises(RbrunCore::ConfigurationError) { @config.validate! }
   end
 
   def test_validate_passes_with_minimal_config
-    @config.compute(:hetzner) { |c| c.api_key = "k"; c.ssh_key_path = TEST_SSH_KEY_PATH }
-    @config.git { |g| g.pat = "t"; g.repo = "r" }
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+    @config.git do |g|
+      g.pat = "t"
+      g.repo = "r"
+    end
+
     assert_nil @config.validate!
   end
 end

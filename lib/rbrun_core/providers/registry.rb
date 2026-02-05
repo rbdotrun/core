@@ -8,7 +8,7 @@ module RbrunCore
         scaleway: "RbrunCore::Providers::Scaleway::Config"
       }.freeze
 
-      def self.build(provider, &block)
+      def self.build(provider)
         klass_name = PROVIDERS[provider]
         raise ArgumentError, "Unknown compute provider: #{provider}" unless klass_name
 

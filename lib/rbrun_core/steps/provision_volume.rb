@@ -49,6 +49,7 @@ module RbrunCore
           30.times do
             volume = compute_client.get_volume(volume_id)
             return volume.device_path if volume.device_path && !volume.device_path.empty?
+
             sleep 2
           end
           raise RbrunCore::Error, "Volume #{volume_id} has no device path after attachment"
@@ -58,6 +59,7 @@ module RbrunCore
           30.times do
             result = ssh!("test -b #{device_path} && echo 'ready' || true", raise_on_error: false)
             return if result[:output].include?("ready")
+
             sleep 2
           end
           raise RbrunCore::Error, "Device #{device_path} not available on server"
@@ -70,11 +72,9 @@ module RbrunCore
           ssh!("sudo mkdir -p #{mount_path}")
 
           fs_check = ssh!("sudo blkid #{device_path} || true", raise_on_error: false)
-          unless fs_check[:output].include?("TYPE=")
-            ssh!("sudo mkfs.xfs #{device_path}")
-          end
+          ssh!("sudo mkfs.xfs #{device_path}") unless fs_check[:output].include?("TYPE=")
 
-          ssh!("sudo mount #{device_path} #{mount_path}")
+          ssh_with_retry!("sudo mount #{device_path} #{mount_path}")
 
           fstab_check = ssh!("grep '#{mount_path}' /etc/fstab || true", raise_on_error: false)
           unless fstab_check[:output].include?(mount_path)
@@ -86,7 +86,8 @@ module RbrunCore
         end
 
         def compute_client = @ctx.compute_client
-        def ssh!(command, **opts) = @ctx.ssh_client.execute(command, **opts)
+        def ssh!(command, **) = @ctx.ssh_client.execute(command, **)
+        def ssh_with_retry!(command, **) = @ctx.ssh_client.execute_with_retry(command, **)
 
         def log(category, message = nil)
           @on_log&.call(category, message)

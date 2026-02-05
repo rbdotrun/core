@@ -12,6 +12,7 @@ module RbrunCore
           @zone = zone
           raise RbrunCore::Error, "Scaleway API key not configured" if @api_key.nil? || @api_key.empty?
           raise RbrunCore::Error, "Scaleway project ID not configured" if @project_id.nil? || @project_id.empty?
+
           super(timeout: 300)
         end
 
@@ -19,6 +20,7 @@ module RbrunCore
         def find_or_create_server(name:, commercial_type:, image:, tags: [], security_group_id: nil)
           existing = find_server(name)
           return existing if existing
+
           create_server(name:, commercial_type:, image:, tags:, security_group_id:)
         end
 
@@ -37,6 +39,7 @@ module RbrunCore
           to_server(response["server"])
         rescue HttpErrors::ApiError => e
           raise unless e.not_found?
+
           nil
         end
 
@@ -57,6 +60,7 @@ module RbrunCore
           max_attempts.times do
             server = get_server(id)
             return server if server && server.status == "running"
+
             sleep(interval)
           end
           raise RbrunCore::Error, "Server #{id} did not become running after #{max_attempts} attempts"
@@ -112,9 +116,9 @@ module RbrunCore
           return existing if existing
 
           response = post(instance_path("/security_groups"), {
-            name:, project: @project_id,
-            inbound_default_policy:, outbound_default_policy:
-          })
+                            name:, project: @project_id,
+                            inbound_default_policy:, outbound_default_policy:
+                          })
           to_security_group(response["security_group"])
         end
 
@@ -128,15 +132,16 @@ module RbrunCore
           delete(instance_path("/security_groups/#{id}"))
         rescue HttpErrors::ApiError => e
           raise unless e.not_found?
+
           nil
         end
 
         # Volumes
         def create_volume(name:, size_gb:, volume_type: "b_ssd")
           response = post(instance_path("/volumes"), {
-            name:, project: @project_id,
-            size: size_gb * 1_000_000_000, volume_type:
-          })
+                            name:, project: @project_id,
+                            size: size_gb * 1_000_000_000, volume_type:
+                          })
           to_volume(response["volume"])
         end
 
@@ -150,6 +155,7 @@ module RbrunCore
           delete(instance_path("/volumes/#{id}"))
         rescue HttpErrors::ApiError => e
           raise unless e.not_found?
+
           nil
         end
 
@@ -159,6 +165,7 @@ module RbrunCore
           true
         rescue HttpErrors::ApiError => e
           raise RbrunCore::Error, "Scaleway credentials invalid: #{e.message}" if e.unauthorized?
+
           raise
         end
 
@@ -182,6 +189,7 @@ module RbrunCore
             max_attempts.times do
               server = get_server(id)
               return server if server.nil? || server.status == "stopped"
+
               sleep(interval)
             end
             raise RbrunCore::Error, "Server #{id} did not stop after #{max_attempts} attempts"
@@ -191,10 +199,10 @@ module RbrunCore
             Types::Server.new(
               id: data["id"], name: data["name"], status: data["state"],
               public_ipv4: data.dig("public_ip", "address"),
-              private_ipv4: data.dig("private_ip"),
+              private_ipv4: data["private_ip"],
               instance_type: data["commercial_type"],
               image: data.dig("image", "name"),
-              location: data["zone"], labels: (data["tags"] || []).to_h { |t| [t, true] },
+              location: data["zone"], labels: (data["tags"] || []).to_h { |t| [ t, true ] },
               created_at: data["creation_date"]
             )
           end

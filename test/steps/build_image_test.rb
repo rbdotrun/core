@@ -17,11 +17,12 @@ module RbrunCore
       end
 
       def test_sets_registry_tag_on_context_after_build
-        step = BuildImage.new(@ctx, on_log: ->(_, _) {})
+        step = BuildImage.new(@ctx, on_log: ->(_, _) { })
         # Stub system calls (git clone + docker build/tag/push)
         step.stub(:system, true) do
           step.run
         end
+
         refute_nil @ctx.registry_tag
         assert_includes @ctx.registry_tag, "localhost"
       end
@@ -32,6 +33,7 @@ module RbrunCore
         step.stub(:system, true) do
           step.run
         end
+
         assert_includes logs, "git_clone"
         assert_includes logs, "docker_build"
       end

@@ -5,7 +5,7 @@ require "open3"
 module RbrunCore
   module Steps
     class BuildImage
-      REGISTRY_PORT = 30500
+      REGISTRY_PORT = 30_500
 
       def initialize(ctx, on_log: nil)
         @ctx = ctx
@@ -43,7 +43,8 @@ module RbrunCore
           dockerfile = @ctx.config.app_config.dockerfile
           platform = @ctx.config.app_config.platform
 
-          run_docker!(env, "build", "--platform", platform, "--pull", "-f", dockerfile, "-t", local, ".", chdir: context_path)
+          run_docker!(env, "build", "--platform", platform, "--pull", "-f", dockerfile, "-t", local, ".",
+                      chdir: context_path)
           run_docker!(env, "tag", local, registry)
           run_docker!(env, "push", registry)
           run_docker!(env, "tag", local, "#{prefix}:latest")
@@ -52,7 +53,7 @@ module RbrunCore
         end
 
         def run_docker!(env, *args, chdir: nil)
-          success = system(env, "docker", *args, chdir: chdir)
+          success = system(env, "docker", *args, chdir:)
           raise RbrunCore::Error, "docker #{args.first} failed" unless success
         end
 

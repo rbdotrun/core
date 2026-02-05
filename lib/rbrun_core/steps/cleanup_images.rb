@@ -5,7 +5,7 @@ require "open3"
 module RbrunCore
   module Steps
     class CleanupImages
-      REGISTRY_PORT = 30500
+      REGISTRY_PORT = 30_500
       KEEP_IMAGES = 3
 
       def initialize(ctx, on_log: nil)
@@ -23,7 +23,8 @@ module RbrunCore
 
         output.each_line do |line|
           tag, _id = line.strip.split
-          next if tag == "latest" || tag == "<none>"
+          next if [ "latest", "<none>" ].include?(tag)
+
           system(env, "docker", "rmi", "#{prefix}:#{tag}")
         end
       end

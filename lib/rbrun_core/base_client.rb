@@ -32,7 +32,8 @@ module RbrunCore
 
       def delete(path)
         response = connection.delete(normalize_path(path))
-        return nil if [204, 404].include?(response.status)
+        return nil if [ 204, 404 ].include?(response.status)
+
         handle_response(response)
       end
 
@@ -42,6 +43,7 @@ module RbrunCore
 
       def handle_response(response)
         return response.body if response.success?
+
         raise_api_error(response)
       end
 

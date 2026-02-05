@@ -3,7 +3,7 @@
 module RbrunCore
   module Steps
     class SetupK3s
-      REGISTRY_PORT = 30500
+      REGISTRY_PORT = 30_500
       CLUSTER_CIDR = "10.42.0.0/16"
       SERVICE_CIDR = "10.43.0.0/16"
       CLOUD_INIT_TIMEOUT = 120
@@ -35,6 +35,7 @@ module RbrunCore
           CLOUD_INIT_TIMEOUT.times do
             result = ssh!("test -f /var/lib/cloud/instance/boot-finished && echo ready", raise_on_error: false)
             return if result[:output].include?("ready")
+
             sleep 5
           end
           raise RbrunCore::Error, "Cloud-init did not complete"
@@ -57,23 +58,23 @@ module RbrunCore
 
         def install_docker!
           check = ssh!("command -v docker && systemctl is-active docker", raise_on_error: false)
-          return if check[:exit_code] == 0
+          return if check[:exit_code].zero?
 
           log("install_docker", "Installing Docker")
           ssh!(<<~BASH)
-            export DEBIAN_FRONTEND=noninteractive
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq docker.io docker-compose
-            sudo systemctl enable docker
-            sudo systemctl start docker
-            sudo usermod -aG docker #{Naming.default_user}
-          BASH
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq docker.io docker-compose
+          sudo systemctl enable docker
+          sudo systemctl start docker
+          sudo usermod -aG docker #{Naming.default_user}
+        BASH
         end
 
         def configure_docker!(private_ip)
           log("configure_docker", "Configuring Docker")
           daemon_json = {
-            "insecure-registries" => ["#{private_ip}:5001", "localhost:#{REGISTRY_PORT}"]
+            "insecure-registries" => [ "#{private_ip}:5001", "localhost:#{REGISTRY_PORT}" ]
           }.to_json
 
           ssh!("sudo mkdir -p /etc/docker")
@@ -84,19 +85,19 @@ module RbrunCore
         def configure_k3s_registries!
           log("configure_k3s_registries", "Configuring K3s registries")
           registries_yaml = <<~YAML
-            mirrors:
-              "localhost:#{REGISTRY_PORT}":
-                endpoint:
-                  - "http://registry.default.svc.cluster.local:5000"
-                  - "http://localhost:#{REGISTRY_PORT}"
-          YAML
+          mirrors:
+            "localhost:#{REGISTRY_PORT}":
+              endpoint:
+                - "http://registry.default.svc.cluster.local:5000"
+                - "http://localhost:#{REGISTRY_PORT}"
+        YAML
           ssh!("sudo mkdir -p /etc/rancher/k3s")
           ssh!("sudo tee /etc/rancher/k3s/registries.yaml > /dev/null << 'EOF'\n#{registries_yaml}\nEOF")
         end
 
         def install_k3s!(public_ip, private_ip, interface)
           check = ssh!("command -v kubectl && kubectl get nodes 2>/dev/null | grep -q Ready", raise_on_error: false)
-          return if check[:exit_code] == 0
+          return if check[:exit_code].zero?
 
           log("install_k3s", "Installing K3s")
           k3s_args = [
@@ -109,11 +110,12 @@ module RbrunCore
             "--cluster-cidr=#{CLUSTER_CIDR}", "--service-cidr=#{SERVICE_CIDR}"
           ].join(" ")
 
-          ssh!("curl -sfL https://get.k3s.io | sudo INSTALL_K3S_EXEC=\"#{k3s_args}\" sh -", timeout: 300)
+          ssh_with_retry!("curl -sfL https://get.k3s.io | sudo INSTALL_K3S_EXEC=\"#{k3s_args}\" sh -", timeout: 300)
 
           30.times do
             exec = ssh!("sudo kubectl get nodes", raise_on_error: false)
-            break if exec[:exit_code] == 0 && exec[:output].include?("Ready")
+            break if exec[:exit_code].zero? && exec[:output].include?("Ready")
+
             sleep 5
           end
         end
@@ -122,12 +124,12 @@ module RbrunCore
           log("setup_kubeconfig", "Setting up kubeconfig")
           user = Naming.default_user
           ssh!(<<~BASH)
-            mkdir -p /home/#{user}/.kube
-            sudo cp /etc/rancher/k3s/k3s.yaml /home/#{user}/.kube/config
-            sudo sed -i 's/127.0.0.1/#{private_ip}/g' /home/#{user}/.kube/config
-            sudo chown -R #{user}:#{user} /home/#{user}/.kube
-            chmod 600 /home/#{user}/.kube/config
-          BASH
+          mkdir -p /home/#{user}/.kube
+          sudo cp /etc/rancher/k3s/k3s.yaml /home/#{user}/.kube/config
+          sudo sed -i 's/127.0.0.1/#{private_ip}/g' /home/#{user}/.kube/config
+          sudo chown -R #{user}:#{user} /home/#{user}/.kube
+          chmod 600 /home/#{user}/.kube/config
+        BASH
         end
 
         def deploy_priority_classes!
@@ -142,59 +144,59 @@ module RbrunCore
 
         def registry_manifest
           <<~YAML
-            apiVersion: v1
-            kind: PersistentVolumeClaim
-            metadata:
-              name: registry-pvc
-              namespace: default
-            spec:
-              accessModes: [ReadWriteOnce]
-              resources:
-                requests:
-                  storage: 10Gi
-            ---
-            apiVersion: apps/v1
-            kind: Deployment
-            metadata:
-              name: registry
-              namespace: default
-            spec:
-              replicas: 1
-              selector:
-                matchLabels:
-                  app: registry
-              template:
-                metadata:
-                  labels:
-                    app: registry
-                spec:
-                  containers:
-                  - name: registry
-                    image: registry:2
-                    ports:
-                    - containerPort: 5000
-                    volumeMounts:
-                    - name: registry-data
-                      mountPath: /var/lib/registry
-                  volumes:
-                  - name: registry-data
-                    persistentVolumeClaim:
-                      claimName: registry-pvc
-            ---
-            apiVersion: v1
-            kind: Service
-            metadata:
-              name: registry
-              namespace: default
-            spec:
-              type: NodePort
-              selector:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: registry-pvc
+            namespace: default
+          spec:
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests:
+                storage: 10Gi
+          ---
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: registry
+            namespace: default
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
                 app: registry
-              ports:
-              - port: 5000
-                targetPort: 5000
-                nodePort: #{REGISTRY_PORT}
-          YAML
+            template:
+              metadata:
+                labels:
+                  app: registry
+              spec:
+                containers:
+                - name: registry
+                  image: registry:2
+                  ports:
+                  - containerPort: 5000
+                  volumeMounts:
+                  - name: registry-data
+                    mountPath: /var/lib/registry
+                volumes:
+                - name: registry-data
+                  persistentVolumeClaim:
+                    claimName: registry-pvc
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: registry
+            namespace: default
+          spec:
+            type: NodePort
+            selector:
+              app: registry
+            ports:
+            - port: 5000
+              targetPort: 5000
+              nodePort: #{REGISTRY_PORT}
+        YAML
         end
 
         def wait_for_registry!
@@ -202,6 +204,7 @@ module RbrunCore
           REGISTRY_TIMEOUT.times do
             exec = ssh!("curl -sf http://localhost:#{REGISTRY_PORT}/v2/ && echo ok", raise_on_error: false)
             return if exec[:output].include?("ok")
+
             sleep 2
           end
           raise RbrunCore::Error, "Registry did not become ready"
@@ -213,13 +216,18 @@ module RbrunCore
           ssh!("kubectl --kubeconfig=#{kubeconfig} apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.9.4/deploy/static/provider/baremetal/deploy.yaml")
 
           30.times do
-            exec = ssh!("kubectl --kubeconfig=#{kubeconfig} -n ingress-nginx get pods -l app.kubernetes.io/component=controller -o jsonpath='{.items[0].status.phase}'", raise_on_error: false)
+            exec = ssh!(
+              "kubectl --kubeconfig=#{kubeconfig} -n ingress-nginx get pods -l app.kubernetes.io/component=controller -o jsonpath='{.items[0].status.phase}'", raise_on_error: false
+            )
             break if exec[:output].include?("Running")
+
             sleep 5
           end
 
           patch_json = '[{"op":"replace","path":"/spec/ports/0/nodePort","value":30080},{"op":"replace","path":"/spec/ports/1/nodePort","value":30443}]'
-          ssh!("kubectl --kubeconfig=#{kubeconfig} patch svc ingress-nginx-controller -n ingress-nginx --type='json' -p='#{patch_json}'", raise_on_error: false)
+          ssh!(
+            "kubectl --kubeconfig=#{kubeconfig} patch svc ingress-nginx-controller -n ingress-nginx --type='json' -p='#{patch_json}'", raise_on_error: false
+          )
         end
 
         def apply_manifest!(yaml)
@@ -233,6 +241,10 @@ module RbrunCore
 
         def ssh!(command, raise_on_error: true, timeout: 300)
           @ctx.ssh_client.execute(command, raise_on_error:, timeout:)
+        end
+
+        def ssh_with_retry!(command, raise_on_error: true, timeout: 300)
+          @ctx.ssh_client.execute_with_retry(command, raise_on_error:, timeout:)
         end
 
         def log(category, message = nil)

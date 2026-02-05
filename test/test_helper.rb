@@ -95,53 +95,55 @@ module RbrunCoreTestSetup
 
   private
 
-  def build_config
-    config = RbrunCore::Configuration.new
-    config.compute(:hetzner) do |c|
-      c.api_key = "test-hetzner-key"
-      c.ssh_key_path = TEST_SSH_KEY_PATH
+    def build_config
+      config = RbrunCore::Configuration.new
+      config.compute(:hetzner) do |c|
+        c.api_key = "test-hetzner-key"
+        c.ssh_key_path = TEST_SSH_KEY_PATH
+      end
+      config.cloudflare do |cf|
+        cf.api_token = "test-cloudflare-key"
+        cf.account_id = "test-account-id"
+        cf.domain = "test.dev"
+      end
+      config.git do |g|
+        g.pat = "test-github-token"
+        g.repo = "owner/test-repo"
+      end
+      config
     end
-    config.cloudflare do |cf|
-      cf.api_token = "test-cloudflare-key"
-      cf.account_id = "test-account-id"
-      cf.domain = "test.dev"
+
+    def build_context(target: :production, **overrides)
+      RbrunCore::Context.new(config: build_config, target:, **overrides)
     end
-    config.git do |g|
-      g.pat = "test-github-token"
-      g.repo = "owner/test-repo"
+
+    def json_headers
+      { "Content-Type" => "application/json" }
     end
-    config
-  end
 
-  def build_context(target: :production, **overrides)
-    RbrunCore::Context.new(config: build_config, target:, **overrides)
-  end
+    # Stub SSH with fixed output. Yields block with Net::SSH stubbed.
+    # Pass exit_code_for: { "test -d" => 1 } to vary exit code per command pattern.
+    def with_mocked_ssh(output: "ok", exit_code: 0, exit_code_for: nil, &)
+      channel = MockChannel.new(output:, exit_code:, exit_code_for:)
+      ssh = MockSsh.new(channel)
+      Net::SSH.stub(:start, ->(_, _, _, &b) { b.call(ssh) }, &)
+    end
 
-  def json_headers
-    { "Content-Type" => "application/json" }
-  end
+    def with_mocked_ssh_error(error, &)
+      Net::SSH.stub(:start, ->(*) { raise error }, &)
+    end
 
-  # Stub SSH with fixed output. Yields block with Net::SSH stubbed.
-  # Pass exit_code_for: { "test -d" => 1 } to vary exit code per command pattern.
-  def with_mocked_ssh(output: "ok", exit_code: 0, exit_code_for: nil, &block)
-    channel = MockChannel.new(output:, exit_code:, exit_code_for:)
-    ssh = MockSsh.new(channel)
-    Net::SSH.stub(:start, ->(_, _, _, &b) { b.call(ssh) }, &block)
-  end
-
-  def with_mocked_ssh_error(error, &block)
-    Net::SSH.stub(:start, ->(*) { raise error }, &block)
-  end
-
-  # Stub SSH and capture executed commands into the returned array.
-  def with_capturing_ssh(output: "ok", exit_code: 0, exit_code_for: nil, &block)
-    channel = MockChannel.new(output:, exit_code:, exit_code_for:)
-    ssh = MockSsh.new(channel)
-    Net::SSH.stub(:start, ->(_, _, _, &b) { b.call(ssh) }, &block)
-    channel.commands
-  end
+    # Stub SSH and capture executed commands into the returned array.
+    def with_capturing_ssh(output: "ok", exit_code: 0, exit_code_for: nil, &)
+      channel = MockChannel.new(output:, exit_code:, exit_code_for:)
+      ssh = MockSsh.new(channel)
+      Net::SSH.stub(:start, ->(_, _, _, &b) { b.call(ssh) }, &)
+      channel.commands
+    end
 end
 
-class Minitest::Test
-  include RbrunCoreTestSetup
+module Minitest
+  class Test
+    include RbrunCoreTestSetup
+  end
 end
