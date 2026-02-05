@@ -31,9 +31,12 @@ module RbrunCore
         assert_equal "not found", error.output
       end
 
-      def test_error_hierarchy
+      def test_error_hierarchy_inherits_from_error
         assert_operator Client::AuthenticationError, :<, Client::Error
         assert_operator Client::ConnectionError, :<, Client::Error
+      end
+
+      def test_error_hierarchy_base_classes
         assert_operator Client::CommandError, :<, Client::Error
         assert_operator Client::Error, :<, StandardError
       end

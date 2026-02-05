@@ -19,4 +19,4 @@ Layout/IndentationWidth:
   Enabled: true
 
 Minitest/MultipleAssertions:
-  Enabled: false
+  Enabled: true

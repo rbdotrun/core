@@ -30,10 +30,13 @@ class NamingTest < Minitest::Test
     assert RbrunCore::Naming.valid_slug?(VALID_SLUG)
   end
 
-  def test_valid_slug_false_for_invalid
+  def test_valid_slug_false_for_nil_and_empty
     refute RbrunCore::Naming.valid_slug?(nil)
     refute RbrunCore::Naming.valid_slug?("")
     refute RbrunCore::Naming.valid_slug?("abc")
+  end
+
+  def test_valid_slug_false_for_wrong_format
     refute RbrunCore::Naming.valid_slug?("ABCDEF")
     refute RbrunCore::Naming.valid_slug?("a1b2cg")
   end

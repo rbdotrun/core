@@ -44,15 +44,17 @@ module RbrunCore
         assert(cmds.any? { |cmd| cmd.include?(".env") })
       end
 
-      def test_on_log_fires_for_each_sub_step
-        logs = []
-        with_capturing_ssh(exit_code_for: { "test -d" => 1 }) do
-          SetupApplication.new(@ctx, on_log: ->(cat, _) { logs << cat }).run
-        end
+      def test_on_log_fires_for_git_steps
+        logs = collect_log_categories
 
         assert_includes logs, "clone"
         assert_includes logs, "branch"
         assert_includes logs, "environment"
+      end
+
+      def test_on_log_fires_for_compose_steps
+        logs = collect_log_categories
+
         assert_includes logs, "compose_generate"
         assert_includes logs, "compose_setup"
       end
@@ -103,6 +105,15 @@ module RbrunCore
         refute(cmds.any? { |cmd| cmd.include?("@anthropic-ai/claude-code") })
         refute(cmds.any? { |cmd| cmd.include?("githubcli-archive-keyring") })
       end
+      private
+
+        def collect_log_categories
+          logs = []
+          with_capturing_ssh(exit_code_for: { "test -d" => 1 }) do
+            SetupApplication.new(@ctx, on_log: ->(cat, _) { logs << cat }).run
+          end
+          logs
+        end
     end
   end
 end

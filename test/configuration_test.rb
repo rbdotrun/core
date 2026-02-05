@@ -10,11 +10,16 @@ class ConfigurationTest < Minitest::Test
 
   # ── Compute Provider ──
 
-  def test_compute_creates_hetzner_config_with_defaults
+  def test_compute_creates_hetzner_config_with_correct_provider
     @config.compute(:hetzner) { |c| c.api_key = "key" }
 
     assert_equal :hetzner, @config.compute_config.provider_name
     assert_equal "cpx11", @config.compute_config.server_type
+  end
+
+  def test_compute_creates_hetzner_config_with_default_location_and_image
+    @config.compute(:hetzner) { |c| c.api_key = "key" }
+
     assert_equal "ash", @config.compute_config.location
     assert_equal "ubuntu-22.04", @config.compute_config.image
   end
@@ -34,11 +39,16 @@ class ConfigurationTest < Minitest::Test
 
   # ── Database ──
 
-  def test_database_creates_postgres_config_with_defaults
+  def test_database_creates_postgres_config
     @config.database(:postgres)
 
     assert @config.database?(:postgres)
     assert_equal "postgres:16-alpine", @config.database_configs[:postgres].image
+  end
+
+  def test_database_postgres_default_credentials
+    @config.database(:postgres)
+
     assert_equal "app", @config.database_configs[:postgres].username
     assert_equal "app", @config.database_configs[:postgres].database
   end
@@ -49,18 +59,25 @@ class ConfigurationTest < Minitest::Test
     assert_equal "redis:7-alpine", @config.database_configs[:redis].image
   end
 
-  def test_database_allows_overriding
+  def test_database_allows_overriding_image_and_volume
     @config.database(:postgres) do |db|
       db.image = "pgvector/pgvector:pg17"
       db.volume_size = "50Gi"
+    end
+    pg = @config.database_configs[:postgres]
+
+    assert_equal "pgvector/pgvector:pg17", pg.image
+    assert_equal "50Gi", pg.volume_size
+  end
+
+  def test_database_allows_overriding_credentials
+    @config.database(:postgres) do |db|
       db.password = "secret"
       db.username = "myuser"
       db.database = "mydb"
     end
     pg = @config.database_configs[:postgres]
 
-    assert_equal "pgvector/pgvector:pg17", pg.image
-    assert_equal "50Gi", pg.volume_size
     assert_equal "secret", pg.password
     assert_equal "myuser", pg.username
     assert_equal "mydb", pg.database
@@ -192,16 +209,24 @@ class ConfigurationTest < Minitest::Test
 
   # ── Git ──
 
-  def test_git_yields_and_stores_with_defaults
+  def test_git_yields_and_stores_pat
     @config.git do |g|
       g.pat = "token"
       g.repo = "owner/repo"
     end
 
     assert_equal "token", @config.git_config.pat
+    assert_equal "repo", @config.git_config.app_name
+  end
+
+  def test_git_defaults_for_username_and_email
+    @config.git do |g|
+      g.pat = "token"
+      g.repo = "owner/repo"
+    end
+
     assert_equal "rbrun", @config.git_config.username
     assert_equal "sandbox@rbrun.dev", @config.git_config.email
-    assert_equal "repo", @config.git_config.app_name
   end
 
   # ── Claude ──

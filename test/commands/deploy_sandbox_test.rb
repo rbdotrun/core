@@ -23,16 +23,16 @@ module RbrunCore
         assert_equal "rbrun-sandbox-a1b2c3", @ctx.prefix
       end
 
-      def test_run_calls_steps
-        stub_hetzner_sandbox!
-        logs = []
-
-        with_mocked_ssh(output: "ok", exit_code: 0) do
-          DeploySandbox.new(@ctx, on_log: ->(cat, _) { logs << cat }).run
-        end
+      def test_run_logs_infrastructure_steps
+        logs = run_and_collect_logs
 
         assert_includes logs, "firewall"
         assert_includes logs, "server"
+      end
+
+      def test_run_logs_application_steps
+        logs = run_and_collect_logs
+
         assert_includes logs, "apt_packages"
         assert_includes logs, "clone"
         assert_includes logs, "compose_setup"
@@ -71,6 +71,15 @@ module RbrunCore
       end
 
       private
+
+        def run_and_collect_logs
+          stub_hetzner_sandbox!
+          logs = []
+          with_mocked_ssh(output: "ok", exit_code: 0) do
+            DeploySandbox.new(@ctx, on_log: ->(cat, _) { logs << cat }).run
+          end
+          logs
+        end
 
         def stub_hetzner_sandbox!
           stub_request(:get, %r{hetzner\.cloud/v1/firewalls}).to_return(

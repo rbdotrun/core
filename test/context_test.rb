@@ -34,15 +34,20 @@ class ContextTest < Minitest::Test
     assert_equal :pending, ctx.state
   end
 
-  def test_mutable_state_attributes
+  def test_mutable_server_attributes
     ctx = build_context
     ctx.server_id = "srv-123"
     ctx.server_ip = "1.2.3.4"
-    ctx.registry_tag = "localhost:5000/app:v1"
-    ctx.tunnel_id = "tun-456"
 
     assert_equal "srv-123", ctx.server_id
     assert_equal "1.2.3.4", ctx.server_ip
+  end
+
+  def test_mutable_registry_and_tunnel_attributes
+    ctx = build_context
+    ctx.registry_tag = "localhost:5000/app:v1"
+    ctx.tunnel_id = "tun-456"
+
     assert_equal "localhost:5000/app:v1", ctx.registry_tag
     assert_equal "tun-456", ctx.tunnel_id
   end

@@ -68,7 +68,7 @@ module RbrunCore
         assert_not_requested(:post, /networks/)
       end
 
-      def test_on_log_fires_for_each_sub_step
+      def test_on_log_fires_for_infrastructure_steps
         stub_all_existing!
         logs = []
         with_mocked_ssh(output: "ok", exit_code: 0) do
@@ -77,6 +77,15 @@ module RbrunCore
 
         assert_includes logs, "firewall"
         assert_includes logs, "network"
+      end
+
+      def test_on_log_fires_for_server_steps
+        stub_all_existing!
+        logs = []
+        with_mocked_ssh(output: "ok", exit_code: 0) do
+          CreateInfrastructure.new(@ctx, on_log: ->(cat, _) { logs << cat }).run
+        end
+
         assert_includes logs, "server"
         assert_includes logs, "ssh_wait"
       end
