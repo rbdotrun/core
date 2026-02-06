@@ -11,7 +11,10 @@ module RbrunCore
       end
 
       def test_generates_meilisearch_url
-        @config.service(:meilisearch) { |s| s.image = "getmeili/meilisearch:latest" }
+        @config.service(:meilisearch) do |s|
+          s.image = "getmeili/meilisearch:latest"
+          s.port = 7700
+        end
         manifests = K3s.new(@config, prefix: "test", zone: "example.com").generate
 
         assert_includes manifests, "MEILISEARCH_URL"
@@ -19,7 +22,10 @@ module RbrunCore
       end
 
       def test_generates_redis_url
-        @config.service(:redis) { |s| s.image = "redis:7-alpine" }
+        @config.service(:redis) do |s|
+          s.image = "redis:7-alpine"
+          s.port = 6379
+        end
         manifests = K3s.new(@config, prefix: "test", zone: "example.com").generate
 
         assert_includes manifests, "REDIS_URL"
@@ -29,6 +35,7 @@ module RbrunCore
       def test_creates_per_service_secret
         @config.service(:meilisearch) do |m|
           m.image = "getmeili/meilisearch:latest"
+          m.port = 7700
           m.env = { MEILI_MASTER_KEY: "secret123" }
         end
         manifests = K3s.new(@config, prefix: "test", zone: "example.com").generate
@@ -41,6 +48,27 @@ module RbrunCore
         manifests = K3s.new(@config, prefix: "test", zone: "example.com").generate
 
         refute_includes manifests, "test-redis-secret"
+      end
+
+      def test_service_with_mount_path_gets_volume
+        @config.service(:meilisearch) do |s|
+          s.image = "getmeili/meilisearch:latest"
+          s.port = 7700
+          s.mount_path = "/meili_data"
+        end
+        manifests = K3s.new(@config, prefix: "test", zone: "example.com").generate
+
+        assert_includes manifests, "volumeMounts"
+        assert_includes manifests, "/meili_data"
+        assert_includes manifests, "/mnt/data/test-meilisearch"
+      end
+
+      def test_service_without_mount_path_has_no_volume
+        @config.service(:custom) { |s| s.image = "custom:latest" }
+        manifests = K3s.new(@config, prefix: "test", zone: "example.com").generate
+
+        refute_includes manifests, "volumeMounts"
+        refute_includes manifests, "/mnt/data/test-custom"
       end
 
       def test_generates_database_url_for_postgres

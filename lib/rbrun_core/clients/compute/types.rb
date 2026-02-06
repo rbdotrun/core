@@ -11,11 +11,6 @@ module RbrunCore
           keyword_init: true
         )
 
-        SshKey = Struct.new(
-          :id, :name, :fingerprint, :public_key, :created_at,
-          keyword_init: true
-        )
-
         Firewall = Struct.new(
           :id, :name, :rules, :created_at,
           keyword_init: true

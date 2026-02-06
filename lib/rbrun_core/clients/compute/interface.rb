@@ -13,7 +13,6 @@ module RbrunCore
                 find_or_create_server find_server delete_server wait_for_server wait_for_server_deletion
                 find_or_create_firewall find_firewall delete_firewall
                 find_or_create_network find_network delete_network
-                find_or_create_ssh_key find_ssh_key delete_ssh_key
                 validate_credentials
               ]
             end
@@ -72,19 +71,6 @@ module RbrunCore
 
         def delete_network(id)
           raise NotImplementedError, "#{self.class}#delete_network not implemented"
-        end
-
-        # SSH Key methods
-        def find_or_create_ssh_key(name:, public_key:)
-          raise NotImplementedError, "#{self.class}#find_or_create_ssh_key not implemented"
-        end
-
-        def find_ssh_key(name)
-          raise NotImplementedError, "#{self.class}#find_ssh_key not implemented"
-        end
-
-        def delete_ssh_key(id)
-          raise NotImplementedError, "#{self.class}#delete_ssh_key not implemented"
         end
 
         # Validation

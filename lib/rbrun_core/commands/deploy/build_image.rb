@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "open3"
-require "tmpdir"
 
 module RbrunCore
   module Commands
@@ -13,9 +12,7 @@ module RbrunCore
       # - Build executes on remote, image stored on remote
       # - No local Docker daemon required
       #
-      # Source priority:
-      # 1. source_folder (if set) - build directly from local folder
-      # 2. git clone (fallback) - clone repo to tmpdir, build from there
+      # Requires source_folder to be set on context.
       class BuildImage
         REGISTRY_PORT = 30_500
 
@@ -25,38 +22,17 @@ module RbrunCore
         end
 
         def run
+          raise Error::Standard, "source_folder is required for build" unless @ctx.source_folder
+
           ensure_host_key!
 
-          if @ctx.source_folder
-            log("docker_build", "Building from #{@ctx.source_folder}")
-            result = build_and_push!(@ctx.source_folder)
-          else
-            Dir.mktmpdir("rbrun-build-") do |tmpdir|
-              log("git_clone", "Cloning repository")
-              git_clone!(tmpdir)
-
-              log("docker_build", "Building Docker image")
-              result = build_and_push!(tmpdir)
-            end
-          end
+          log("docker_build", "Building from #{@ctx.source_folder}")
+          result = build_and_push!(@ctx.source_folder)
 
           @ctx.registry_tag = result[:registry_tag]
         end
 
         private
-
-          def git_clone!(tmpdir)
-            git_config = @ctx.config.git_config
-            unless git_config&.pat && git_config&.repo
-              raise Error::Standard, "No source_folder and no git config - cannot build"
-            end
-
-            clone_url = "https://#{git_config.pat}@github.com/#{git_config.repo}.git"
-            branch = @ctx.branch || "main"
-
-            success = system("git", "clone", "--depth=1", "--branch", branch, clone_url, tmpdir, out: File::NULL, err: File::NULL)
-            raise Error::Standard, "git clone failed for branch #{branch}" unless success
-          end
 
           def build_and_push!(context_path)
             ts = Time.now.utc.strftime("%Y%m%d%H%M%S")

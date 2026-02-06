@@ -45,8 +45,7 @@ module RbrunCore
 
           def discover_network_info
             log("discover_network", "Discovering network info")
-            exec = ssh!("curl -s ifconfig.me || curl -s icanhazip.com")
-            public_ip = exec[:output].strip
+            public_ip = @ctx.server_ip
 
             # Find private IP (RFC1918), excluding docker/bridge interfaces
             exec = ssh!("ip addr show | grep -v 'docker\\|br-\\|veth' | grep -E 'inet (10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.)' | awk '{print $2}' | cut -d/ -f1 | head -1", raise_on_error: false)
@@ -107,11 +106,12 @@ module RbrunCore
 
             log("install_k3s", "Installing K3s")
             k3s_args = [
-              "--disable traefik", "--disable servicelb",
+              "--disable=traefik",
               "--flannel-backend=wireguard-native",
               "--flannel-iface=#{interface}",
               "--bind-address=#{private_ip}", "--advertise-address=#{private_ip}",
               "--node-ip=#{private_ip}", "--node-external-ip=#{public_ip}",
+              "--tls-san=#{private_ip}",
               "--write-kubeconfig-mode=644",
               "--cluster-cidr=#{CLUSTER_CIDR}", "--service-cidr=#{SERVICE_CIDR}"
             ].join(" ")
@@ -209,7 +209,7 @@ module RbrunCore
           def deploy_ingress_controller!
             log("deploy_ingress", "Deploying ingress controller")
             kubeconfig = "/home/#{Naming.default_user}/.kube/config"
-            ssh!("kubectl --kubeconfig=#{kubeconfig} apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.9.4/deploy/static/provider/baremetal/deploy.yaml")
+            ssh!("kubectl --kubeconfig=#{kubeconfig} apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.0/deploy/static/provider/baremetal/deploy.yaml")
 
             Waiter.poll(max_attempts: 30, interval: 5, message: "Ingress controller did not become ready") do
               exec = ssh!(

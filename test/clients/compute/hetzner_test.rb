@@ -72,16 +72,6 @@ module RbrunCore
           assert_equal "1", net.id
         end
 
-        def test_find_or_create_ssh_key_returns_existing
-          stub_request(:get, %r{/ssh_keys}).to_return(
-            status: 200, body: { ssh_keys: [ { id: 1, name: "key",
-                                              fingerprint: "aa:bb" } ] }.to_json, headers: json_headers
-          )
-          key = @client.find_or_create_ssh_key(name: "key", public_key: "ssh-rsa AAAA...")
-
-          assert_equal "1", key.id
-        end
-
         private
 
           def hetzner_server_data

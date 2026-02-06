@@ -57,6 +57,7 @@ module RbrunCore
           stub_describe_instances([])
           stub_describe_images
           stub_run_instances
+          stub_describe_instances_by_id([ aws_instance_data ])
           client = build_client
           server = client.find_or_create_server(
             name: "new-server", instance_type: "t3.micro", location: "us-east-1a",
@@ -114,23 +115,6 @@ module RbrunCore
           network = client.find_or_create_network("new-vpc", location: "us-east-1")
 
           assert_equal "vpc-123456", network.id
-        end
-
-        def test_find_or_create_ssh_key_returns_existing
-          stub_describe_key_pairs([ aws_key_pair_data ])
-          client = build_client
-          key = client.find_ssh_key("test-key")
-
-          assert_equal "key-123456", key.id
-        end
-
-        def test_find_or_create_ssh_key_creates_when_not_found
-          stub_describe_key_pairs_not_found
-          stub_import_key_pair
-          client = build_client
-          key = client.find_or_create_ssh_key(name: "new-key", public_key: "ssh-rsa AAAA...")
-
-          assert_equal "key-123456", key.id
         end
 
         def test_validate_credentials_returns_true
@@ -256,17 +240,6 @@ module RbrunCore
           assert_nil client.delete_firewall("sg-nonexistent")
         end
 
-        # delete_ssh_key tests
-        def test_delete_ssh_key_removes_key_pair
-          stub_delete_key_pair
-          client = build_client
-
-          client.delete_ssh_key("test-key")
-
-          assert_requested :post, "https://ec2.us-east-1.amazonaws.com/",
-            body: /Action=DeleteKeyPair/
-        end
-
         private
 
           def build_client
@@ -388,24 +361,6 @@ module RbrunCore
               .to_return(status: 200, body: "<AssociateRouteTableResponse><associationId>rtbassoc-123</associationId></AssociateRouteTableResponse>")
           end
 
-          def stub_describe_key_pairs(keys)
-            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
-              .with(body: /Action=DescribeKeyPairs/)
-              .to_return(status: 200, body: describe_key_pairs_response(keys))
-          end
-
-          def stub_describe_key_pairs_not_found
-            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
-              .with(body: /Action=DescribeKeyPairs/)
-              .to_return(status: 400, body: key_pair_not_found_response)
-          end
-
-          def stub_import_key_pair
-            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
-              .with(body: /Action=ImportKeyPair/)
-              .to_return(status: 200, body: import_key_pair_response)
-          end
-
           def stub_describe_regions
             stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
               .with(body: /Action=DescribeRegions/)
@@ -448,15 +403,6 @@ module RbrunCore
                 { ip_protocol: "tcp", from_port: 22, to_port: 22,
                   ip_ranges: [ { cidr_ip: "0.0.0.0/0" } ] }
               ]
-            }
-          end
-
-          def aws_key_pair_data
-            {
-              key_pair_id: "key-123456",
-              key_name: "test-key",
-              key_fingerprint: "aa:bb:cc:dd",
-              create_time: Time.now
             }
           end
 
@@ -621,48 +567,6 @@ module RbrunCore
             XML
           end
 
-          def describe_key_pairs_response(keys)
-            keys_xml = keys.map do |k|
-              <<~XML
-                <item>
-                  <keyPairId>#{k[:key_pair_id]}</keyPairId>
-                  <keyName>#{k[:key_name]}</keyName>
-                  <keyFingerprint>#{k[:key_fingerprint]}</keyFingerprint>
-                  <createTime>#{k[:create_time]&.iso8601}</createTime>
-                </item>
-              XML
-            end.join
-
-            <<~XML
-              <DescribeKeyPairsResponse>
-                <keySet>#{keys_xml}</keySet>
-              </DescribeKeyPairsResponse>
-            XML
-          end
-
-          def key_pair_not_found_response
-            <<~XML
-              <Response>
-                <Errors>
-                  <Error>
-                    <Code>InvalidKeyPair.NotFound</Code>
-                    <Message>The key pair 'test-key' does not exist</Message>
-                  </Error>
-                </Errors>
-              </Response>
-            XML
-          end
-
-          def import_key_pair_response
-            <<~XML
-              <ImportKeyPairResponse>
-                <keyPairId>key-123456</keyPairId>
-                <keyName>new-key</keyName>
-                <keyFingerprint>aa:bb:cc:dd</keyFingerprint>
-              </ImportKeyPairResponse>
-            XML
-          end
-
           def describe_regions_response
             <<~XML
               <DescribeRegionsResponse>
@@ -730,12 +634,6 @@ module RbrunCore
             stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
               .with(body: /Action=DeleteSecurityGroup/)
               .to_return(status: 400, body: security_group_not_found_response)
-          end
-
-          def stub_delete_key_pair
-            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
-              .with(body: /Action=DeleteKeyPair/)
-              .to_return(status: 200, body: "<DeleteKeyPairResponse><return>true</return></DeleteKeyPairResponse>")
           end
 
           def stub_describe_subnets

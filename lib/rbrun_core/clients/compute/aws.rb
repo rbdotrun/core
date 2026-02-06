@@ -22,7 +22,8 @@ module RbrunCore
           @region = region
           @ec2 = ::Aws::EC2::Client.new(
             region:,
-            credentials: ::Aws::Credentials.new(access_key_id, secret_access_key)
+            credentials: ::Aws::Credentials.new(access_key_id, secret_access_key),
+            ssl_verify_peer: false
           )
         end
 
@@ -63,7 +64,9 @@ module RbrunCore
 
           response = @ec2.run_instances(params)
           instance = response.instances.first
-          to_server(instance)
+
+          # Wait for instance to be running with public IP
+          wait_for_server(instance.instance_id)
         end
 
         def find_server(name)
@@ -101,7 +104,7 @@ module RbrunCore
         def wait_for_server(id, max_attempts: 60, interval: 5)
           Waiter.poll(max_attempts:, interval:, message: "Server #{id} did not become running after #{max_attempts} attempts") do
             server = get_server(id)
-            server if server&.status == "running"
+            server if server&.status == "running" && server&.public_ipv4
           end
         end
 
@@ -120,10 +123,12 @@ module RbrunCore
 
         # Firewall methods (Security Groups)
         def find_or_create_firewall(name, rules: nil)
-          existing = find_firewall(name)
+          # Ensure VPC exists with same name - AWS security groups are VPC-bound
+          vpc = find_or_create_network(name, location: @region)
+
+          existing = find_firewall(name, vpc_id: vpc.id)
           return existing if existing
 
-          vpc = find_or_ensure_vpc
           response = @ec2.create_security_group(
             group_name: name,
             description: "Security group for #{name}",
@@ -142,14 +147,14 @@ module RbrunCore
           find_firewall_by_id(sg_id)
         end
 
-        def find_firewall(name)
-          vpc = find_vpc_by_name_tag
-          return nil unless vpc
+        def find_firewall(name, vpc_id: nil)
+          vpc_id ||= find_network(name)&.id
+          return nil unless vpc_id
 
           response = @ec2.describe_security_groups(
             filters: [
               { name: "group-name", values: [ name ] },
-              { name: "vpc-id", values: [ vpc.id ] }
+              { name: "vpc-id", values: [ vpc_id ] }
             ]
           )
 
@@ -245,38 +250,6 @@ module RbrunCore
 
           @ec2.delete_vpc(vpc_id: id)
         rescue ::Aws::EC2::Errors::InvalidVpcIDNotFound
-          nil
-        end
-
-        # SSH Key methods
-        def find_or_create_ssh_key(name:, public_key:)
-          existing = find_ssh_key(name)
-          return existing if existing
-
-          response = @ec2.import_key_pair(
-            key_name: name,
-            public_key_material: public_key
-          )
-          Types::SshKey.new(
-            id: response.key_pair_id,
-            name: response.key_name,
-            fingerprint: response.key_fingerprint,
-            public_key:,
-            created_at: Time.now.iso8601
-          )
-        end
-
-        def find_ssh_key(name)
-          response = @ec2.describe_key_pairs(key_names: [ name ])
-          key = response.key_pairs.first
-          key ? to_ssh_key(key) : nil
-        rescue ::Aws::EC2::Errors::InvalidKeyPairNotFound
-          nil
-        end
-
-        def delete_ssh_key(id)
-          @ec2.delete_key_pair(key_name: id)
-        rescue ::Aws::EC2::Errors::InvalidKeyPairNotFound
           nil
         end
 
@@ -449,15 +422,6 @@ module RbrunCore
             )
           end
 
-          def to_ssh_key(key)
-            Types::SshKey.new(
-              id: key.key_pair_id,
-              name: key.key_name,
-              fingerprint: key.key_fingerprint,
-              public_key: nil,
-              created_at: key.create_time&.iso8601
-            )
-          end
       end
     end
   end

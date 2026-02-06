@@ -123,40 +123,29 @@ module RbrunCore
                 content_type: "text/plain")
         end
 
-        # SSH Keys
-        def find_or_create_ssh_key(name:, public_key:)
-          existing = find_ssh_key(name)
-          return existing if existing
-
-          response = post(iam_path("/ssh-keys"), { name:, public_key:, project_id: @project_id })
-          to_ssh_key(response)
-        end
-
-        def find_ssh_key(name)
-          response = get(iam_path("/ssh-keys"), project_id: @project_id)
-          key = response["ssh_keys"]&.find { |k| k["name"] == name }
-          key ? to_ssh_key(key) : nil
-        end
-
-        def list_ssh_keys
-          response = get(iam_path("/ssh-keys"), project_id: @project_id)
-          response["ssh_keys"].map { |k| to_ssh_key(k) }
-        end
-
-        def delete_ssh_key(id) = delete(iam_path("/ssh-keys/#{id}"))
-
         # Firewalls (Security Groups)
         def find_or_create_firewall(name, rules: nil)
           existing = find_firewall(name)
           return existing if existing
 
-          inbound_policy = rules&.any? ? "drop" : "accept"
           response = post(instance_path("/security_groups"), {
-                            name:, project: @project_id,
+                            name:,
+                            project: @project_id,
                             stateful: true,
-                            inbound_default_policy: inbound_policy, outbound_default_policy: "accept"
+                            inbound_default_policy: "drop",
+                            outbound_default_policy: "accept"
                           })
           sg = to_firewall(response["security_group"])
+
+          # Add SSH rule
+          post(instance_path("/security_groups/#{sg.id}/rules"), {
+                 protocol: "TCP",
+                 direction: "inbound",
+                 action: "accept",
+                 ip_range: "0.0.0.0/0",
+                 dest_port_from: 22,
+                 dest_port_to: 22
+               })
 
           rules&.each do |rule|
             add_security_group_rule(sg.id, rule)
@@ -190,10 +179,10 @@ module RbrunCore
           return existing if existing
 
           response = post(vpc_path("/private-networks"), {
-                            name:, project_id: @project_id,
-                            subnets: [ "10.0.0.0/24" ]
+                            name:,
+                            project_id: @project_id
                           })
-          to_network(response["private_network"] || response)
+          to_network(response)
         end
 
         def find_network(name)
@@ -317,14 +306,6 @@ module RbrunCore
               image: data.dig("image", "name"),
               location: data["zone"], labels: tags_to_labels(data["tags"]),
               created_at: data["creation_date"]
-            )
-          end
-
-          def to_ssh_key(data)
-            Types::SshKey.new(
-              id: data["id"], name: data["name"],
-              fingerprint: data["fingerprint"], public_key: data["public_key"],
-              created_at: data["created_at"]
             )
           end
 

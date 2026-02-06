@@ -120,27 +120,6 @@ module RbrunCore
         def shutdown(id) = post("/servers/#{id.to_i}/actions/shutdown")
         def reboot(id) = post("/servers/#{id.to_i}/actions/reboot")
 
-        def find_or_create_ssh_key(name:, public_key:)
-          existing = find_ssh_key(name)
-          return existing if existing
-
-          response = post("/ssh_keys", { name:, public_key: })
-          to_ssh_key(response["ssh_key"])
-        end
-
-        def find_ssh_key(name)
-          response = get("/ssh_keys", name:)
-          key = response["ssh_keys"]&.first
-          key ? to_ssh_key(key) : nil
-        end
-
-        def list_ssh_keys
-          response = get("/ssh_keys")
-          response["ssh_keys"].map { |k| to_ssh_key(k) }
-        end
-
-        def delete_ssh_key(id) = delete("/ssh_keys/#{id.to_i}")
-
         def list_firewalls
           response = get("/firewalls")
           response["firewalls"].map { |f| to_firewall(f) }
@@ -319,14 +298,6 @@ module RbrunCore
               image: data.dig("image", "name"),
               location: data.dig("datacenter", "name"),
               labels: data["labels"] || {},
-              created_at: data["created"]
-            )
-          end
-
-          def to_ssh_key(data)
-            Types::SshKey.new(
-              id: data["id"].to_s, name: data["name"],
-              fingerprint: data["fingerprint"], public_key: data["public_key"],
               created_at: data["created"]
             )
           end

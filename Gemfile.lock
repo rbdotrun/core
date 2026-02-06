@@ -8,6 +8,7 @@ PATH
       ed25519 (>= 1.2)
       faraday (~> 2.0)
       faraday-multipart (~> 1.0)
+      rexml
       sshkey (~> 3.0)
       sshkit (~> 1.23)
       zeitwerk (~> 2.6)

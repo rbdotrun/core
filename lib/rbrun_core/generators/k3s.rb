@@ -135,10 +135,18 @@ module RbrunCore
           }
           container[:envFrom] = [ { secretRef: { name: secret_name } } ] if svc_config.env.any?
 
+          # Add volume mount if service has mount_path
+          volumes = []
+          if svc_config.mount_path
+            container[:volumeMounts] = [ { name: "data", mountPath: svc_config.mount_path } ]
+            volumes = [ host_path_volume("data", "/mnt/data/#{deployment_name}") ]
+          end
+
           manifests << deployment(
             name: deployment_name, replicas: 1,
             node_selector: node_selector_for(svc_config.runs_on),
-            containers: [ container.compact ]
+            containers: [ container.compact ],
+            volumes: volumes
           )
 
           manifests << service(name: deployment_name, port: svc_config.port) if svc_config.port

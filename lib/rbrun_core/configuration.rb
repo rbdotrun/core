@@ -197,14 +197,9 @@ module RbrunCore
     end
 
     class Service
-      attr_accessor :subdomain, :env, :runs_on
+      attr_accessor :subdomain, :env, :runs_on, :port, :mount_path
       attr_reader :name
       attr_writer :image
-
-      DEFAULT_PORTS = {
-        redis: 6379,
-        meilisearch: 7700
-      }.freeze
 
       def initialize(name)
         @name = name.to_sym
@@ -212,14 +207,12 @@ module RbrunCore
         @env = {}
         @image = nil
         @runs_on = nil
+        @mount_path = nil
+        @port = nil
       end
 
       def image
         @image
-      end
-
-      def port
-        DEFAULT_PORTS[@name]
       end
     end
 

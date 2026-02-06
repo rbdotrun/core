@@ -155,6 +155,18 @@ class ConfigurationTest < Minitest::Test
     refute_predicate @config, :service?
   end
 
+  def test_service_port_and_mount_path
+    @config.service(:meilisearch) do |s|
+      s.image = "getmeili/meilisearch:v1.6"
+      s.port = 7700
+      s.mount_path = "/meili_data"
+    end
+
+    svc = @config.service_configs[:meilisearch]
+    assert_equal 7700, svc.port
+    assert_equal "/meili_data", svc.mount_path
+  end
+
   # ── App ──
 
   def test_app_creates_processes

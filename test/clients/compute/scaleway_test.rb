@@ -37,15 +37,6 @@ module RbrunCore
           assert_equal "1.2.3.4", server.public_ipv4
         end
 
-        def test_find_or_create_ssh_key_creates_when_not_found
-          stub_ssh_keys_list([])
-          stub_request(:post, "https://api.scaleway.com/iam/v1alpha1/ssh-keys")
-            .to_return(status: 201, body: { ssh_key: ssh_key_data }.to_json, headers: json_headers)
-          key = @client.find_or_create_ssh_key(name: "new-key", public_key: "ssh-rsa AAAA...")
-
-          assert_equal "key-123", key.id
-        end
-
         def test_find_or_create_firewall_creates_when_not_found
           stub_security_groups_list([])
           stub_request(:post, /security_groups/)
@@ -62,7 +53,7 @@ module RbrunCore
         def test_find_or_create_network_creates_when_not_found
           stub_networks_list([])
           stub_request(:post, %r{/private-networks})
-            .to_return(status: 201, body: { private_network: network_data }.to_json, headers: json_headers)
+            .to_return(status: 201, body: network_data.to_json, headers: json_headers)
 
           network = @client.find_or_create_network("test-net", location: "fr-par-1")
 
@@ -99,8 +90,10 @@ module RbrunCore
         # find_or_create_server creation path test
         def test_find_or_create_server_creates_when_not_found
           stub_servers_list([])
+          stub_resolve_image
           stub_create_server
           stub_server_action("poweron")
+          stub_get_server(server_data)
           server = @client.find_or_create_server(
             name: "new-server", instance_type: "DEV1-S", image: "ubuntu_jammy"
           )
@@ -185,12 +178,6 @@ module RbrunCore
               .to_return(status: 200, body: { servers: }.to_json, headers: json_headers)
           end
 
-          def stub_ssh_keys_list(keys)
-            stub_request(:get, "https://api.scaleway.com/iam/v1alpha1/ssh-keys")
-              .with(query: hash_including("project_id" => @project_id))
-              .to_return(status: 200, body: { ssh_keys: keys }.to_json, headers: json_headers)
-          end
-
           def stub_security_groups_list(groups)
             stub_request(:get, /security_groups/)
               .with(query: hash_including("project" => @project_id))
@@ -210,11 +197,6 @@ module RbrunCore
               "tags" => [], "creation_date" => "2024-01-01T00:00:00Z", "volumes" => {} }
           end
 
-          def ssh_key_data(id: "key-123", name: "test-key")
-            { "id" => id, "name" => name, "fingerprint" => "aa:bb:cc:dd",
-              "public_key" => "ssh-rsa AAAA...", "created_at" => "2024-01-01T00:00:00Z" }
-          end
-
           def security_group_data(id: "sg-123", name: "test-sg")
             { "id" => id, "name" => name, "inbound_default_policy" => "drop",
               "outbound_default_policy" => "accept", "servers" => [] }
@@ -226,6 +208,12 @@ module RbrunCore
           end
 
           # New stubs for additional tests
+
+          def stub_resolve_image
+            stub_request(:get, "https://api.scaleway.com/instance/v1/zones/fr-par-1/images")
+              .with(query: hash_including("arch" => "x86_64", "name" => "ubuntu_jammy"))
+              .to_return(status: 200, body: { images: [ { "id" => "img-123" } ] }.to_json, headers: json_headers)
+          end
 
           def stub_create_server
             stub_request(:post, "https://api.scaleway.com/instance/v1/zones/fr-par-1/servers")

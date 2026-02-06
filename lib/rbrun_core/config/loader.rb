@@ -123,6 +123,8 @@ module RbrunCore
 
               config.service(name_str) do |s|
                 s.image = svc_data["image"]
+                s.port = svc_data["port"] if svc_data["port"]
+                s.mount_path = svc_data["mount_path"] if svc_data["mount_path"]
                 s.subdomain = svc_data["subdomain"] if svc_data["subdomain"]
                 s.runs_on = svc_data["runs_on"]&.to_sym if svc_data["runs_on"]
                 if svc_data["env"]
