@@ -147,6 +147,126 @@ module RbrunCore
           assert_raises(RbrunCore::Error) { client.validate_credentials }
         end
 
+        # get_server tests
+        def test_get_server_returns_server
+          stub_describe_instances_by_id([ aws_instance_data ])
+          client = build_client
+          server = client.get_server("i-1234567890abcdef0")
+
+          assert_equal "i-1234567890abcdef0", server.id
+          assert_equal "54.123.45.67", server.public_ipv4
+        end
+
+        def test_get_server_returns_nil_when_not_found
+          stub_describe_instances_by_id_not_found
+          client = build_client
+
+          assert_nil client.get_server("i-nonexistent")
+        end
+
+        # list_servers tests
+        def test_list_servers_returns_empty_array
+          stub_describe_instances([])
+          client = build_client
+          servers = client.list_servers
+
+          assert_equal [], servers
+        end
+
+        def test_list_servers_returns_servers
+          stub_describe_instances([ aws_instance_data, aws_instance_data(instance_id: "i-9876543210fedcba0", name: "test-server-2") ])
+          client = build_client
+          servers = client.list_servers
+
+          assert_equal 2, servers.size
+          assert_equal "i-1234567890abcdef0", servers[0].id
+          assert_equal "i-9876543210fedcba0", servers[1].id
+        end
+
+        def test_list_servers_with_label_selector
+          stub_describe_instances_with_tag_filter([ aws_instance_data ])
+          client = build_client
+          servers = client.list_servers(label_selector: "env=production")
+
+          assert_equal 1, servers.size
+        end
+
+        # delete_server tests
+        def test_delete_server_terminates_instance
+          stub_terminate_instances
+          client = build_client
+
+          client.delete_server("i-1234567890abcdef0")
+
+          assert_requested :post, "https://ec2.us-east-1.amazonaws.com/",
+            body: /Action=TerminateInstances/
+        end
+
+        def test_delete_server_returns_nil_when_not_found
+          stub_terminate_instances_not_found
+          client = build_client
+
+          assert_nil client.delete_server("i-nonexistent")
+        end
+
+        # delete_network tests
+        def test_delete_network_tears_down_vpc_stack
+          stub_describe_subnets
+          stub_delete_subnet
+          stub_describe_internet_gateways
+          stub_detach_internet_gateway
+          stub_delete_internet_gateway
+          stub_describe_route_tables_for_delete
+          stub_disassociate_route_table
+          stub_delete_route_table
+          stub_delete_vpc
+          client = build_client
+
+          client.delete_network("vpc-123456")
+
+          assert_requested :post, "https://ec2.us-east-1.amazonaws.com/",
+            body: /Action=DeleteVpc/
+        end
+
+        def test_delete_network_returns_nil_when_not_found
+          stub_describe_subnets_empty
+          stub_describe_internet_gateways_empty
+          stub_describe_route_tables_empty
+          stub_delete_vpc_not_found
+          client = build_client
+
+          assert_nil client.delete_network("vpc-nonexistent")
+        end
+
+        # delete_firewall tests
+        def test_delete_firewall_removes_security_group
+          stub_delete_security_group
+          client = build_client
+
+          client.delete_firewall("sg-123456")
+
+          assert_requested :post, "https://ec2.us-east-1.amazonaws.com/",
+            body: /Action=DeleteSecurityGroup/
+        end
+
+        def test_delete_firewall_returns_nil_when_not_found
+          stub_delete_security_group_not_found
+          client = build_client
+
+          assert_nil client.delete_firewall("sg-nonexistent")
+        end
+
+        # delete_ssh_key tests
+        def test_delete_ssh_key_removes_key_pair
+          stub_delete_key_pair
+          client = build_client
+
+          client.delete_ssh_key("test-key")
+
+          assert_requested :post, "https://ec2.us-east-1.amazonaws.com/",
+            body: /Action=DeleteKeyPair/
+        end
+
         private
 
           def build_client
@@ -298,9 +418,9 @@ module RbrunCore
               .to_return(status: 401, body: auth_failure_response)
           end
 
-          def aws_instance_data
+          def aws_instance_data(instance_id: "i-1234567890abcdef0", name: "test-server")
             {
-              instance_id: "i-1234567890abcdef0",
+              instance_id:,
               instance_type: "t3.micro",
               image_id: "ami-12345678",
               state: { name: "running" },
@@ -308,7 +428,7 @@ module RbrunCore
               private_ip_address: "10.0.1.100",
               placement: { availability_zone: "us-east-1a" },
               launch_time: Time.now,
-              tags: [ { key: "Name", value: "test-server" } ]
+              tags: [ { key: "Name", value: name } ]
             }
           end
 
@@ -564,6 +684,236 @@ module RbrunCore
                 </Errors>
               </Response>
             XML
+          end
+
+          # New stubs for get_server, list_servers, delete_* methods
+
+          def stub_describe_instances_by_id(instances)
+            reservations = instances.empty? ? [] : [ { instances: } ]
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DescribeInstances.*InstanceId/)
+              .to_return(status: 200, body: describe_instances_response(reservations))
+          end
+
+          def stub_describe_instances_by_id_not_found
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DescribeInstances.*InstanceId/)
+              .to_return(status: 400, body: instance_not_found_response)
+          end
+
+          def stub_describe_instances_with_tag_filter(instances)
+            reservations = instances.empty? ? [] : [ { instances: } ]
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DescribeInstances/)
+              .to_return(status: 200, body: describe_instances_response(reservations))
+          end
+
+          def stub_terminate_instances
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=TerminateInstances/)
+              .to_return(status: 200, body: terminate_instances_response)
+          end
+
+          def stub_terminate_instances_not_found
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=TerminateInstances/)
+              .to_return(status: 400, body: instance_not_found_response)
+          end
+
+          def stub_delete_security_group
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DeleteSecurityGroup/)
+              .to_return(status: 200, body: "<DeleteSecurityGroupResponse><return>true</return></DeleteSecurityGroupResponse>")
+          end
+
+          def stub_delete_security_group_not_found
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DeleteSecurityGroup/)
+              .to_return(status: 400, body: security_group_not_found_response)
+          end
+
+          def stub_delete_key_pair
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DeleteKeyPair/)
+              .to_return(status: 200, body: "<DeleteKeyPairResponse><return>true</return></DeleteKeyPairResponse>")
+          end
+
+          def stub_describe_subnets
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DescribeSubnets/)
+              .to_return(status: 200, body: describe_subnets_response)
+          end
+
+          def stub_delete_subnet
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DeleteSubnet/)
+              .to_return(status: 200, body: "<DeleteSubnetResponse><return>true</return></DeleteSubnetResponse>")
+          end
+
+          def stub_describe_internet_gateways
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DescribeInternetGateways/)
+              .to_return(status: 200, body: describe_internet_gateways_response)
+          end
+
+          def stub_detach_internet_gateway
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DetachInternetGateway/)
+              .to_return(status: 200, body: "<DetachInternetGatewayResponse><return>true</return></DetachInternetGatewayResponse>")
+          end
+
+          def stub_delete_internet_gateway
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DeleteInternetGateway/)
+              .to_return(status: 200, body: "<DeleteInternetGatewayResponse><return>true</return></DeleteInternetGatewayResponse>")
+          end
+
+          def stub_describe_route_tables_for_delete
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DescribeRouteTables/)
+              .to_return(status: 200, body: describe_route_tables_for_delete_response)
+          end
+
+          def stub_disassociate_route_table
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DisassociateRouteTable/)
+              .to_return(status: 200, body: "<DisassociateRouteTableResponse><return>true</return></DisassociateRouteTableResponse>")
+          end
+
+          def stub_delete_route_table
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DeleteRouteTable/)
+              .to_return(status: 200, body: "<DeleteRouteTableResponse><return>true</return></DeleteRouteTableResponse>")
+          end
+
+          def stub_delete_vpc
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DeleteVpc/)
+              .to_return(status: 200, body: "<DeleteVpcResponse><return>true</return></DeleteVpcResponse>")
+          end
+
+          def stub_delete_vpc_not_found
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DeleteVpc/)
+              .to_return(status: 400, body: vpc_not_found_response)
+          end
+
+          def instance_not_found_response
+            <<~XML
+              <Response>
+                <Errors>
+                  <Error>
+                    <Code>InvalidInstanceID.NotFound</Code>
+                    <Message>The instance ID does not exist</Message>
+                  </Error>
+                </Errors>
+              </Response>
+            XML
+          end
+
+          def terminate_instances_response
+            <<~XML
+              <TerminateInstancesResponse>
+                <instancesSet>
+                  <item>
+                    <instanceId>i-1234567890abcdef0</instanceId>
+                    <currentState><name>shutting-down</name></currentState>
+                    <previousState><name>running</name></previousState>
+                  </item>
+                </instancesSet>
+              </TerminateInstancesResponse>
+            XML
+          end
+
+          def security_group_not_found_response
+            <<~XML
+              <Response>
+                <Errors>
+                  <Error>
+                    <Code>InvalidGroup.NotFound</Code>
+                    <Message>The security group does not exist</Message>
+                  </Error>
+                </Errors>
+              </Response>
+            XML
+          end
+
+          def vpc_not_found_response
+            <<~XML
+              <Response>
+                <Errors>
+                  <Error>
+                    <Code>InvalidVpcID.NotFound</Code>
+                    <Message>The VPC does not exist</Message>
+                  </Error>
+                </Errors>
+              </Response>
+            XML
+          end
+
+          def describe_subnets_response
+            <<~XML
+              <DescribeSubnetsResponse>
+                <subnetSet>
+                  <item>
+                    <subnetId>subnet-123456</subnetId>
+                    <vpcId>vpc-123456</vpcId>
+                    <cidrBlock>10.0.1.0/24</cidrBlock>
+                  </item>
+                </subnetSet>
+              </DescribeSubnetsResponse>
+            XML
+          end
+
+          def describe_internet_gateways_response
+            <<~XML
+              <DescribeInternetGatewaysResponse>
+                <internetGatewaySet>
+                  <item>
+                    <internetGatewayId>igw-123456</internetGatewayId>
+                    <attachmentSet>
+                      <item><vpcId>vpc-123456</vpcId><state>attached</state></item>
+                    </attachmentSet>
+                  </item>
+                </internetGatewaySet>
+              </DescribeInternetGatewaysResponse>
+            XML
+          end
+
+          def describe_route_tables_for_delete_response
+            <<~XML
+              <DescribeRouteTablesResponse>
+                <routeTableSet>
+                  <item>
+                    <routeTableId>rtb-123456</routeTableId>
+                    <associationSet>
+                      <item>
+                        <routeTableAssociationId>rtbassoc-123</routeTableAssociationId>
+                        <main>false</main>
+                      </item>
+                    </associationSet>
+                  </item>
+                </routeTableSet>
+              </DescribeRouteTablesResponse>
+            XML
+          end
+
+          def stub_describe_subnets_empty
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DescribeSubnets/)
+              .to_return(status: 200, body: "<DescribeSubnetsResponse><subnetSet></subnetSet></DescribeSubnetsResponse>")
+          end
+
+          def stub_describe_internet_gateways_empty
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DescribeInternetGateways/)
+              .to_return(status: 200, body: "<DescribeInternetGatewaysResponse><internetGatewaySet></internetGatewaySet></DescribeInternetGatewaysResponse>")
+          end
+
+          def stub_describe_route_tables_empty
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DescribeRouteTables/)
+              .to_return(status: 200, body: "<DescribeRouteTablesResponse><routeTableSet></routeTableSet></DescribeRouteTablesResponse>")
           end
       end
     end

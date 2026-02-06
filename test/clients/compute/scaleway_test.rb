@@ -96,6 +96,87 @@ module RbrunCore
           assert_raises(RbrunCore::Error) { @client.validate_credentials }
         end
 
+        # find_or_create_server creation path test
+        def test_find_or_create_server_creates_when_not_found
+          stub_servers_list([])
+          stub_create_server
+          stub_server_action("poweron")
+          server = @client.find_or_create_server(
+            name: "new-server", instance_type: "DEV1-S", image: "ubuntu_jammy"
+          )
+
+          assert_equal "server-123", server.id
+        end
+
+        # get_server tests
+        def test_get_server_returns_server
+          stub_get_server(server_data)
+          server = @client.get_server("server-123")
+
+          assert_equal "server-123", server.id
+          assert_equal "1.2.3.4", server.public_ipv4
+        end
+
+        def test_get_server_returns_nil_when_not_found
+          stub_get_server_not_found
+          server = @client.get_server("nonexistent")
+
+          assert_nil server
+        end
+
+        # list_servers test
+        def test_list_servers_returns_servers
+          stub_servers_list([ server_data, server_data(id: "server-456", name: "test-server-2") ])
+          servers = @client.list_servers
+
+          assert_equal 2, servers.size
+          assert_equal "server-123", servers[0].id
+          assert_equal "server-456", servers[1].id
+        end
+
+        # delete_server test
+        def test_delete_server_powers_off_and_deletes
+          stub_get_server(server_data(state: "running"))
+          stub_server_action("poweroff")
+          stub_get_server_stopped
+          stub_get_server_for_volumes
+          stub_delete_volume
+          stub_delete_server
+          @client.delete_server("server-123")
+
+          assert_requested :delete, %r{/servers/server-123}
+        end
+
+        # delete_firewall tests
+        def test_delete_firewall_removes_security_group
+          stub_delete_security_group
+          @client.delete_firewall("sg-123")
+
+          assert_requested :delete, %r{/security_groups/sg-123}
+        end
+
+        def test_delete_firewall_returns_nil_when_not_found
+          stub_delete_security_group_not_found
+          result = @client.delete_firewall("sg-nonexistent")
+
+          assert_nil result
+        end
+
+        # delete_network tests
+        def test_delete_network_removes_private_network
+          stub_delete_network
+          @client.delete_network("net-123")
+
+          assert_requested :delete, %r{/private-networks/net-123}
+        end
+
+        def test_delete_network_returns_nil_when_not_found
+          stub_delete_network_not_found
+          result = @client.delete_network("net-nonexistent")
+
+          assert_nil result
+        end
+
         private
 
           def stub_servers_list(servers)
@@ -142,6 +223,71 @@ module RbrunCore
           def network_data(id: "net-123", name: "test-network")
             { "id" => id, "name" => name, "subnets" => [ { "subnet" => "10.0.0.0/24" } ],
               "region" => "fr-par", "created_at" => "2024-01-01T00:00:00Z" }
+          end
+
+          # New stubs for additional tests
+
+          def stub_create_server
+            stub_request(:post, "https://api.scaleway.com/instance/v1/zones/fr-par-1/servers")
+              .to_return(status: 201, body: { server: server_data }.to_json, headers: json_headers)
+          end
+
+          def stub_server_action(action)
+            stub_request(:post, %r{/servers/server-123/action})
+              .with(body: hash_including("action" => action))
+              .to_return(status: 202, body: { task: { id: "task-123" } }.to_json, headers: json_headers)
+          end
+
+          def stub_get_server(data)
+            stub_request(:get, "https://api.scaleway.com/instance/v1/zones/fr-par-1/servers/server-123")
+              .to_return(status: 200, body: { server: data }.to_json, headers: json_headers)
+          end
+
+          def stub_get_server_not_found
+            stub_request(:get, %r{/servers/nonexistent})
+              .to_return(status: 404, body: { message: "not found" }.to_json, headers: json_headers)
+          end
+
+          def stub_get_server_stopped
+            stub_request(:get, "https://api.scaleway.com/instance/v1/zones/fr-par-1/servers/server-123")
+              .to_return(status: 200, body: { server: server_data(state: "stopped") }.to_json, headers: json_headers)
+          end
+
+          def stub_get_server_for_volumes
+            stub_request(:get, "https://api.scaleway.com/instance/v1/zones/fr-par-1/servers/server-123")
+              .to_return(status: 200, body: {
+                server: server_data(state: "stopped").merge("volumes" => { "0" => { "id" => "vol-123" } })
+              }.to_json, headers: json_headers)
+          end
+
+          def stub_delete_server
+            stub_request(:delete, %r{/servers/server-123})
+              .to_return(status: 204, body: nil)
+          end
+
+          def stub_delete_volume
+            stub_request(:delete, %r{/volumes/vol-123})
+              .to_return(status: 204, body: nil)
+          end
+
+          def stub_delete_security_group
+            stub_request(:delete, %r{/security_groups/sg-123})
+              .to_return(status: 204, body: nil)
+          end
+
+          def stub_delete_security_group_not_found
+            stub_request(:delete, %r{/security_groups/sg-nonexistent})
+              .to_return(status: 404, body: { message: "not found" }.to_json, headers: json_headers)
+          end
+
+          def stub_delete_network
+            stub_request(:delete, %r{/private-networks/net-123})
+              .to_return(status: 204, body: nil)
+          end
+
+          def stub_delete_network_not_found
+            stub_request(:delete, %r{/private-networks/net-nonexistent})
+              .to_return(status: 404, body: { message: "not found" }.to_json, headers: json_headers)
           end
       end
     end
