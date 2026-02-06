@@ -50,7 +50,7 @@ module RbrunCore
         end
 
         assert_includes logger.categories, "firewall"
-        assert_includes logger.categories, "server"
+        assert_includes logger.categories, "network"
       end
 
       def test_cleanup_images_runs_when_app_configured
@@ -149,7 +149,7 @@ module RbrunCore
         end
 
         def hetzner_server
-          { "id" => 123, "name" => @ctx.prefix, "status" => "running",
+          { "id" => 123, "name" => "#{@ctx.prefix}-master-1", "status" => "running",
             "public_net" => { "ipv4" => { "ip" => "1.2.3.4" } },
             "server_type" => { "name" => "cpx11" },
             "datacenter" => { "name" => "ash-dc1", "location" => { "name" => "ash" } },

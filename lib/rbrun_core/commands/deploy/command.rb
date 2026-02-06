@@ -20,6 +20,7 @@ module RbrunCore
           CleanupImages.new(@ctx, logger: @logger).run
         end
         DeployManifests.new(@ctx, logger: @logger).run
+        remove_excess_servers!
 
         change_state(:deployed)
       rescue StandardError
@@ -28,6 +29,30 @@ module RbrunCore
       end
 
       private
+
+        def remove_excess_servers!
+          return if @ctx.servers_to_remove.empty?
+
+          @ctx.servers_to_remove.each do |server_name|
+            @logger.log("scale_down", "Removing #{server_name}")
+
+            begin
+              kubectl = Clients::Kubectl.new(@ctx.ssh_client)
+              kubectl.drain(server_name, max_attempts: 1, interval: 0)
+            rescue RbrunCore::Error => e
+              @logger.log("drain_warning", "Drain failed for #{server_name}: #{e.message}, continuing")
+            end
+
+            begin
+              kubectl = Clients::Kubectl.new(@ctx.ssh_client)
+              kubectl.delete_node(server_name, max_attempts: 1, interval: 0)
+            rescue RbrunCore::Error
+              # best effort
+            end
+
+            @ctx.compute_client.delete_server_by_name(server_name)
+          end
+        end
 
         def needs_tunnel?
           @ctx.cloudflare_configured?
