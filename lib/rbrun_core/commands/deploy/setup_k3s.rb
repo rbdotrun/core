@@ -48,12 +48,15 @@ module RbrunCore
             exec = ssh!("curl -s ifconfig.me || curl -s icanhazip.com")
             public_ip = exec[:output].strip
 
-            exec = ssh!("ip -4 addr show | grep -oP '(?<=inet\\s)10\\.\\d+\\.\\d+\\.\\d+|172\\.(1[6-9]|2[0-9]|3[01])\\.\\d+\\.\\d+|192\\.168\\.\\d+\\.\\d+'")
-            private_ip = exec[:output].strip.split("\n").first
-            raise Error::Standard, "Could not detect private IP" unless private_ip
+            # Find private IP (RFC1918), excluding docker/bridge interfaces
+            exec = ssh!("ip addr show | grep -v 'docker\\|br-\\|veth' | grep -E 'inet (10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.)' | awk '{print $2}' | cut -d/ -f1 | head -1", raise_on_error: false)
+            private_ip = exec[:output].strip
+            private_ip = public_ip if private_ip.empty?
 
-            exec = ssh!("ip -4 addr show | grep '#{private_ip}' -B2 | grep -oP '(?<=: )[^:@]+(?=:)'")
-            interface = exec[:output].strip.split("\n").last || "eth0"
+            # Find interface for the IP
+            exec = ssh!("ip addr show | grep 'inet #{private_ip}/' | awk '{print $NF}'", raise_on_error: false)
+            interface = exec[:output].strip
+            interface = "eth0" if interface.empty?
 
             { public_ip:, private_ip:, interface: }
           end
@@ -277,8 +280,8 @@ module RbrunCore
                 BASH
               end
 
-              # Discover worker private IP
-              exec = worker_ssh.execute("ip -4 addr show | grep -oP '(?<=inet\\s)10\\.\\d+\\.\\d+\\.\\d+' | head -1")
+              # Discover worker private IP (excluding docker interfaces)
+              exec = worker_ssh.execute("ip -4 addr show | grep -v 'docker\\|br-' | grep -oP '(?<=inet\\s)10\\.\\d+\\.\\d+\\.\\d+|172\\.(1[6-9]|2[0-9]|3[01])\\.\\d+\\.\\d+|192\\.168\\.\\d+\\.\\d+' | head -1")
               worker_private_ip = exec[:output].strip
 
               exec = worker_ssh.execute("ip -4 addr show | grep '#{worker_private_ip}' -B2 | grep -oP '(?<=: )[^:@]+(?=:)'")

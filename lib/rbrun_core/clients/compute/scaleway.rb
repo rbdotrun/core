@@ -31,16 +31,29 @@ module RbrunCore
         def create_server(name:, instance_type:, image:, location: nil, user_data: nil, labels: {},
                           firewall_ids: [], network_ids: [])
           tags = labels_to_tags(labels)
-          payload = { name:, commercial_type: instance_type, image:, project: @project_id, tags: }
+          image_id = resolve_image(image, instance_type)
+          payload = { name:, commercial_type: instance_type, image: image_id, project: @project_id, tags: }
           payload[:security_group] = firewall_ids.first if firewall_ids&.any?
-
-          if user_data && !user_data.empty?
-            payload[:cloud_init] = user_data
-          end
 
           response = post(instance_path("/servers"), payload)
           server = to_server(response["server"])
+
+          # Set cloud-init user data via separate endpoint
+          if user_data && !user_data.empty?
+            set_user_data(server.id, user_data)
+          end
+
+          # Power on immediately (don't wait for stopped state)
           power_on(server.id)
+
+          # Wait for server to be running with public IP
+          server = wait_for_server(server.id, max_attempts: 60, interval: 3)
+
+          # Attach to private network if provided
+          if network_ids&.any?
+            network_ids.each { |net_id| create_private_nic(server.id, net_id) }
+          end
+
           server
         end
 
@@ -69,7 +82,7 @@ module RbrunCore
         def wait_for_server(id, max_attempts: 60, interval: 5)
           Waiter.poll(max_attempts:, interval:, message: "Server #{id} did not become running after #{max_attempts} attempts") do
             server = get_server(id)
-            server if server&.status == "running"
+            server if server&.status == "running" && server&.public_ipv4
           end
         end
 
@@ -99,7 +112,16 @@ module RbrunCore
 
         def power_on(id) = post(instance_path("/servers/#{id}/action"), { action: "poweron" })
         def power_off(id) = post(instance_path("/servers/#{id}/action"), { action: "poweroff" })
+
+        def create_private_nic(server_id, private_network_id)
+          post(instance_path("/servers/#{server_id}/private_nics"), { private_network_id: })
+        end
         def reboot(id) = post(instance_path("/servers/#{id}/action"), { action: "reboot" })
+
+        def set_user_data(server_id, content)
+          patch(instance_path("/servers/#{server_id}/user_data/cloud-init"), content,
+                content_type: "text/plain")
+        end
 
         # SSH Keys
         def find_or_create_ssh_key(name:, public_key:)
@@ -107,7 +129,7 @@ module RbrunCore
           return existing if existing
 
           response = post(iam_path("/ssh-keys"), { name:, public_key:, project_id: @project_id })
-          to_ssh_key(response["ssh_key"])
+          to_ssh_key(response)
         end
 
         def find_ssh_key(name)
@@ -131,6 +153,7 @@ module RbrunCore
           inbound_policy = rules&.any? ? "drop" : "accept"
           response = post(instance_path("/security_groups"), {
                             name:, project: @project_id,
+                            stateful: true,
                             inbound_default_policy: inbound_policy, outbound_default_policy: "accept"
                           })
           sg = to_firewall(response["security_group"])
@@ -168,9 +191,9 @@ module RbrunCore
 
           response = post(vpc_path("/private-networks"), {
                             name:, project_id: @project_id,
-                            subnets: [ { subnet: "10.0.0.0/24" } ]
+                            subnets: [ "10.0.0.0/24" ]
                           })
-          to_network(response["private_network"])
+          to_network(response["private_network"] || response)
         end
 
         def find_network(name)
@@ -234,6 +257,25 @@ module RbrunCore
             { "X-Auth-Token" => @api_key }
           end
 
+          def resolve_image(image, instance_type)
+            # If it looks like a UUID, use it directly
+            return image if image =~ /^[a-f0-9-]{36}$/i
+
+            # Otherwise, look up by label (e.g., "ubuntu_jammy")
+            arch = instance_type_arch(instance_type)
+            # Use query params like working implementation
+            response = get("#{instance_path("/images")}?arch=#{arch}&name=#{image}")
+            found = response["images"]&.first
+            raise Error::Standard, "Image '#{image}' not found for arch #{arch}" unless found
+
+            found["id"]
+          end
+
+          def instance_type_arch(instance_type)
+            # DEV1, GP1, PLAY2 are x86_64; AMP2, COPARM1 are arm64
+            instance_type.upcase.start_with?("AMP", "COPARM") ? "arm64" : "x86_64"
+          end
+
           def wait_for_server_stopped(id, max_attempts: 30, interval: 5)
             Waiter.poll(max_attempts:, interval:, message: "Server #{id} did not stop after #{max_attempts} attempts") do
               server = get_server(id)
@@ -294,10 +336,11 @@ module RbrunCore
           end
 
           def to_network(data)
-            subnets = data["subnets"]&.map { |s| s["subnet"] } || []
+            raw_subnets = data["subnets"] || []
+            subnets = raw_subnets.map { |s| s.is_a?(Hash) ? s["subnet"] : s }.compact
             Types::Network.new(
               id: data["id"], name: data["name"],
-              ip_range: subnets.first,
+              ip_range: subnets.first || data.dig("subnets", 0, "subnet"),
               subnets:,
               location: data["region"],
               created_at: data["created_at"]

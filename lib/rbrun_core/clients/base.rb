@@ -31,6 +31,20 @@ module RbrunCore
           handle_response(connection.put(normalize_path(path), body))
         end
 
+        def patch(path, body = {}, content_type: nil)
+          if content_type
+            response = raw_connection.patch(normalize_path(path)) do |req|
+              req.headers["Content-Type"] = content_type
+              auth_headers.each { |k, v| req.headers[k] = v }
+              req.body = body
+            end
+            raise_api_error(response) unless response.success?
+            response.body
+          else
+            handle_response(connection.patch(normalize_path(path), body))
+          end
+        end
+
         def delete(path)
           response = connection.delete(normalize_path(path))
           return nil if [ 204, 404 ].include?(response.status)
@@ -49,10 +63,18 @@ module RbrunCore
         end
 
         def connection
-          @connection ||= Faraday.new(url: base_url, ssl: { verify: false }) do |f|
+          @connection ||= Faraday.new(url: base_url) do |f|
             f.request :json
             f.response :json
             auth_headers.each { |k, v| f.headers[k] = v }
+            f.options.timeout = @timeout
+            f.options.open_timeout = @open_timeout
+            f.adapter Faraday.default_adapter
+          end
+        end
+
+        def raw_connection
+          @raw_connection ||= Faraday.new(url: base_url) do |f|
             f.options.timeout = @timeout
             f.options.open_timeout = @open_timeout
             f.adapter Faraday.default_adapter
