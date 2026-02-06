@@ -46,6 +46,55 @@ module RbrunCore
         run!("kubectl rollout status deployment/#{deployment} -n #{namespace} --timeout=#{timeout}s")
       end
 
+      # Get deployment replica status for progress tracking.
+      # Returns { name:, ready:, desired:, available:, updated:, ready?: }
+      def deployment_status(deployment, namespace: "default")
+        result = run!(
+          "kubectl get deployment #{deployment} -n #{namespace} -o json",
+          raise_on_error: false
+        )
+
+        return nil unless result[:exit_code].zero?
+
+        data = JSON.parse(result[:output])
+        status = data["status"] || {}
+        spec = data["spec"] || {}
+
+        desired = spec["replicas"] || 0
+        ready = status["readyReplicas"] || 0
+        available = status["availableReplicas"] || 0
+        updated = status["updatedReplicas"] || 0
+
+        {
+          name: deployment,
+          ready:,
+          desired:,
+          available:,
+          updated:,
+          ready?: ready >= desired && updated >= desired && available >= desired
+        }
+      end
+
+      # Wait for multiple deployments to roll out, yielding progress updates.
+      # Yields { name:, ready:, desired:, ready?: } for each deployment on each poll.
+      def wait_for_deployments(deployments, namespace: "default", timeout: 300, interval: 2)
+        deadline = Time.now + timeout
+        pending = deployments.dup
+
+        while pending.any? && Time.now < deadline
+          pending.each do |deployment|
+            status = deployment_status(deployment, namespace:)
+            yield status if block_given? && status
+
+            pending.delete(deployment) if status&.dig(:ready?)
+          end
+
+          sleep interval if pending.any? && Time.now < deadline
+        end
+
+        raise Error::Standard, "Rollout timed out for: #{pending.join(", ")}" if pending.any?
+      end
+
       def exec(deployment, command, namespace: "default")
         pod = get_pod_name(deployment, namespace:)
         raise Error::Standard, "No running pod found for #{deployment}" unless pod

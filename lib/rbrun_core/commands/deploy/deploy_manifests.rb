@@ -6,9 +6,10 @@ module RbrunCore
       class DeployManifests
         HTTP_NODE_PORT = 30_080
 
-        def initialize(ctx, logger: nil)
+        def initialize(ctx, logger: nil, on_rollout_progress: nil)
           @ctx = ctx
           @logger = logger
+          @on_rollout_progress = on_rollout_progress
         end
 
         def run
@@ -52,19 +53,44 @@ module RbrunCore
           end
 
           def wait_for_rollout!
+            deployments = collect_deployments
+            return if deployments.empty?
+
+            if @on_rollout_progress
+              # Use polling with progress callback
+              @on_rollout_progress.call(:start, deployments)
+
+              kubectl.wait_for_deployments(deployments, timeout: 300) do |status|
+                @on_rollout_progress.call(:update, status)
+              end
+
+              @on_rollout_progress.call(:done, nil)
+            else
+              # Fallback to sequential rollout status (no progress display)
+              deployments.each do |deployment|
+                kubectl.rollout_status(deployment, timeout: 300)
+              end
+            end
+          end
+
+          def collect_deployments
+            deployments = []
+
             @ctx.config.database_configs.each_key do |type|
-              kubectl.rollout_status("#{@ctx.prefix}-#{type}", timeout: 300)
+              deployments << "#{@ctx.prefix}-#{type}"
             end
 
             @ctx.config.service_configs.each_key do |name|
-              kubectl.rollout_status("#{@ctx.prefix}-#{name}", timeout: 120)
+              deployments << "#{@ctx.prefix}-#{name}"
             end
 
-            return unless @ctx.config.app?
-
-            @ctx.config.app_config.processes.each_key do |name|
-              kubectl.rollout_status("#{@ctx.prefix}-#{name}", timeout: 300)
+            if @ctx.config.app?
+              @ctx.config.app_config.processes.each_key do |name|
+                deployments << "#{@ctx.prefix}-#{name}"
+              end
             end
+
+            deployments
           end
 
           def kubectl

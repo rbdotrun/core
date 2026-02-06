@@ -3,11 +3,12 @@
 module RbrunCore
   module Commands
     class Deploy
-      def initialize(ctx, logger: nil, on_log: nil, on_state_change: nil)
+      def initialize(ctx, logger: nil, on_log: nil, on_state_change: nil, on_rollout_progress: nil)
         @ctx = ctx
         @logger = logger
         @on_log = on_log
         @on_state_change = on_state_change
+        @on_rollout_progress = on_rollout_progress
       end
 
       def run
@@ -20,7 +21,7 @@ module RbrunCore
           BuildImage.new(@ctx, logger: @logger).run
           CleanupImages.new(@ctx, logger: @logger).run
         end
-        DeployManifests.new(@ctx, logger: @logger).run
+        DeployManifests.new(@ctx, logger: @logger, on_rollout_progress: @on_rollout_progress).run
         remove_excess_servers!
 
         change_state(:deployed)

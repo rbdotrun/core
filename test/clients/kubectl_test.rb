@@ -96,4 +96,120 @@ class KubectlTest < Minitest::Test
 
     assert(cmds.any? { |c| c.include?("kubectl delete node my-node --ignore-not-found") })
   end
+
+  def test_deployment_status_returns_replica_counts
+    json = {
+      "spec" => { "replicas" => 3 },
+      "status" => {
+        "readyReplicas" => 2,
+        "availableReplicas" => 2,
+        "updatedReplicas" => 3
+      }
+    }.to_json
+
+    with_mocked_ssh(output: json) do
+      ctx = build_context
+      ctx.server_ip = "1.2.3.4"
+      ctx.ssh_private_key = TEST_SSH_KEY.private_key
+
+      kubectl = RbrunCore::Clients::Kubectl.new(ctx.ssh_client)
+      status = kubectl.deployment_status("myapp-web")
+
+      assert_equal "myapp-web", status[:name]
+      assert_equal 3, status[:desired]
+      assert_equal 2, status[:ready]
+      assert_equal 2, status[:available]
+      assert_equal 3, status[:updated]
+      refute status[:ready?]
+    end
+  end
+
+  def test_deployment_status_ready_when_all_replicas_available
+    json = {
+      "spec" => { "replicas" => 2 },
+      "status" => {
+        "readyReplicas" => 2,
+        "availableReplicas" => 2,
+        "updatedReplicas" => 2
+      }
+    }.to_json
+
+    with_mocked_ssh(output: json) do
+      ctx = build_context
+      ctx.server_ip = "1.2.3.4"
+      ctx.ssh_private_key = TEST_SSH_KEY.private_key
+
+      kubectl = RbrunCore::Clients::Kubectl.new(ctx.ssh_client)
+      status = kubectl.deployment_status("myapp-web")
+
+      assert status[:ready?]
+    end
+  end
+
+  def test_deployment_status_returns_nil_on_error
+    with_mocked_ssh(output: "", exit_code: 1, exit_code_for: { "kubectl get deployment" => 1 }) do
+      ctx = build_context
+      ctx.server_ip = "1.2.3.4"
+      ctx.ssh_private_key = TEST_SSH_KEY.private_key
+
+      kubectl = RbrunCore::Clients::Kubectl.new(ctx.ssh_client)
+      status = kubectl.deployment_status("nonexistent")
+
+      assert_nil status
+    end
+  end
+
+  def test_wait_for_deployments_yields_progress
+    json = {
+      "spec" => { "replicas" => 1 },
+      "status" => {
+        "readyReplicas" => 1,
+        "availableReplicas" => 1,
+        "updatedReplicas" => 1
+      }
+    }.to_json
+
+    with_mocked_ssh(output: json) do
+      ctx = build_context
+      ctx.server_ip = "1.2.3.4"
+      ctx.ssh_private_key = TEST_SSH_KEY.private_key
+
+      kubectl = RbrunCore::Clients::Kubectl.new(ctx.ssh_client)
+      updates = []
+
+      kubectl.wait_for_deployments(["myapp-web"], timeout: 5, interval: 0) do |status|
+        updates << status
+      end
+
+      assert_equal 1, updates.length
+      assert_equal "myapp-web", updates.first[:name]
+      assert updates.first[:ready?]
+    end
+  end
+
+  def test_wait_for_deployments_raises_on_timeout
+    json = {
+      "spec" => { "replicas" => 2 },
+      "status" => {
+        "readyReplicas" => 0,
+        "availableReplicas" => 0,
+        "updatedReplicas" => 0
+      }
+    }.to_json
+
+    with_mocked_ssh(output: json) do
+      ctx = build_context
+      ctx.server_ip = "1.2.3.4"
+      ctx.ssh_private_key = TEST_SSH_KEY.private_key
+
+      kubectl = RbrunCore::Clients::Kubectl.new(ctx.ssh_client)
+
+      error = assert_raises(RbrunCore::Error::Standard) do
+        kubectl.wait_for_deployments(["myapp-web"], timeout: 0.1, interval: 0.05) {}
+      end
+
+      assert_includes error.message, "Rollout timed out"
+      assert_includes error.message, "myapp-web"
+    end
+  end
 end
