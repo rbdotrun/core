@@ -33,6 +33,13 @@ module RbrunCore
           raise NotImplementedError, "#{self.class}#delete_server not implemented"
         end
 
+        def delete_server_by_name(name)
+          server = find_server(name)
+          return nil unless server
+
+          delete_server(server.id)
+        end
+
         def wait_for_server(id)
           raise NotImplementedError, "#{self.class}#wait_for_server not implemented"
         end

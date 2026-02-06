@@ -39,33 +39,8 @@ module RbrunCore
                     "Cannot remove master node #{@ctx.prefix}-#{master_key} — scale down other groups first"
             end
 
-            # Scale down (highest index first)
-            unless to_remove.empty?
-              # Need kubectl via master SSH for drain/delete
-              master_existing = existing[master_key]
-              @ctx.server_ip = master_existing[:ip]
-
-              to_remove.sort.reverse.each do |key|
-                node_name = "#{@ctx.prefix}-#{key}"
-                log("scale_down", "Removing #{node_name}")
-
-                begin
-                  kubectl = Clients::Kubectl.new(@ctx.ssh_client)
-                  kubectl.drain(node_name, max_attempts: 1, interval: 0)
-                rescue Error::Standard => e
-                  log("drain_warning", "Drain failed for #{node_name}: #{e.message}, continuing")
-                end
-
-                begin
-                  kubectl = Clients::Kubectl.new(@ctx.ssh_client)
-                  kubectl.delete_node(node_name, max_attempts: 1, interval: 0)
-                rescue Error::Standard
-                  # best effort
-                end
-
-                compute_client.delete_server(existing[key][:id])
-              end
-            end
+            # Store servers to remove - will be removed after deploy_manifests
+            @ctx.servers_to_remove = to_remove.sort.reverse.map { |key| "#{@ctx.prefix}-#{key}" }
 
             # Build servers hash from kept existing servers
             servers = {}

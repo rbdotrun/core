@@ -321,7 +321,7 @@ module RbrunCore
           assert_equal Set["app-2", "app-3", "db-1"], ctx.new_servers
         end
 
-        def test_scale_down_drains_and_deletes_excess
+        def test_scale_down_stores_servers_to_remove
           ctx = build_multi_server_context_with_count(app: 1, db: 1)
           # Existing: master-1, app-1, app-2, app-3, db-1
           existing_list = [
@@ -334,15 +334,14 @@ module RbrunCore
 
           stub_all_existing_for!(ctx)
           stub_reconciliation_servers!(ctx, existing_list)
-          stub_server_deletion!
 
-          with_mocked_ssh(output: "", exit_code_for: { "kubectl get node" => 1 }) do
+          with_mocked_ssh(output: "", exit_code: 0) do
             CreateInfrastructure.new(ctx, logger: TestLogger.new).run
           end
 
-          assert_requested(:delete, /servers\/3/)
-          assert_requested(:delete, /servers\/4/)
-          # master-1, app-1, db-1 remain
+          # Servers to remove stored for later (highest index first)
+          assert_equal [ "#{ctx.prefix}-app-3", "#{ctx.prefix}-app-2" ], ctx.servers_to_remove
+          # master-1, app-1, db-1 remain in servers hash
           assert_equal 3, ctx.servers.size
           assert_includes ctx.servers.keys, "master-1"
           assert_includes ctx.servers.keys, "app-1"
@@ -361,36 +360,33 @@ module RbrunCore
 
           stub_all_existing_for!(ctx)
           stub_reconciliation_servers!(ctx, existing_list)
-          stub_server_deletion!
 
-          with_mocked_ssh(output: "", exit_code_for: { "kubectl get node" => 1 }) do
+          with_mocked_ssh(output: "", exit_code: 0) do
             CreateInfrastructure.new(ctx, logger: TestLogger.new).run
           end
 
-          # master-1 and db-1 kept, app-2 removed
+          # master-1 kept in servers, app-2 marked for removal
           assert_includes ctx.servers.keys, "master-1"
-          assert_requested(:delete, /servers\/3/)
-          assert_not_requested(:delete, /servers\/1/)
+          assert_equal [ "#{ctx.prefix}-app-2" ], ctx.servers_to_remove
         end
 
-        def test_drain_failure_continues_with_deletion
-          ctx = build_multi_server_context_with_count(app: 1, db: 0)
+        def test_servers_to_remove_is_empty_when_no_scale_down
+          ctx = build_multi_server_context
           existing_list = [
             hetzner_named_server(ctx, "master-1", 1),
-            hetzner_named_server(ctx, "app-1", 2),
-            hetzner_named_server(ctx, "app-2", 3)
+            hetzner_named_server(ctx, "web-1", 2),
+            hetzner_named_server(ctx, "web-2", 3),
+            hetzner_named_server(ctx, "worker-1", 4)
           ]
 
           stub_all_existing_for!(ctx)
           stub_reconciliation_servers!(ctx, existing_list)
-          stub_server_deletion!
 
-          # drain will see non-empty pods output (triggering the "still has pods" error), but we rescue it
-          with_mocked_ssh(output: "some-pod", exit_code_for: { "kubectl get node" => 1 }) do
+          with_mocked_ssh(output: "ok", exit_code: 0) do
             CreateInfrastructure.new(ctx, logger: TestLogger.new).run
           end
 
-          assert_requested(:delete, /servers\/3/)
+          assert_empty ctx.servers_to_remove
         end
 
         def test_no_change_when_counts_match
