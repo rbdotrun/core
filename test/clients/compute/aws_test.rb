@@ -15,13 +15,13 @@ module RbrunCore
         end
 
         def test_raises_without_access_key
-          assert_raises(RbrunCore::Error) do
+          assert_raises(RbrunCore::Error::Standard) do
             Aws.new(access_key_id: nil, secret_access_key: @secret_access_key, region: @region)
           end
         end
 
         def test_raises_without_secret_access_key
-          assert_raises(RbrunCore::Error) do
+          assert_raises(RbrunCore::Error::Standard) do
             Aws.new(access_key_id: @access_key_id, secret_access_key: nil, region: @region)
           end
         end
@@ -144,7 +144,7 @@ module RbrunCore
           stub_describe_regions_unauthorized
           client = build_client
 
-          assert_raises(RbrunCore::Error) { client.validate_credentials }
+          assert_raises(RbrunCore::Error::Standard) { client.validate_credentials }
         end
 
         # get_server tests

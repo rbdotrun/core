@@ -5,21 +5,21 @@ module RbrunCore
     class << self
       def current_branch
         branch = `git rev-parse --abbrev-ref HEAD 2>/dev/null`.strip
-        raise Error, "Not in a git repository" if branch.empty?
+        raise Error::Standard, "Not in a git repository" if branch.empty?
 
         branch
       end
 
       def repo_from_remote
         url = `git remote get-url origin 2>/dev/null`.strip
-        raise Error, "No git remote 'origin' found" if url.empty?
+        raise Error::Standard, "No git remote 'origin' found" if url.empty?
 
         extract_repo(url)
       end
 
       def gh_auth_token
         token = `gh auth token 2>/dev/null`.strip
-        raise Error, "GitHub CLI not authenticated — run `gh auth login`" if token.empty?
+        raise Error::Standard, "GitHub CLI not authenticated — run `gh auth login`" if token.empty?
 
         token
       end

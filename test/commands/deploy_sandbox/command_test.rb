@@ -56,12 +56,12 @@ module RbrunCore
         states = []
         boom = lambda { |*|
           o = Object.new
-          o.define_singleton_method(:run) { raise RbrunCore::Error, "boom" }
+          o.define_singleton_method(:run) { raise RbrunCore::Error::Standard, "boom" }
           o
         }
 
         Shared::CreateInfrastructure.stub(:new, boom) do
-          assert_raises(RbrunCore::Error) do
+          assert_raises(RbrunCore::Error::Standard) do
             DeploySandbox.new(@ctx,
                               logger: TestLogger.new,
                               on_state_change: ->(s) { states << s }).run

@@ -1,13 +1,14 @@
 # frozen_string_literal: true
 
-require "net/ssh"
-require "net/scp"
+require "sshkit"
 require "shellwords"
 require "base64"
+require "stringio"
 
 module RbrunCore
   module Clients
     # SSH utility for remote command execution and file transfers.
+    # Wraps SSHKit while maintaining the original API.
     class Ssh
       class Error < StandardError; end
       class AuthenticationError < Error; end
@@ -31,51 +32,43 @@ module RbrunCore
         @user = user
         @port = port
         @strict_mode = strict_host_key_checking
+
+        @sshkit_host = SSHKit::Host.new("#{@user}@#{@host}:#{@port}").tap do |h|
+          h.ssh_options = ssh_options
+        end
       end
 
       # Execute a command on the remote server.
-      def execute(command, cwd: nil, timeout: nil, raise_on_error: true, &)
+      def execute(command, cwd: nil, timeout: nil, raise_on_error: true, &block)
         full_command = build_command(command, cwd:)
+        output = String.new
+        exit_code = nil
 
-        with_ssh_session(timeout:) do |ssh|
-          output = String.new
-          exit_code = nil
+        with_backend(timeout:) do |backend|
+          # Use capture to get output, but we need to handle exit codes
+          begin
+            result = backend.capture(full_command, verbosity: :debug, strip: false)
+            output = result.to_s
+            exit_code = 0
 
-          channel = ssh.open_channel do |ch|
-            ch.exec(full_command) do |ch2, success|
-              raise Error, "Failed to execute command" unless success
+            yield_lines(output, &block) if block_given?
+          rescue SSHKit::Command::Failed => e
+            # SSHKit wraps the command, extract exit code from it
+            exit_code = e.cause.is_a?(SSHKit::Command) ? e.cause.exit_status : 1
+            output = e.message
+            yield_lines(output, &block) if block_given?
 
-              ch2.eof!
-
-              ch2.on_data do |_, data|
-                output << data
-                yield_lines(data, &) if block_given?
-              end
-
-              ch2.on_extended_data do |_, _, data|
-                output << data
-                yield_lines(data, &) if block_given?
-              end
-
-              ch2.on_request("exit-status") do |_, data|
-                exit_code = data.read_long
-              end
+            if raise_on_error
+              raise CommandError.new(
+                "Command failed (exit code: #{exit_code}): #{command}",
+                exit_code:,
+                output: output.strip
+              )
             end
           end
-
-          channel.wait
-          exit_code ||= 0
-
-          if raise_on_error && exit_code != 0
-            raise CommandError.new(
-              "Command failed (exit code: #{exit_code}): #{command}",
-              exit_code:,
-              output: output.strip
-            )
-          end
-
-          { output: output.strip, exit_code: }
         end
+
+        { output: output.strip, exit_code: exit_code || 0 }
       end
 
       # Execute a command with retry on ConnectionError.
@@ -94,9 +87,9 @@ module RbrunCore
 
       # Check if SSH connection is available.
       def available?(timeout: 10)
-        with_ssh_session(timeout:) do |ssh|
-          result = ssh.exec!("echo ok")
-          result&.strip == "ok"
+        with_backend(timeout:) do |backend|
+          result = backend.capture("echo ok", verbosity: :debug)
+          result.strip == "ok"
         end
       rescue Error, Errno::ECONNREFUSED, Errno::EHOSTUNREACH, SocketError
         false
@@ -112,29 +105,30 @@ module RbrunCore
 
       # Upload a file to the remote server.
       def upload(local_path, remote_path)
-        with_ssh_session do |ssh|
-          ssh.scp.upload!(local_path, remote_path)
+        with_backend do |backend|
+          backend.upload!(local_path, remote_path)
         end
         true
       end
 
       # Upload content directly to a remote file.
       def upload_content(content, remote_path, mode: "0644")
-        with_ssh_session do |ssh|
+        with_backend do |backend|
           dir = File.dirname(remote_path)
-          ssh.exec!("mkdir -p #{Shellwords.escape(dir)}")
+          backend.execute(:mkdir, "-p", dir)
 
-          encoded = Base64.strict_encode64(content)
-          ssh.exec!("echo #{Shellwords.escape(encoded)} | base64 -d > #{Shellwords.escape(remote_path)}")
-          ssh.exec!("chmod #{mode} #{Shellwords.escape(remote_path)}")
+          # Upload via StringIO
+          io = StringIO.new(content)
+          backend.upload!(io, remote_path)
+          backend.execute(:chmod, mode, remote_path)
         end
         true
       end
 
       # Download a file from the remote server.
       def download(remote_path, local_path)
-        with_ssh_session do |ssh|
-          ssh.scp.download!(remote_path, local_path)
+        with_backend do |backend|
+          backend.download!(remote_path, local_path)
         end
         true
       end
@@ -161,21 +155,31 @@ module RbrunCore
         end
 
         def yield_lines(data)
-          data.each_line do |line|
+          data.to_s.each_line do |line|
             yield line.chomp
           end
         end
 
-        def with_ssh_session(timeout: nil, &)
-          options = {
+        def ssh_options
+          {
+            keys_only: true,
+            keys: [],
             key_data: [ @private_key ],
-            non_interactive: true,
             verify_host_key: @strict_mode ? :accept_new : :never,
-            logger: ::Logger.new(IO::NULL),
-            timeout: timeout || 30
+            logger: ::Logger.new(IO::NULL)
           }
+        end
 
-          Net::SSH.start(@host, @user, options, &)
+        def with_backend(timeout: nil)
+          # Create a backend with custom timeout if specified
+          backend = SSHKit::Backend::Netssh.new(@sshkit_host)
+
+          if timeout
+            original_options = @sshkit_host.ssh_options.dup
+            @sshkit_host.ssh_options = original_options.merge(timeout:)
+          end
+
+          yield backend
         rescue Net::SSH::AuthenticationFailed => e
           raise AuthenticationError, "SSH authentication failed for #{@user}@#{@host}: #{e.message}"
         rescue Net::SSH::ConnectionTimeout => e
@@ -186,6 +190,8 @@ module RbrunCore
           raise ConnectionError, "Host unreachable: #{@host}: #{e.message}"
         rescue SocketError => e
           raise ConnectionError, "Socket error connecting to #{@host}: #{e.message}"
+        ensure
+          @sshkit_host.ssh_options = original_options if timeout && original_options
         end
     end
   end

@@ -7,7 +7,7 @@ module RbrunCore
 
       def initialize(token:)
         @token = token
-        raise RbrunCore::Error, "GitHub token is required" if @token.nil? || @token.empty?
+        raise Error::Standard, "GitHub token is required" if @token.nil? || @token.empty?
 
         super()
       end

@@ -117,7 +117,7 @@ module RbrunCore
             ssh_key_path: #{TEST_SSH_KEY_PATH}
         YAML
 
-        assert_raises(RbrunCore::ConfigurationError) { load_yaml(yaml) }
+        assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
       end
 
       def test_loads_databases
@@ -153,7 +153,7 @@ module RbrunCore
             redis: {}
         YAML
 
-        assert_raises(RbrunCore::ConfigurationError) { load_yaml(yaml) }
+        assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
       end
 
       def test_loads_services_with_image
@@ -196,7 +196,7 @@ module RbrunCore
             redis: {}
         YAML
 
-        assert_raises(RbrunCore::ConfigurationError) { load_yaml(yaml) }
+        assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
       end
 
       def test_loads_app_with_processes
@@ -342,7 +342,7 @@ module RbrunCore
               runs_on: worker
         YAML
 
-        err = assert_raises(RbrunCore::ConfigurationError) { load_yaml(yaml) }
+        err = assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
 
         assert_match(/runs_on.*multi-server/, err.message)
         assert_match(/service/, err.message)
@@ -365,7 +365,7 @@ module RbrunCore
                   - web
         YAML
 
-        err = assert_raises(RbrunCore::ConfigurationError) { load_yaml(yaml) }
+        err = assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
 
         assert_match(/runs_on.*multi-server/, err.message)
         assert_match(/process/, err.message)

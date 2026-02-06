@@ -48,15 +48,14 @@ module RbrunCore
           def git_clone!(tmpdir)
             git_config = @ctx.config.git_config
             unless git_config&.pat && git_config&.repo
-              raise RbrunCore::Error, "No source_folder and no git config - cannot build"
+              raise Error::Standard, "No source_folder and no git config - cannot build"
             end
 
             clone_url = "https://#{git_config.pat}@github.com/#{git_config.repo}.git"
             branch = @ctx.branch || "main"
 
-            success = system("git", "clone", "--depth=1", "--branch", branch, clone_url, tmpdir,
-                             out: File::NULL, err: File::NULL)
-            raise RbrunCore::Error, "git clone failed for branch #{branch}" unless success
+            success = system("git", "clone", "--depth=1", "--branch", branch, clone_url, tmpdir, out: File::NULL, err: File::NULL)
+            raise Error::Standard, "git clone failed for branch #{branch}" unless success
           end
 
           def build_and_push!(context_path)
@@ -81,7 +80,7 @@ module RbrunCore
           def run_docker!(env, *args, chdir: nil)
             opts = chdir ? { chdir: } : {}
             success = system(env, "docker", *args, **opts)
-            raise RbrunCore::Error, "docker #{args.first} failed" unless success
+            raise Error::Standard, "docker #{args.first} failed" unless success
           end
 
           def ensure_host_key!

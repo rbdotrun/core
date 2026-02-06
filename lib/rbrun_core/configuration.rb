@@ -107,7 +107,7 @@ module RbrunCore
     # ─────────────────────────────────────────────────────────────
 
     def validate!
-      raise ConfigurationError, "Compute provider not configured" unless @compute_config
+      raise Error::Configuration, "Compute provider not configured" unless @compute_config
 
       @compute_config.validate!
       @cloudflare_config&.validate!
@@ -131,7 +131,7 @@ module RbrunCore
           next unless p.subdomain && !p.subdomain.empty?
 
           if p.replicas < 2
-            raise ConfigurationError,
+            raise Error::Configuration,
                   "Process #{name} has a subdomain and requires at least 2 replicas for zero-downtime deploys"
           end
         end
@@ -146,7 +146,7 @@ module RbrunCore
         return unless has_subdomain
 
         unless cloudflare_configured?
-          raise ConfigurationError,
+          raise Error::Configuration,
                 "Cloudflare configuration required when processes or services have subdomains"
         end
       end
@@ -158,7 +158,7 @@ module RbrunCore
 
   module Config
     class Database
-      attr_accessor :password, :username, :database
+      attr_accessor :password, :username, :database, :runs_on
       attr_reader :type, :backup_config
       attr_writer :image
 
@@ -173,6 +173,7 @@ module RbrunCore
         @password = nil
         @username = "app"
         @database = "app"
+        @runs_on = nil
       end
 
       def backup

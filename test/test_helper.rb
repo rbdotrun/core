@@ -13,11 +13,7 @@ SimpleCov.start do
   ])
 end
 
-# Suppress net-ssh gem warnings about redefined nonce= method
-original_verbose = $VERBOSE
-$VERBOSE = nil
 require "rbrun_core"
-$VERBOSE = original_verbose
 require "minitest/autorun"
 require "webmock/minitest"
 require "sshkey"
@@ -30,66 +26,84 @@ File.write(TEST_SSH_KEY_PATH, TEST_SSH_KEY.private_key)
 File.write("#{TEST_SSH_KEY_PATH}.pub", TEST_SSH_KEY.ssh_public_key)
 Minitest.after_run { FileUtils.rm_rf(TEST_SSH_KEY_DIR) }
 
-# ── SSH mock objects ──
+# ── SSH mock client ──
 
-class MockExitData
-  def initialize(code) = @code = code
-  def read_long = @code
-end
+class MockSshClient
+  attr_reader :host, :user, :commands
 
-class MockSubChannel
-  attr_reader :output, :exit_code
-
-  def initialize(output, exit_code)
+  def initialize(host:, private_key:, user: "root", output: "ok",
+                 exit_code: 0, exit_code_for: {}, commands: [], **)
+    @host = host
+    @user = user
     @output = output
     @exit_code = exit_code
+    @exit_code_for = exit_code_for
+    @commands = commands
   end
 
-  def eof! = nil
+  def execute(command, cwd: nil, timeout: nil, raise_on_error: true, &block)
+    full_cmd = cwd ? "cd #{Shellwords.escape(cwd)} && #{command}" : command
+    @commands << full_cmd
 
-  def on_data
-    yield(nil, @output) unless @output.nil? || @output.empty?
+    code = @exit_code_for.find { |p, _| full_cmd.include?(p) }&.last || @exit_code
+
+    if @output && block_given?
+      @output.to_s.each_line { |line| block.call(line.chomp) }
+    end
+
+    if raise_on_error && code != 0
+      raise RbrunCore::Clients::Ssh::CommandError.new(
+        "Command failed (exit code: #{code}): #{command}",
+        exit_code: code,
+        output: @output.to_s.strip
+      )
+    end
+
+    { output: @output.to_s.strip, exit_code: code }
   end
 
-  def on_extended_data = nil
-
-  def on_request(type)
-    yield(nil, MockExitData.new(@exit_code)) if type == "exit-status"
-  end
-end
-
-class MockChannel
-  attr_reader :commands
-
-  def initialize(output: "ok", exit_code: 0, exit_code_for: nil)
-    @output = output
-    @exit_code = exit_code
-    @exit_code_for = exit_code_for || {}
-    @commands = []
+  def execute_with_retry(command, retries: 3, backoff: 2, **)
+    execute(command, **)
   end
 
-  def wait = nil
-
-  def exec(cmd, &block)
-    @commands << cmd
-    code = @exit_code_for.find { |pattern, _| cmd.include?(pattern) }&.last || @exit_code
-    block.call(MockSubChannel.new(@output, code), true)
-  end
-end
-
-class MockSsh
-  attr_reader :channel
-
-  def initialize(channel)
-    @channel = channel
+  def execute_ignore_errors(command, cwd: nil)
+    execute(command, cwd:, raise_on_error: false)
+  rescue RbrunCore::Clients::Ssh::Error
+    nil
   end
 
-  def open_channel(&block)
-    block.call(@channel)
-    @channel
+  def available?(timeout: 10)
+    true
   end
 
-  def exec!(_) = "ok"
+  def wait_until_ready(max_attempts: 60, interval: 5)
+    true
+  end
+
+  def upload(local_path, remote_path)
+    @commands << "upload:#{local_path}:#{remote_path}"
+    true
+  end
+
+  def upload_content(content, remote_path, mode: "0644")
+    @commands << "upload_content:#{remote_path}"
+    true
+  end
+
+  def download(remote_path, local_path)
+    @commands << "download:#{remote_path}:#{local_path}"
+    true
+  end
+
+  def read_file(remote_path)
+    @commands << "cat #{Shellwords.escape(remote_path)}"
+    @output
+  end
+
+  def write_file(remote_path, content, append: false)
+    @commands << "write_file:#{remote_path}"
+    true
+  end
 end
 
 # Test logger that captures log calls
@@ -163,24 +177,24 @@ module RbrunCoreTestSetup
       { "Content-Type" => "application/json" }
     end
 
-    # Stub SSH with fixed output. Yields block with Net::SSH stubbed.
+    # Stub SSH with MockSshClient. Returns commands array.
     # Pass exit_code_for: { "test -d" => 1 } to vary exit code per command pattern.
-    def with_mocked_ssh(output: "ok", exit_code: 0, exit_code_for: nil, &)
-      channel = MockChannel.new(output:, exit_code:, exit_code_for:)
-      ssh = MockSsh.new(channel)
-      Net::SSH.stub(:start, ->(_, _, _, &b) { b.call(ssh) }, &)
+    def with_mocked_ssh(output: "ok", exit_code: 0, exit_code_for: nil, &block)
+      commands = []
+      RbrunCore::Clients::Ssh.stub(:new, ->(**opts) {
+        MockSshClient.new(output:, exit_code:, exit_code_for: exit_code_for || {},
+                          commands:, **opts)
+      }, &block)
+      commands
     end
 
-    def with_mocked_ssh_error(error, &)
-      Net::SSH.stub(:start, ->(*) { raise error }, &)
+    def with_mocked_ssh_error(error, &block)
+      RbrunCore::Clients::Ssh.stub(:new, ->(**) { raise error }, &block)
     end
 
     # Stub SSH and capture executed commands into the returned array.
-    def with_capturing_ssh(output: "ok", exit_code: 0, exit_code_for: nil, &)
-      channel = MockChannel.new(output:, exit_code:, exit_code_for:)
-      ssh = MockSsh.new(channel)
-      Net::SSH.stub(:start, ->(_, _, _, &b) { b.call(ssh) }, &)
-      channel.commands
+    def with_capturing_ssh(output: "ok", exit_code: 0, exit_code_for: nil, &block)
+      with_mocked_ssh(output:, exit_code:, exit_code_for:, &block)
     end
 end
 

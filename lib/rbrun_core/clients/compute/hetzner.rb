@@ -18,7 +18,7 @@ module RbrunCore
 
         def initialize(api_key:)
           @api_key = api_key
-          raise RbrunCore::Error, "Hetzner API key not configured" if @api_key.nil? || @api_key.empty?
+          raise Error::Standard, "Hetzner API key not configured" if @api_key.nil? || @api_key.empty?
 
           super(timeout: 300)
         end
@@ -50,7 +50,7 @@ module RbrunCore
         def get_server(id)
           response = get("/servers/#{id.to_i}")
           to_server(response["server"])
-        rescue HttpErrors::ApiError => e
+        rescue Error::Api => e
           raise unless e.not_found?
 
           nil
@@ -105,7 +105,7 @@ module RbrunCore
               wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
             rescue StandardError
             end
-          rescue HttpErrors::ApiError => e
+          rescue Error::Api => e
             return nil if e.not_found?
 
             raise
@@ -171,7 +171,7 @@ module RbrunCore
 
         def delete_network(id)
           delete("/networks/#{id.to_i}")
-        rescue HttpErrors::ApiError => e
+        rescue Error::Api => e
           raise unless e.not_found?
 
           nil
@@ -196,7 +196,7 @@ module RbrunCore
 
         def delete_firewall(id)
           delete("/firewalls/#{id.to_i}")
-        rescue HttpErrors::ApiError => e
+        rescue Error::Api => e
           raise unless e.not_found?
 
           nil
@@ -210,22 +210,98 @@ module RbrunCore
           }
         end
 
-        def wait_for_action(action_id, max_attempts: 30, interval: 2)
-          Waiter.poll(max_attempts:, interval:, message: "Action #{action_id} timed out") do
-            response = get("/actions/#{action_id}")
-            status = response.dig("action", "status")
-            raise RbrunCore::Error, "Action #{action_id} failed" if status == "error"
-            status == "success"
-          end
-        end
-
         def validate_credentials
           get("/server_types")
           true
-        rescue HttpErrors::ApiError => e
-          raise RbrunCore::Error, "Hetzner credentials invalid: #{e.message}" if e.unauthorized?
+        rescue Error::Api => e
+          raise Error::Standard, "Hetzner credentials invalid: #{e.message}" if e.unauthorized?
 
           raise
+        end
+
+        # Volume Management
+        def find_or_create_volume(name:, size:, location:, labels: {}, format: "xfs")
+          existing = find_volume(name)
+          return existing if existing
+
+          create_volume(name:, size:, location:, labels:, format:)
+        end
+
+        def create_volume(name:, size:, location:, labels: {}, format: "xfs")
+          response = post("/volumes", {
+                            name:, size:, location:, labels: labels || {},
+                            automount: false, format:
+                          })
+          to_volume(response["volume"])
+        end
+
+        def get_volume(id)
+          response = get("/volumes/#{id.to_i}")
+          to_volume(response["volume"])
+        rescue Error::Api => e
+          raise unless e.not_found?
+
+          nil
+        end
+
+        def find_volume(name)
+          response = get("/volumes", name:)
+          volume = response["volumes"]&.first
+          volume ? to_volume(volume) : nil
+        end
+
+        def list_volumes(label_selector: nil)
+          params = {}
+          params[:label_selector] = label_selector if label_selector
+          response = get("/volumes", params)
+          response["volumes"].map { |v| to_volume(v) }
+        end
+
+        def attach_volume(volume_id:, server_id:, automount: false)
+          volume = get_volume(volume_id)
+          if volume&.server_id && !volume.server_id.empty? && volume.server_id.to_s != server_id.to_s
+            detach_volume(volume_id:)
+          end
+
+          response = post("/volumes/#{volume_id.to_i}/actions/attach", {
+                            server: server_id.to_i, automount:
+                          })
+          wait_for_action(response["action"]["id"]) if response["action"]
+          get_volume(volume_id)
+        end
+
+        def detach_volume(volume_id:)
+          response = post("/volumes/#{volume_id.to_i}/actions/detach")
+          wait_for_action(response["action"]["id"]) if response["action"]
+        rescue Error::Api => e
+          raise unless e.message.include?("not attached")
+        end
+
+        def delete_volume(id)
+          delete("/volumes/#{id.to_i}")
+        rescue Error::Api => e
+          raise unless e.not_found?
+
+          nil
+        end
+
+        def resize_volume(id, size:)
+          response = post("/volumes/#{id.to_i}/actions/resize", { size: })
+          wait_for_action(response["action"]["id"]) if response["action"]
+          get_volume(id)
+        end
+
+        def wait_for_action(action_id, max_attempts: 60, interval: 2)
+          Waiter.poll(max_attempts:, interval:, message: "Action #{action_id} timed out after #{max_attempts * interval} seconds") do
+            response = get("/actions/#{action_id}")
+            status = response.dig("action", "status")
+
+            if status == "error"
+              raise Error::Standard, "Action #{action_id} failed: #{response.dig('action', 'error', 'message')}"
+            end
+
+            status == "success"
+          end
         end
 
         private
@@ -267,6 +343,16 @@ module RbrunCore
               id: data["id"].to_s, name: data["name"],
               ip_range: data["ip_range"], subnets: data["subnets"] || [],
               location: nil, created_at: data["created"]
+            )
+          end
+
+          def to_volume(data)
+            Types::Volume.new(
+              id: data["id"].to_s, name: data["name"],
+              size: data["size"], server_id: data["server"]&.to_s,
+              location: data.dig("location", "name"),
+              labels: data["labels"] || {},
+              created_at: data["created"]
             )
           end
 

@@ -252,12 +252,12 @@ class ConfigurationTest < Minitest::Test
   # ── Validation ──
 
   def test_validate_raises_without_compute
-    assert_raises(RbrunCore::ConfigurationError) { @config.validate! }
+    assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
   end
 
   def test_validate_raises_without_api_key
     @config.compute(:hetzner)
-    assert_raises(RbrunCore::ConfigurationError) { @config.validate! }
+    assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
   end
 
   def test_validate_passes_with_minimal_config
@@ -281,7 +281,7 @@ class ConfigurationTest < Minitest::Test
       end
     end
 
-    error = assert_raises(RbrunCore::ConfigurationError) { @config.validate! }
+    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
     assert_match(/Cloudflare configuration required/, error.message)
   end
 
@@ -295,7 +295,7 @@ class ConfigurationTest < Minitest::Test
       s.subdomain = "search"
     end
 
-    error = assert_raises(RbrunCore::ConfigurationError) { @config.validate! }
+    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
     assert_match(/Cloudflare configuration required/, error.message)
   end
 

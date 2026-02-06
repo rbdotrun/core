@@ -13,10 +13,10 @@ module RbrunCore
         SUBNET_CIDR = "10.0.1.0/24"
 
         def initialize(access_key_id:, secret_access_key:, region:)
-          raise RbrunCore::Error, "AWS access_key_id not configured" if access_key_id.nil? || access_key_id.empty?
+          raise Error::Standard, "AWS access_key_id not configured" if access_key_id.nil? || access_key_id.empty?
 
           if secret_access_key.nil? || secret_access_key.empty?
-            raise RbrunCore::Error, "AWS secret_access_key not configured"
+            raise Error::Standard, "AWS secret_access_key not configured"
           end
 
           @region = region
@@ -285,7 +285,7 @@ module RbrunCore
           @ec2.describe_regions
           true
         rescue ::Aws::EC2::Errors::AuthFailure => e
-          raise RbrunCore::Error, "AWS credentials invalid: #{e.message}"
+          raise Error::Standard, "AWS credentials invalid: #{e.message}"
         end
 
         def inventory
@@ -336,7 +336,7 @@ module RbrunCore
             )
 
             images = response.images.sort_by(&:creation_date).reverse
-            raise RbrunCore::Error, "No Ubuntu AMI found for #{image_hint}" if images.empty?
+            raise Error::Standard, "No Ubuntu AMI found for #{image_hint}" if images.empty?
 
             images.first.image_id
           end

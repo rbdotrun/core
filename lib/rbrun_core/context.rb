@@ -52,7 +52,7 @@ module RbrunCore
 
       def auto_detect_branch
         LocalGit.current_branch
-      rescue RbrunCore::Error
+      rescue Error::Standard
         nil
       end
   end

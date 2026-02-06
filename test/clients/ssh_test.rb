@@ -43,7 +43,7 @@ module RbrunCore
 
       def test_execute_returns_hash
         client = Ssh.new(host: @host, private_key: @private_key)
-        result = with_mocked_ssh(output: "hello", exit_code: 0) { client.execute("echo hello") }
+        result = with_sshkit_backend(output: "hello", exit_code: 0) { client.execute("echo hello") }
 
         assert_equal "hello", result[:output]
         assert_equal 0, result[:exit_code]
@@ -52,14 +52,14 @@ module RbrunCore
       def test_execute_raises_on_nonzero
         client = Ssh.new(host: @host, private_key: @private_key)
         error = assert_raises(Ssh::CommandError) do
-          with_mocked_ssh(output: "error", exit_code: 1) { client.execute("fail") }
+          with_sshkit_backend(output: "error", exit_code: 1) { client.execute("fail") }
         end
         assert_equal 1, error.exit_code
       end
 
       def test_execute_with_raise_on_error_false
         client = Ssh.new(host: @host, private_key: @private_key)
-        result = with_mocked_ssh(output: "error", exit_code: 1) { client.execute("fail", raise_on_error: false) }
+        result = with_sshkit_backend(output: "error", exit_code: 1) { client.execute("fail", raise_on_error: false) }
 
         assert_equal 1, result[:exit_code]
       end
@@ -67,7 +67,7 @@ module RbrunCore
       def test_execute_yields_lines
         client = Ssh.new(host: @host, private_key: @private_key)
         lines = []
-        with_mocked_ssh(output: "line1\nline2\nline3", exit_code: 0) do
+        with_sshkit_backend(output: "line1\nline2\nline3", exit_code: 0) do
           client.execute("cmd") { |line| lines << line }
         end
 
@@ -76,44 +76,42 @@ module RbrunCore
 
       def test_execute_ignore_errors_returns_result
         client = Ssh.new(host: @host, private_key: @private_key)
-        result = with_mocked_ssh(output: "ok", exit_code: 0) { client.execute_ignore_errors("cmd") }
+        result = with_sshkit_backend(output: "ok", exit_code: 0) { client.execute_ignore_errors("cmd") }
 
         assert_equal "ok", result[:output]
       end
 
       def test_execute_ignore_errors_returns_nil_on_error
         client = Ssh.new(host: @host, private_key: @private_key)
-        result = with_mocked_ssh_error(Ssh::Error.new("fail")) { client.execute_ignore_errors("cmd") }
+        result = with_sshkit_error(Ssh::Error.new("fail")) { client.execute_ignore_errors("cmd") }
 
         assert_nil result
       end
 
       def test_available_returns_true
         client = Ssh.new(host: @host, private_key: @private_key)
-        mock_ssh = Object.new
-        mock_ssh.define_singleton_method(:exec!) { |_| "ok" }
-        result = Net::SSH.stub(:start, ->(_h, _u, _o, &b) { b.call(mock_ssh) }) { client.available? }
+        result = with_sshkit_backend(output: "ok", exit_code: 0) { client.available? }
 
         assert result
       end
 
       def test_available_returns_false_on_error
         client = Ssh.new(host: @host, private_key: @private_key)
-        result = with_mocked_ssh_error(Errno::ECONNREFUSED.new) { client.available? }
+        result = with_sshkit_error(Errno::ECONNREFUSED.new) { client.available? }
 
         refute result
       end
 
       def test_read_file_returns_content
         client = Ssh.new(host: @host, private_key: @private_key)
-        content = with_mocked_ssh(output: "file content", exit_code: 0) { client.read_file("/etc/hosts") }
+        content = with_sshkit_backend(output: "file content", exit_code: 0) { client.read_file("/etc/hosts") }
 
         assert_equal "file content", content
       end
 
       def test_read_file_returns_nil_on_failure
         client = Ssh.new(host: @host, private_key: @private_key)
-        content = with_mocked_ssh(output: "No such file", exit_code: 1) { client.read_file("/missing") }
+        content = with_sshkit_backend(output: "No such file", exit_code: 1) { client.read_file("/missing") }
 
         assert_nil content
       end
@@ -121,45 +119,44 @@ module RbrunCore
       def test_raises_authentication_error
         client = Ssh.new(host: @host, private_key: @private_key)
         assert_raises(Ssh::AuthenticationError) do
-          with_mocked_ssh_error(Net::SSH::AuthenticationFailed.new("auth")) { client.execute("cmd") }
+          with_sshkit_error(Net::SSH::AuthenticationFailed.new("auth")) { client.execute("cmd") }
         end
       end
 
       def test_raises_connection_error_on_timeout
         client = Ssh.new(host: @host, private_key: @private_key)
         assert_raises(Ssh::ConnectionError) do
-          with_mocked_ssh_error(Net::SSH::ConnectionTimeout.new) { client.execute("cmd") }
+          with_sshkit_error(Net::SSH::ConnectionTimeout.new) { client.execute("cmd") }
         end
       end
 
       def test_raises_connection_error_on_refused
         client = Ssh.new(host: @host, private_key: @private_key)
         assert_raises(Ssh::ConnectionError) do
-          with_mocked_ssh_error(Errno::ECONNREFUSED.new) { client.execute("cmd") }
+          with_sshkit_error(Errno::ECONNREFUSED.new) { client.execute("cmd") }
         end
       end
 
       def test_raises_connection_error_on_unreachable
         client = Ssh.new(host: @host, private_key: @private_key)
         assert_raises(Ssh::ConnectionError) do
-          with_mocked_ssh_error(Errno::EHOSTUNREACH.new) { client.execute("cmd") }
+          with_sshkit_error(Errno::EHOSTUNREACH.new) { client.execute("cmd") }
         end
       end
 
       def test_execute_with_retry_retries_on_connection_error
         client = Ssh.new(host: @host, private_key: @private_key)
         call_count = 0
-        channel = MockChannel.new(output: "ok", exit_code: 0)
-        ssh = MockSsh.new(channel)
 
-        flaky = lambda { |_h, _u, _o, &b|
+        mock_backend = Object.new
+        mock_backend.define_singleton_method(:capture) { |*_args| "ok" }
+
+        SSHKit::Backend::Netssh.stub(:new, lambda { |_host|
           call_count += 1
           raise Errno::ECONNREFUSED, "refused" if call_count < 3
 
-          b.call(ssh)
-        }
-
-        Net::SSH.stub(:start, flaky) do
+          mock_backend
+        }) do
           result = client.execute_with_retry("echo hello", retries: 3, backoff: 0)
 
           assert_equal "ok", result[:output]
@@ -171,12 +168,10 @@ module RbrunCore
         client = Ssh.new(host: @host, private_key: @private_key)
         call_count = 0
 
-        always_fail = lambda { |*|
+        SSHKit::Backend::Netssh.stub(:new, lambda { |_host|
           call_count += 1
           raise Errno::ECONNREFUSED, "refused"
-        }
-
-        Net::SSH.stub(:start, always_fail) do
+        }) do
           assert_raises(Ssh::ConnectionError) do
             client.execute_with_retry("echo hello", retries: 3, backoff: 0)
           end
@@ -191,6 +186,32 @@ module RbrunCore
 
         assert backoff_param, "execute_with_retry should accept a backoff parameter"
       end
+
+      private
+
+        # Mock SSHKit backend for testing
+        def with_sshkit_backend(output: "ok", exit_code: 0, &block)
+          mock_backend = Object.new
+          mock_backend.define_singleton_method(:capture) do |*_args|
+            if exit_code != 0
+              cmd = SSHKit::Command.new(:test)
+              cmd.instance_variable_set(:@exit_status, exit_code)
+              error = SSHKit::Command::Failed.new("Command failed")
+              error.define_singleton_method(:cause) { cmd }
+              raise error
+            end
+            output
+          end
+          mock_backend.define_singleton_method(:upload!) { |*_args| true }
+          mock_backend.define_singleton_method(:download!) { |*_args| true }
+          mock_backend.define_singleton_method(:execute) { |*_args| true }
+
+          SSHKit::Backend::Netssh.stub(:new, ->(_host) { mock_backend }, &block)
+        end
+
+        def with_sshkit_error(error, &block)
+          SSHKit::Backend::Netssh.stub(:new, ->(_host) { raise error }, &block)
+        end
     end
   end
 end

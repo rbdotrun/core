@@ -24,7 +24,7 @@ class KubectlTest < Minitest::Test
 
       kubectl = RbrunCore::Clients::Kubectl.new(ctx.ssh_client)
 
-      error = assert_raises(RbrunCore::Error) do
+      error = assert_raises(RbrunCore::Error::Standard) do
         kubectl.exec("myapp-production-web", "rails console")
       end
       assert_includes error.message, "No running pod found"

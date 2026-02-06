@@ -12,8 +12,8 @@ module RbrunCore
           @api_key = api_key
           @project_id = project_id
           @zone = zone
-          raise RbrunCore::Error, "Scaleway API key not configured" if @api_key.nil? || @api_key.empty?
-          raise RbrunCore::Error, "Scaleway project ID not configured" if @project_id.nil? || @project_id.empty?
+          raise Error::Standard, "Scaleway API key not configured" if @api_key.nil? || @api_key.empty?
+          raise Error::Standard, "Scaleway project ID not configured" if @project_id.nil? || @project_id.empty?
 
           super(timeout: 300)
         end
@@ -47,7 +47,7 @@ module RbrunCore
         def get_server(id)
           response = get(instance_path("/servers/#{id}"))
           to_server(response["server"])
-        rescue HttpErrors::ApiError => e
+        rescue Error::Api => e
           raise unless e.not_found?
 
           nil
@@ -155,7 +155,7 @@ module RbrunCore
 
         def delete_firewall(id)
           delete(instance_path("/security_groups/#{id}"))
-        rescue HttpErrors::ApiError => e
+        rescue Error::Api => e
           raise unless e.not_found?
 
           nil
@@ -186,7 +186,15 @@ module RbrunCore
 
         def delete_network(id)
           delete(vpc_path("/private-networks/#{id}"))
-        rescue HttpErrors::ApiError => e
+        rescue Error::Api => e
+          raise unless e.not_found?
+
+          nil
+        end
+
+        def delete_volume(id)
+          delete(instance_path("/volumes/#{id}"))
+        rescue Error::Api => e
           raise unless e.not_found?
 
           nil
@@ -204,8 +212,8 @@ module RbrunCore
         def validate_credentials
           get(instance_path("/servers"), project: @project_id)
           true
-        rescue HttpErrors::ApiError => e
-          raise RbrunCore::Error, "Scaleway credentials invalid: #{e.message}" if e.unauthorized?
+        rescue Error::Api => e
+          raise Error::Standard, "Scaleway credentials invalid: #{e.message}" if e.unauthorized?
 
           raise
         end
@@ -252,7 +260,7 @@ module RbrunCore
 
           def delete_volume_internal(id)
             delete(instance_path("/volumes/#{id}"))
-          rescue HttpErrors::ApiError => e
+          rescue Error::Api => e
             raise unless e.not_found?
 
             nil

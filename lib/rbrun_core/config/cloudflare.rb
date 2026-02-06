@@ -13,9 +13,9 @@ module RbrunCore
 
       def validate!
         return unless configured?
-        raise ConfigurationError, "cloudflare.api_token is required" if api_token.nil? || api_token.empty?
-        raise ConfigurationError, "cloudflare.account_id is required" if account_id.nil? || account_id.empty?
-        raise ConfigurationError, "cloudflare.domain is required" if domain.nil? || domain.empty?
+        raise Error::Configuration, "cloudflare.api_token is required" if api_token.nil? || api_token.empty?
+        raise Error::Configuration, "cloudflare.account_id is required" if account_id.nil? || account_id.empty?
+        raise Error::Configuration, "cloudflare.domain is required" if domain.nil? || domain.empty?
       end
 
       def client

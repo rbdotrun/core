@@ -61,7 +61,7 @@ module RbrunCore
 
           step = BuildImage.new(@ctx, logger: TestLogger.new)
           step.stub(:system, true) do
-            assert_raises(RbrunCore::Error) { step.run }
+            assert_raises(RbrunCore::Error::Standard) { step.run }
           end
         end
       end

@@ -46,7 +46,7 @@ module RbrunCore
 
       def exec(deployment, command, namespace: "default")
         pod = get_pod_name(deployment, namespace:)
-        raise RbrunCore::Error, "No running pod found for #{deployment}" unless pod
+        raise Error::Standard, "No running pod found for #{deployment}" unless pod
 
         run!("kubectl exec #{pod} -n #{namespace} -- #{command}")
       end

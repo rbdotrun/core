@@ -12,8 +12,8 @@ module RbrunCore
       def initialize(api_token:, account_id:)
         @api_token = api_token
         @account_id = account_id
-        raise RbrunCore::Error, "Cloudflare API token not configured" if @api_token.nil? || @api_token.empty?
-        raise RbrunCore::Error, "Cloudflare account ID not configured" if @account_id.nil? || @account_id.empty?
+        raise Error::Standard, "Cloudflare API token not configured" if @api_token.nil? || @api_token.empty?
+        raise Error::Standard, "Cloudflare account ID not configured" if @account_id.nil? || @account_id.empty?
 
         super(timeout: 60, open_timeout: 10)
       end
@@ -30,7 +30,7 @@ module RbrunCore
 
       def get_zone_id(domain)
         zone = find_zone(domain)
-        raise RbrunCore::Error, "Zone not found for domain: #{domain}" unless zone
+        raise Error::Standard, "Zone not found for domain: #{domain}" unless zone
 
         zone["id"]
       end
@@ -67,7 +67,7 @@ module RbrunCore
         return nil unless result
 
         { id: result["id"], name: result["name"], status: result["status"] }
-      rescue HttpErrors::ApiError => e
+      rescue Error::Api => e
         raise unless e.not_found?
 
         nil
@@ -238,8 +238,8 @@ module RbrunCore
       def validate_credentials
         get("/user/tokens/verify")
         true
-      rescue HttpErrors::ApiError => e
-        raise RbrunCore::Error, "Cloudflare credentials invalid: #{e.message}" if e.unauthorized?
+      rescue Error::Api => e
+        raise Error::Standard, "Cloudflare credentials invalid: #{e.message}" if e.unauthorized?
 
         raise
       end
@@ -285,7 +285,7 @@ module RbrunCore
 
           unless result["success"]
             errors = result["errors"]&.map { |e| e["message"] }&.join(", ") || "unknown error"
-            raise RbrunCore::Error, "Worker deploy failed: #{errors}"
+            raise Error::Standard, "Worker deploy failed: #{errors}"
           end
 
           result

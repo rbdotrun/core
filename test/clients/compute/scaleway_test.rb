@@ -16,11 +16,11 @@ module RbrunCore
         end
 
         def test_raises_without_api_key
-          assert_raises(RbrunCore::Error) { Scaleway.new(api_key: nil, project_id: @project_id) }
+          assert_raises(RbrunCore::Error::Standard) { Scaleway.new(api_key: nil, project_id: @project_id) }
         end
 
         def test_raises_without_project_id
-          assert_raises(RbrunCore::Error) { Scaleway.new(api_key: @api_key, project_id: nil) }
+          assert_raises(RbrunCore::Error::Standard) { Scaleway.new(api_key: @api_key, project_id: nil) }
         end
 
         def test_find_server_returns_nil
@@ -93,7 +93,7 @@ module RbrunCore
         def test_validate_credentials_raises_on_unauthorized
           stub_request(:get, %r{/servers}).to_return(status: 401, body: { message: "unauthorized" }.to_json,
                                                      headers: json_headers)
-          assert_raises(RbrunCore::Error) { @client.validate_credentials }
+          assert_raises(RbrunCore::Error::Standard) { @client.validate_credentials }
         end
 
         # find_or_create_server creation path test

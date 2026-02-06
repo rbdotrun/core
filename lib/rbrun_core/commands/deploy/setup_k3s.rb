@@ -50,7 +50,7 @@ module RbrunCore
 
             exec = ssh!("ip -4 addr show | grep -oP '(?<=inet\\s)10\\.\\d+\\.\\d+\\.\\d+|172\\.(1[6-9]|2[0-9]|3[01])\\.\\d+\\.\\d+|192\\.168\\.\\d+\\.\\d+'")
             private_ip = exec[:output].strip.split("\n").first
-            raise RbrunCore::Error, "Could not detect private IP" unless private_ip
+            raise Error::Standard, "Could not detect private IP" unless private_ip
 
             exec = ssh!("ip -4 addr show | grep '#{private_ip}' -B2 | grep -oP '(?<=: )[^:@]+(?=:)'")
             interface = exec[:output].strip.split("\n").last || "eth0"

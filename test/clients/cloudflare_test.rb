@@ -22,7 +22,7 @@ module RbrunCore
         stub_request(:get, /zones/).to_return(
           status: 200, body: { success: true, result: [] }.to_json, headers: json_headers
         )
-        assert_raises(RbrunCore::Error) { @client.get_zone_id("missing.com") }
+        assert_raises(RbrunCore::Error::Standard) { @client.get_zone_id("missing.com") }
       end
 
       def test_find_tunnel_returns_nil

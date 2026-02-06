@@ -43,7 +43,7 @@ module RbrunCore
           @config.secret_access_key = "secret"
           @config.ssh_key_path = TEST_SSH_KEY_PATH
 
-          error = assert_raises(RbrunCore::ConfigurationError) { @config.validate! }
+          error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
           assert_match(/access_key_id/, error.message)
         end
 
@@ -51,7 +51,7 @@ module RbrunCore
           @config.access_key_id = "AKIAIOSFODNN7EXAMPLE"
           @config.ssh_key_path = TEST_SSH_KEY_PATH
 
-          error = assert_raises(RbrunCore::ConfigurationError) { @config.validate! }
+          error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
           assert_match(/secret_access_key/, error.message)
         end
 
@@ -59,7 +59,7 @@ module RbrunCore
           @config.access_key_id = "AKIAIOSFODNN7EXAMPLE"
           @config.secret_access_key = "secret"
 
-          error = assert_raises(RbrunCore::ConfigurationError) { @config.validate! }
+          error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
           assert_match(/ssh_key_path/, error.message)
         end
 

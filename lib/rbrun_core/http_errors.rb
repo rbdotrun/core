@@ -1,29 +1,8 @@
 # frozen_string_literal: true
 
 module RbrunCore
-  # Base error for all RbrunCore operations
-  class Error < StandardError; end
-
-  # Configuration validation error
-  class ConfigurationError < StandardError; end
-
   # Shared HTTP error handling for API clients.
   module HttpErrors
-    # API error with status and body
-    class ApiError < Error
-      attr_reader :status, :body
-
-      def initialize(message, status: nil, body: nil)
-        super(message)
-        @status = status
-        @body = body
-      end
-
-      def not_found? = status == 404
-      def unauthorized? = status == 401
-      def rate_limited? = status == 429
-    end
-
     HTTP_STATUS_MESSAGES = {
       400 => "Bad request",
       401 => "Unauthorized - check credentials",
@@ -45,7 +24,7 @@ module RbrunCore
 
     def raise_api_error(response)
       body_info = extract_error_body(response)
-      raise ApiError.new(
+      raise Error::Api.new(
         "[#{response.status}] #{error_message_for_status(response.status)}: #{body_info}",
         status: response.status,
         body: response.body

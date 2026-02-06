@@ -33,7 +33,7 @@ module RbrunCore
           private_key_path = File.expand_path(@ssh_key_path)
           public_key_path = "#{private_key_path}.pub"
 
-          raise ConfigurationError, "SSH public key not found: #{public_key_path}" unless File.exist?(public_key_path)
+          raise Error::Configuration, "SSH public key not found: #{public_key_path}" unless File.exist?(public_key_path)
 
           {
             private_key: File.read(private_key_path),
@@ -50,16 +50,16 @@ module RbrunCore
         end
 
         def validate!
-          raise ConfigurationError, "compute.api_key is required for Hetzner" if api_key.nil? || api_key.empty?
-          raise ConfigurationError, "compute.ssh_key_path is required" if ssh_key_path.nil? || ssh_key_path.empty?
+          raise Error::Configuration, "compute.api_key is required for Hetzner" if api_key.nil? || api_key.empty?
+          raise Error::Configuration, "compute.ssh_key_path is required" if ssh_key_path.nil? || ssh_key_path.empty?
 
           unless File.exist?(File.expand_path(ssh_key_path))
-            raise ConfigurationError,
+            raise Error::Configuration,
                   "SSH private key not found: #{ssh_key_path}"
           end
           return if File.exist?(File.expand_path("#{ssh_key_path}.pub"))
 
-          raise ConfigurationError,
+          raise Error::Configuration,
                 "SSH public key not found: #{ssh_key_path}.pub"
         end
 

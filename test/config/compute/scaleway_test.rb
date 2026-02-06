@@ -93,7 +93,7 @@ module RbrunCore
           @config.project_id = "test-project"
           @config.ssh_key_path = TEST_SSH_KEY_PATH
 
-          error = assert_raises(RbrunCore::ConfigurationError) { @config.validate! }
+          error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
           assert_match(/api_key/, error.message)
         end
 
@@ -101,7 +101,7 @@ module RbrunCore
           @config.api_key = "test-key"
           @config.ssh_key_path = TEST_SSH_KEY_PATH
 
-          error = assert_raises(RbrunCore::ConfigurationError) { @config.validate! }
+          error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
           assert_match(/project_id/, error.message)
         end
 
@@ -109,7 +109,7 @@ module RbrunCore
           @config.api_key = "test-key"
           @config.project_id = "test-project"
 
-          error = assert_raises(RbrunCore::ConfigurationError) { @config.validate! }
+          error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
           assert_match(/ssh_key_path/, error.message)
         end
 

@@ -3,9 +3,10 @@
 module RbrunCore
   module Commands
     class DestroySandbox
-      def initialize(ctx, logger: nil, on_state_change: nil)
+      def initialize(ctx, logger: nil, on_log: nil, on_state_change: nil)
         @ctx = ctx
-        @logger = logger || RbrunCore::Logger.new
+        @logger = logger
+        @on_log = on_log
         @on_state_change = on_state_change
       end
 

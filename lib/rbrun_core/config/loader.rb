@@ -49,7 +49,7 @@ module RbrunCore
 
           def apply_compute!(config, compute_data)
             provider = compute_data["provider"]&.to_sym
-            raise ConfigurationError, "compute.provider is required" unless provider
+            raise Error::Configuration, "compute.provider is required" unless provider
 
             config.compute(provider) do |c|
               # Common fields
@@ -76,7 +76,7 @@ module RbrunCore
                 c.master.instance_type = compute_data.dig("master", "instance_type") || compute_data.dig("master", "type")
                 c.master.count = compute_data.dig("master", "count") || 1
               else
-                raise ConfigurationError, "compute.master is required"
+                raise Error::Configuration, "compute.master is required"
               end
 
               # Optional additional server groups
@@ -106,7 +106,7 @@ module RbrunCore
             dbs_data.each do |type_str, db_data|
               type = type_str.to_sym
               unless ALLOWED_DATABASE_TYPES.include?(type)
-                raise ConfigurationError, "Unsupported database type: #{type_str} (use: #{ALLOWED_DATABASE_TYPES.join(', ')})"
+                raise Error::Configuration, "Unsupported database type: #{type_str} (use: #{ALLOWED_DATABASE_TYPES.join(', ')})"
               end
 
               config.database(type) do |db|
@@ -119,7 +119,7 @@ module RbrunCore
           def apply_services!(config, svcs_data)
             svcs_data.each do |name_str, svc_data|
               svc_data ||= {}
-              raise ConfigurationError, "service(:#{name_str}) requires an image" unless svc_data["image"]
+              raise Error::Configuration, "service(:#{name_str}) requires an image" unless svc_data["image"]
 
               config.service(name_str) do |s|
                 s.image = svc_data["image"]
@@ -163,7 +163,7 @@ module RbrunCore
               g.repo = LocalGit.repo_from_remote
               g.pat = LocalGit.gh_auth_token
             end
-          rescue RbrunCore::Error
+          rescue Error::Standard
             # git info is optional at config load time — may not be in a repo
           end
 
@@ -173,13 +173,13 @@ module RbrunCore
 
             config.service_configs.each do |name, svc|
               if svc.runs_on
-                raise ConfigurationError, "runs_on is only valid with multi-server mode (service: #{name})"
+                raise Error::Configuration, "runs_on is only valid with multi-server mode (service: #{name})"
               end
             end
 
             config.app_config&.processes&.each do |name, proc|
               if proc.runs_on
-                raise ConfigurationError, "runs_on is only valid with multi-server mode (process: #{name})"
+                raise Error::Configuration, "runs_on is only valid with multi-server mode (process: #{name})"
               end
             end
           end

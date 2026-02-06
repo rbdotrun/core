@@ -2,7 +2,7 @@
 
 module RbrunCore
   module Waiter
-    class TimeoutError < RbrunCore::Error; end
+    class TimeoutError < Error::Standard; end
 
     # Poll until block returns truthy value.
     # Returns the truthy value, or raises TimeoutError.

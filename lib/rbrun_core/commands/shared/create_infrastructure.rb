@@ -35,7 +35,7 @@ module RbrunCore
             to_remove = existing.keys - desired.keys
 
             if to_remove.include?(master_key)
-              raise RbrunCore::Error,
+              raise Error::Standard,
                     "Cannot remove master node #{@ctx.prefix}-#{master_key} — scale down other groups first"
             end
 
@@ -52,14 +52,14 @@ module RbrunCore
                 begin
                   kubectl = Clients::Kubectl.new(@ctx.ssh_client)
                   kubectl.drain(node_name, max_attempts: 1, interval: 0)
-                rescue RbrunCore::Error => e
+                rescue Error::Standard => e
                   log("drain_warning", "Drain failed for #{node_name}: #{e.message}, continuing")
                 end
 
                 begin
                   kubectl = Clients::Kubectl.new(@ctx.ssh_client)
                   kubectl.delete_node(node_name, max_attempts: 1, interval: 0)
-                rescue RbrunCore::Error
+                rescue Error::Standard
                   # best effort
                 end
 
@@ -155,7 +155,7 @@ module RbrunCore
             configured_type = @ctx.config.compute_config.master.instance_type
             return if existing_master[:instance_type] == configured_type
 
-            raise RbrunCore::Error,
+            raise Error::Standard,
                   "Master instance_type mismatch: existing=#{existing_master[:instance_type]}, " \
                   "config=#{configured_type}. Cannot change master type without destroying infrastructure."
           end

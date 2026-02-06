@@ -31,7 +31,7 @@ class LocalGitTest < Minitest::Test
 
   def test_gh_auth_token_raises_when_empty
     RbrunCore::LocalGit.stub(:`, "") do
-      assert_raises(RbrunCore::Error) { RbrunCore::LocalGit.gh_auth_token }
+      assert_raises(RbrunCore::Error::Standard) { RbrunCore::LocalGit.gh_auth_token }
     end
   end
 end
