@@ -54,7 +54,6 @@ module RbrunCore
         def database_service(type, db_config)
           case type
           when :postgres then postgres_service(db_config)
-          when :redis then redis_service(db_config)
           when :sqlite then nil
           end
         end
@@ -66,10 +65,6 @@ module RbrunCore
             "environment" => { "POSTGRES_USER" => "app", "POSTGRES_PASSWORD" => "app",
                                "POSTGRES_DB" => "app_development" }
           }
-        end
-
-        def redis_service(db_config)
-          { "image" => db_config.image, "volumes" => [ "redis_data:/data" ] }
         end
 
         def service_service(name, service_config)
@@ -89,7 +84,6 @@ module RbrunCore
           @config.database_configs.each_key do |type|
             case type
             when :postgres then volumes["postgres_data"] = nil
-            when :redis then volumes["redis_data"] = nil
             end
           end
           @config.service_configs.each_key { |name| volumes["#{name}_data"] = nil }
@@ -98,9 +92,9 @@ module RbrunCore
 
         def resolved_env_vars
           env = {}
-          @config.env_vars.each { |key, value| env[key.to_s] = @config.resolve(value, target: :sandbox) }
+          @config.env_vars.each { |key, value| env[key.to_s] = value.to_s }
           env["DATABASE_URL"] = "postgres://app:app@postgres:5432/app_development" if @config.database?(:postgres)
-          env["REDIS_URL"] = "redis://redis:6379" if @config.database?(:redis) || @config.service?(:redis)
+          env["REDIS_URL"] = "redis://redis:6379" if @config.service?(:redis)
           env["BINDING"] = "0.0.0.0"
           env
         end

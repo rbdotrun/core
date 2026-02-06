@@ -1,0 +1,486 @@
+# frozen_string_literal: true
+
+require "test_helper"
+require "tmpdir"
+
+module RbrunCore
+  module Config
+    class LoaderTest < Minitest::Test
+      def setup
+        super
+        @tmpdir = Dir.mktmpdir("loader-test")
+      end
+
+      def teardown
+        FileUtils.rm_rf(@tmpdir)
+        super
+      end
+
+      def test_loads_minimal_yaml
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal :production, config.target
+        assert_equal :hetzner, config.compute_config.provider_name
+        assert_equal "cpx11", config.compute_config.server
+      end
+
+      def test_interpolates_env_vars
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: ${HETZNER_TOKEN}
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+        YAML
+
+        config = load_yaml(yaml, env: { "HETZNER_TOKEN" => "interpolated-key" })
+
+        assert_equal "interpolated-key", config.compute_config.api_key
+      end
+
+      def test_raises_for_missing_env_var
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: ${MISSING_VAR}
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+        YAML
+
+        assert_raises(KeyError) { load_yaml(yaml, env: {}) }
+      end
+
+      def test_loads_multi_server_config
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            servers:
+              web:
+                type: cpx21
+                count: 2
+              worker:
+                type: cpx11
+                count: 1
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_predicate config.compute_config, :multi_server?
+        assert_equal 2, config.compute_config.servers[:web].count
+        assert_equal "cpx21", config.compute_config.servers[:web].type
+        assert_equal 1, config.compute_config.servers[:worker].count
+      end
+
+      def test_raises_when_both_server_and_servers
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+            servers:
+              web:
+                type: cpx21
+        YAML
+
+        assert_raises(RbrunCore::ConfigurationError) { load_yaml(yaml) }
+      end
+
+      def test_raises_when_neither_server_nor_servers
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+        YAML
+
+        assert_raises(RbrunCore::ConfigurationError) { load_yaml(yaml) }
+      end
+
+      def test_loads_databases
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+          databases:
+            postgres:
+              image: pgvector/pgvector:pg17
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert config.database?(:postgres)
+        assert_equal "pgvector/pgvector:pg17", config.database_configs[:postgres].image
+      end
+
+      def test_rejects_redis_as_database
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+          databases:
+            redis: {}
+        YAML
+
+        assert_raises(RbrunCore::ConfigurationError) { load_yaml(yaml) }
+      end
+
+      def test_loads_services_with_image
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+          services:
+            redis:
+              image: redis:7-alpine
+            meilisearch:
+              image: getmeili/meilisearch:v1.6
+              subdomain: search
+              env:
+                MEILI_MASTER_KEY: secret
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert config.service?(:redis)
+        assert_equal "redis:7-alpine", config.service_configs[:redis].image
+        assert_equal "search", config.service_configs[:meilisearch].subdomain
+        assert_equal({ MEILI_MASTER_KEY: "secret" }, config.service_configs[:meilisearch].env)
+      end
+
+      def test_service_requires_image
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+          services:
+            redis: {}
+        YAML
+
+        assert_raises(RbrunCore::ConfigurationError) { load_yaml(yaml) }
+      end
+
+      def test_loads_app_with_processes
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+          app:
+            dockerfile: Dockerfile.prod
+            processes:
+              web:
+                command: bin/rails server
+                port: 3000
+                subdomain: www
+              worker:
+                command: bin/jobs
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_predicate config, :app?
+        assert_equal "Dockerfile.prod", config.app_config.dockerfile
+        assert_equal 3000, config.app_config.processes[:web].port
+        assert_equal "www", config.app_config.processes[:web].subdomain
+        assert_equal "bin/jobs", config.app_config.processes[:worker].command
+      end
+
+      def test_loads_process_runs_on
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            servers:
+              web:
+                type: cpx21
+                count: 2
+              worker:
+                type: cpx11
+          app:
+            processes:
+              web:
+                command: bin/rails server
+                port: 3000
+                runs_on:
+                  - web
+              worker:
+                command: bin/jobs
+                runs_on:
+                  - worker
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal %i[web], config.app_config.processes[:web].runs_on
+        assert_equal %i[worker], config.app_config.processes[:worker].runs_on
+      end
+
+      def test_loads_setup_and_env
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+          setup:
+            - bundle install
+            - rails db:prepare
+          env:
+            RAILS_ENV: production
+            SECRET_KEY_BASE: abc123
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal [ "bundle install", "rails db:prepare" ], config.setup_commands
+        assert_equal "production", config.env_vars[:RAILS_ENV]
+        assert_equal "abc123", config.env_vars[:SECRET_KEY_BASE]
+      end
+
+      def test_loads_cloudflare_config
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+          cloudflare:
+            api_token: cf-token
+            account_id: cf-account
+            domain: example.com
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_predicate config, :cloudflare_configured?
+        assert_equal "cf-token", config.cloudflare_config.api_token
+        assert_equal "example.com", config.cloudflare_config.domain
+      end
+
+      def test_loads_claude_config
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+          claude:
+            auth_token: anthropic-key
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_predicate config, :claude_configured?
+        assert_equal "anthropic-key", config.claude_config.auth_token
+      end
+
+      def test_raises_runs_on_database_with_single_server
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+          databases:
+            postgres:
+              runs_on: worker
+        YAML
+
+        err = assert_raises(RbrunCore::ConfigurationError) { load_yaml(yaml) }
+
+        assert_match(/runs_on.*multi-server/, err.message)
+        assert_match(/database/, err.message)
+      end
+
+      def test_raises_runs_on_service_with_single_server
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+          services:
+            redis:
+              image: redis:7-alpine
+              runs_on: worker
+        YAML
+
+        err = assert_raises(RbrunCore::ConfigurationError) { load_yaml(yaml) }
+
+        assert_match(/runs_on.*multi-server/, err.message)
+        assert_match(/service/, err.message)
+      end
+
+      def test_raises_runs_on_process_with_single_server
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+          app:
+            processes:
+              web:
+                command: bin/rails server
+                runs_on:
+                  - web
+        YAML
+
+        err = assert_raises(RbrunCore::ConfigurationError) { load_yaml(yaml) }
+
+        assert_match(/runs_on.*multi-server/, err.message)
+        assert_match(/process/, err.message)
+      end
+
+      def test_allows_runs_on_with_multi_server
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            servers:
+              web:
+                type: cpx21
+                count: 2
+              worker:
+                type: cpx11
+          databases:
+            postgres:
+              runs_on: worker
+          services:
+            redis:
+              image: redis:7-alpine
+              runs_on: worker
+          app:
+            processes:
+              web:
+                command: bin/rails server
+                runs_on:
+                  - web
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal :worker, config.database_configs[:postgres].runs_on
+        assert_equal :worker, config.service_configs[:redis].runs_on
+        assert_equal %i[web], config.app_config.processes[:web].runs_on
+      end
+
+      def test_loads_process_replicas
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+          app:
+            processes:
+              web:
+                command: bin/rails server
+                port: 3000
+                subdomain: www
+                replicas: 3
+              worker:
+                command: bin/jobs
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal 3, config.app_config.processes[:web].replicas
+      end
+
+      def test_process_replicas_defaults_to_2
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+          app:
+            processes:
+              web:
+                command: bin/rails server
+                port: 3000
+                subdomain: www
+              worker:
+                command: bin/jobs
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal 2, config.app_config.processes[:web].replicas
+        assert_equal 2, config.app_config.processes[:worker].replicas
+      end
+
+      def test_auto_populates_git_from_local
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            server: cpx11
+        YAML
+
+        RbrunCore::LocalGit.stub(:repo_from_remote, "myorg/myapp") do
+          RbrunCore::LocalGit.stub(:gh_auth_token, "gh-token-123") do
+            config = load_yaml(yaml)
+
+            assert_equal "myorg/myapp", config.git_config.repo
+            assert_equal "gh-token-123", config.git_config.pat
+          end
+        end
+      end
+
+      private
+
+        def load_yaml(yaml, env: {})
+          path = File.join(@tmpdir, "config.yml")
+          File.write(path, yaml)
+          Loader.load(path, env:)
+        end
+    end
+  end
+end

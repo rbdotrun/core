@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "set"
+
 module RbrunCore
   # In-memory state carrier passed through steps and commands.
   # No persistence — just a struct holding resolved config + credentials + mutable state.
@@ -7,14 +9,16 @@ module RbrunCore
     attr_reader :config, :target, :branch
     attr_accessor :server_id, :server_ip, :ssh_private_key, :ssh_public_key,
                   :registry_tag, :tunnel_id, :tunnel_token, :slug, :state,
-                  :db_password
+                  :db_password, :servers, :new_servers
 
-    def initialize(config:, target:, slug: nil, branch: nil)
+    def initialize(config:, target: nil, slug: nil, branch: nil)
       @config = config
-      @target = target.to_sym
+      @target = (target || config.target || :production).to_sym
       @slug = slug || Naming.generate_slug
-      @branch = branch
+      @branch = branch || auto_detect_branch
       @state = :pending
+      @servers = {}
+      @new_servers = Set.new
     end
 
     def prefix
@@ -29,7 +33,7 @@ module RbrunCore
     end
 
     def ssh_client
-      Ssh::Client.new(host: server_ip, private_key: ssh_private_key, user: Naming.default_user)
+      Clients::Ssh.new(host: server_ip, private_key: ssh_private_key, user: Naming.default_user)
     end
 
     def compute_client
@@ -43,5 +47,13 @@ module RbrunCore
     def cloudflare_configured?
       config.cloudflare_configured?
     end
+
+    private
+
+      def auto_detect_branch
+        LocalGit.current_branch
+      rescue RbrunCore::Error
+        nil
+      end
   end
 end

@@ -1,0 +1,53 @@
+target: production
+
+compute:
+  provider: hetzner
+  api_key: ${HETZNER_API_TOKEN}
+  location: ash
+  image: ubuntu-22.04
+  ssh_key_path: ~/.ssh/id_ed25519
+  servers:
+    app:
+      type: cpx21
+    db:
+      type: cpx21
+
+cloudflare:
+  api_token: ${CLOUDFLARE_API_TOKEN}
+  account_id: ${CLOUDFLARE_ACCOUNT_ID}
+  domain: example.com
+
+claude:
+  auth_token: ${ANTHROPIC_API_KEY}
+
+databases:
+  postgres:
+    image: pgvector/pgvector:pg17
+    runs_on: db
+
+services:
+  redis:
+    image: redis:7-alpine
+    runs_on: app
+
+app:
+  dockerfile: Dockerfile
+  processes:
+    web:
+      command: bin/rails server
+      port: 3000
+      subdomain: www
+      runs_on:
+        - app
+    worker:
+      command: bin/jobs
+      runs_on:
+        - app
+
+setup:
+  - bundle install
+  - rails db:prepare
+
+env:
+  RAILS_ENV: production
+  SECRET_KEY_BASE: ${SECRET_KEY_BASE}

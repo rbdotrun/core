@@ -1,7 +1,23 @@
 # frozen_string_literal: true
 
 require "bundler/setup"
+
+require "simplecov"
+require "simplecov-cobertura"
+SimpleCov.start do
+  add_filter "/test/"
+  enable_coverage :branch
+  formatter SimpleCov::Formatter::MultiFormatter.new([
+    SimpleCov::Formatter::HTMLFormatter,
+    SimpleCov::Formatter::CoberturaFormatter
+  ])
+end
+
+# Suppress net-ssh gem warnings about redefined nonce= method
+original_verbose = $VERBOSE
+$VERBOSE = nil
 require "rbrun_core"
+$VERBOSE = original_verbose
 require "minitest/autorun"
 require "webmock/minitest"
 require "sshkey"
@@ -100,6 +116,7 @@ module RbrunCoreTestSetup
       config.compute(:hetzner) do |c|
         c.api_key = "test-hetzner-key"
         c.ssh_key_path = TEST_SSH_KEY_PATH
+        c.server = "cpx11"
       end
       config.cloudflare do |cf|
         cf.api_token = "test-cloudflare-key"

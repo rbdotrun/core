@@ -28,6 +28,27 @@ class ContextTest < Minitest::Test
     assert_equal "main", ctx.branch
   end
 
+  def test_auto_detects_branch_when_not_provided
+    ctx = build_context
+    # We're running in a git repo, so branch should be auto-detected
+    refute_nil ctx.branch
+  end
+
+  def test_auto_detects_target_from_config
+    config = build_config
+    config.target = :staging
+    ctx = RbrunCore::Context.new(config:)
+
+    assert_equal :staging, ctx.target
+  end
+
+  def test_target_defaults_to_production
+    config = build_config
+    ctx = RbrunCore::Context.new(config:)
+
+    assert_equal :production, ctx.target
+  end
+
   def test_initial_state_is_pending
     ctx = build_context
 
@@ -70,7 +91,7 @@ class ContextTest < Minitest::Test
     ctx.ssh_private_key = TEST_SSH_KEY.private_key
     client = ctx.ssh_client
 
-    assert_kind_of RbrunCore::Ssh::Client, client
+    assert_kind_of RbrunCore::Clients::Ssh, client
     assert_equal "1.2.3.4", client.host
   end
 
@@ -78,5 +99,32 @@ class ContextTest < Minitest::Test
     ctx = build_context
 
     assert_respond_to ctx.compute_client, :find_server
+  end
+
+  def test_servers_hash_defaults_to_empty
+    ctx = build_context
+
+    assert_empty(ctx.servers)
+  end
+
+  def test_servers_hash_is_mutable
+    ctx = build_context
+    ctx.servers = { "web-1" => { id: "srv-1", ip: "1.2.3.4", group: "web" } }
+
+    assert_equal "srv-1", ctx.servers["web-1"][:id]
+  end
+
+  def test_new_servers_defaults_to_empty_set
+    ctx = build_context
+
+    assert_instance_of Set, ctx.new_servers
+    assert_empty ctx.new_servers
+  end
+
+  def test_new_servers_is_mutable
+    ctx = build_context
+    ctx.new_servers.add("web-2")
+
+    assert_includes ctx.new_servers, "web-2"
   end
 end

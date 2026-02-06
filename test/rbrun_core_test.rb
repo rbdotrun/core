@@ -19,8 +19,8 @@ class RbrunCoreTest < Minitest::Test
     assert_kind_of Module, RbrunCore::Commands
   end
 
-  def test_exposes_steps_module
-    assert_kind_of Module, RbrunCore::Steps
+  def test_exposes_clients_module
+    assert_kind_of Module, RbrunCore::Clients
   end
 
   def test_exposes_naming_module

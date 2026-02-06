@@ -24,8 +24,8 @@ module RbrunCore
         assert_includes compose, "postgres"
       end
 
-      def test_includes_redis
-        @config.database(:redis)
+      def test_includes_redis_as_service
+        @config.service(:redis) { |s| s.image = "redis:7-alpine" }
         compose = Compose.new(@config).generate
 
         assert_includes compose, "redis"
@@ -46,14 +46,14 @@ module RbrunCore
       end
 
       def test_includes_platform_services
-        @config.service(:meilisearch)
+        @config.service(:meilisearch) { |s| s.image = "getmeili/meilisearch:latest" }
         compose = Compose.new(@config).generate
 
         assert_includes compose, "meilisearch"
       end
 
-      def test_resolves_env_vars_for_sandbox
-        @config.env(RAILS_ENV: { sandbox: "development", production: "production" })
+      def test_scalar_env_vars
+        @config.env(RAILS_ENV: "development")
         @config.app { |a| a.process(:web) { |p| p.port = 3000 } }
         compose = Compose.new(@config).generate
 

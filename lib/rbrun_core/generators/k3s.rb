@@ -2,17 +2,17 @@
 
 require "yaml"
 require "base64"
+require "shellwords"
 
 module RbrunCore
   module Generators
     class K3s
       NAMESPACE = "default"
 
-      def initialize(config, prefix:, zone:, target:, db_password: nil, registry_tag: nil, tunnel_token: nil)
+      def initialize(config, prefix:, zone:, db_password: nil, registry_tag: nil, tunnel_token: nil)
         @config = config
         @prefix = prefix
         @zone = zone
-        @target = target
         @db_password = db_password || SecureRandom.hex(16)
         @registry_tag = registry_tag
         @tunnel_token = tunnel_token
@@ -49,7 +49,7 @@ module RbrunCore
           env_data = {}
 
           @config.env_vars.each do |key, value|
-            env_data[key.to_s] = resolve(value).to_s
+            env_data[key.to_s] = value.to_s
           end
 
           if @config.database?(:postgres)
@@ -80,7 +80,6 @@ module RbrunCore
           @config.database_configs.each do |type, db_config|
             case type
             when :postgres then manifests.concat(postgres_manifests(db_config))
-            when :redis then manifests.concat(redis_manifests(db_config))
             end
           end
           manifests
@@ -96,7 +95,7 @@ module RbrunCore
             secret(name: secret_name, data: { "DB_PASSWORD" => @db_password }),
             deployment(
               name:, replicas: 1,
-              priority_class: Kubernetes::Resources.priority_class_for(:database),
+              node_selector: node_selector_for(db_config.runs_on),
               containers: [ {
                 name: "postgres", image: db_config.image,
                 ports: [ { containerPort: 5432 } ],
@@ -107,8 +106,7 @@ module RbrunCore
                   { name: "PGDATA", value: "/var/lib/postgresql/data/pgdata" }
                 ],
                 volumeMounts: [ { name: "data", mountPath: "/var/lib/postgresql/data" } ],
-                readinessProbe: { exec: { command: [ "pg_isready", "-U", pg_user ] }, initialDelaySeconds: 5, periodSeconds: 5 },
-                resources: Kubernetes::Resources.for(:database)
+                readinessProbe: { exec: { command: [ "pg_isready", "-U", pg_user ] }, initialDelaySeconds: 5, periodSeconds: 5 }
               } ],
               volumes: [ host_path_volume("data", "/mnt/data/#{name}") ]
             ),
@@ -116,29 +114,9 @@ module RbrunCore
           ]
         end
 
-        def redis_manifests(db_config)
-          name = "#{@prefix}-redis"
-          [
-            deployment(
-              name:, replicas: 1,
-              priority_class: Kubernetes::Resources.priority_class_for(:database),
-              containers: [ {
-                name: "redis", image: db_config.image,
-                ports: [ { containerPort: 6379 } ],
-                volumeMounts: [ { name: "data", mountPath: "/data" } ],
-                resources: Kubernetes::Resources.for(:database)
-              } ],
-              volumes: [ host_path_volume("data", "/mnt/data/#{name}") ]
-            ),
-            service(name:, port: 6379)
-          ]
-        end
-
         def service_manifests
           manifests = []
           @config.service_configs.each do |name, svc_config|
-            next if name == :redis && @config.database?(:redis)
-
             manifests.concat(generic_service_manifests(name, svc_config))
           end
           manifests
@@ -153,20 +131,19 @@ module RbrunCore
 
           container = {
             name: name.to_s, image: svc_config.image,
-            ports: svc_config.port ? [ { containerPort: svc_config.port } ] : [],
-            resources: Kubernetes::Resources.for(:platform)
+            ports: svc_config.port ? [ { containerPort: svc_config.port } ] : []
           }
           container[:envFrom] = [ { secretRef: { name: secret_name } } ] if svc_config.env.any?
 
           manifests << deployment(
             name: deployment_name, replicas: 1,
-            priority_class: Kubernetes::Resources.priority_class_for(:platform),
+            node_selector: node_selector_for(svc_config.runs_on),
             containers: [ container.compact ]
           )
 
           manifests << service(name: deployment_name, port: svc_config.port) if svc_config.port
 
-          subdomain = resolve(svc_config.subdomain)
+          subdomain = svc_config.subdomain
           if subdomain && svc_config.port
             manifests << ingress(name: deployment_name, hostname: "#{subdomain}.#{@zone}", port: svc_config.port)
           end
@@ -184,16 +161,14 @@ module RbrunCore
 
         def process_manifests(name, process)
           deployment_name = "#{@prefix}-#{name}"
-          replicas = resolve(process.replicas) || 1
-          subdomain = resolve(process.subdomain)
+          subdomain = process.subdomain
           manifests = []
 
           container = {
             name: name.to_s, image: @registry_tag,
-            envFrom: [ { secretRef: { name: "#{@prefix}-app-secret" } } ],
-            resources: Kubernetes::Resources.for(:small)
+            envFrom: [ { secretRef: { name: "#{@prefix}-app-secret" } } ]
           }
-          container[:command] = [ "/bin/sh", "-c", process.command ] if process.command
+          container[:args] = Shellwords.split(process.command) if process.command
           container[:ports] = [ { containerPort: process.port } ] if process.port
 
           if process.port
@@ -202,8 +177,9 @@ module RbrunCore
             container[:readinessProbe] = { httpGet: http_get, initialDelaySeconds: 10, periodSeconds: 10 }
           end
 
-          manifests << deployment(name: deployment_name, replicas:,
-                                  priority_class: Kubernetes::Resources.priority_class_for(:app), containers: [ container ])
+          manifests << deployment(name: deployment_name, replicas: process.replicas,
+                                  node_selector: node_selector_for_process(process.runs_on),
+                                  containers: [ container ])
           manifests << service(name: deployment_name, port: process.port) if process.port
           if subdomain && process.port
             manifests << ingress(name: deployment_name, hostname: "#{subdomain}.#{@zone}",
@@ -217,17 +193,30 @@ module RbrunCore
           name = "#{@prefix}-cloudflared"
           deployment(
             name:, replicas: 1, host_network: true,
-            priority_class: Kubernetes::Resources.priority_class_for(:platform),
             containers: [ {
               name: "cloudflared", image: "cloudflare/cloudflared:latest",
-              args: [ "tunnel", "--no-autoupdate", "run", "--token", @tunnel_token ],
-              resources: Kubernetes::Resources.for(:platform)
+              args: [ "tunnel", "--no-autoupdate", "run", "--token", @tunnel_token ]
             } ]
           )
         end
 
-        def resolve(value)
-          @config.resolve(value, target: @target)
+        def node_selector_for(runs_on)
+          return nil unless runs_on
+
+          { "rbrun.dev/server-group" => runs_on.to_s }
+        end
+
+        def node_selector_for_process(runs_on)
+          return nil unless runs_on
+
+          if runs_on.is_a?(Array) && runs_on.length > 1
+            # Use nodeAffinity for multiple groups
+            :affinity
+          elsif runs_on.is_a?(Array)
+            { "rbrun.dev/server-group" => runs_on.first.to_s }
+          else
+            { "rbrun.dev/server-group" => runs_on.to_s }
+          end
         end
 
         def labels(name)
@@ -235,11 +224,31 @@ module RbrunCore
             "app.kubernetes.io/managed-by" => "rbrun" }
         end
 
-        def deployment(name:, containers:, volumes: [], replicas: 1, host_network: false, priority_class: nil)
+        def deployment(name:, containers:, volumes: [], replicas: 1, host_network: false, node_selector: nil)
           spec = { containers: }
           spec[:volumes] = volumes if volumes.any?
           spec[:hostNetwork] = true if host_network
-          spec[:priorityClassName] = priority_class if priority_class
+          if node_selector == :affinity
+            # Process with multiple runs_on groups — handled via find the process runs_on
+            process = @config.app_config&.processes&.values&.find { |p| p.runs_on.is_a?(Array) && p.runs_on.length > 1 }
+            if process
+              spec[:affinity] = {
+                nodeAffinity: {
+                  requiredDuringSchedulingIgnoredDuringExecution: {
+                    nodeSelectorTerms: [ {
+                      matchExpressions: [ {
+                        key: "rbrun.dev/server-group",
+                        operator: "In",
+                        values: process.runs_on.map(&:to_s)
+                      } ]
+                    } ]
+                  }
+                }
+              }
+            end
+          elsif node_selector
+            spec[:nodeSelector] = node_selector
+          end
 
           {
             apiVersion: "apps/v1", kind: "Deployment",

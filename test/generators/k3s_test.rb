@@ -11,38 +11,41 @@ module RbrunCore
       end
 
       def test_generates_meilisearch_url
-        @config.service(:meilisearch)
-        manifests = K3s.new(@config, target: :production, prefix: "test", zone: "example.com").generate
+        @config.service(:meilisearch) { |s| s.image = "getmeili/meilisearch:latest" }
+        manifests = K3s.new(@config, prefix: "test", zone: "example.com").generate
 
         assert_includes manifests, "MEILISEARCH_URL"
         assert_includes manifests, Base64.strict_encode64("http://test-meilisearch:7700")
       end
 
       def test_generates_redis_url
-        @config.service(:redis)
-        manifests = K3s.new(@config, target: :production, prefix: "test", zone: "example.com").generate
+        @config.service(:redis) { |s| s.image = "redis:7-alpine" }
+        manifests = K3s.new(@config, prefix: "test", zone: "example.com").generate
 
         assert_includes manifests, "REDIS_URL"
         assert_includes manifests, Base64.strict_encode64("redis://test-redis:6379")
       end
 
       def test_creates_per_service_secret
-        @config.service(:meilisearch) { |m| m.env = { MEILI_MASTER_KEY: "secret123" } }
-        manifests = K3s.new(@config, target: :production, prefix: "test", zone: "example.com").generate
+        @config.service(:meilisearch) do |m|
+          m.image = "getmeili/meilisearch:latest"
+          m.env = { MEILI_MASTER_KEY: "secret123" }
+        end
+        manifests = K3s.new(@config, prefix: "test", zone: "example.com").generate
 
         assert_includes manifests, "test-meilisearch-secret"
       end
 
       def test_no_service_secret_when_no_env
-        @config.service(:redis)
-        manifests = K3s.new(@config, target: :production, prefix: "test", zone: "example.com").generate
+        @config.service(:redis) { |s| s.image = "redis:7-alpine" }
+        manifests = K3s.new(@config, prefix: "test", zone: "example.com").generate
 
         refute_includes manifests, "test-redis-secret"
       end
 
       def test_generates_database_url_for_postgres
         @config.database(:postgres)
-        manifests = K3s.new(@config, target: :production, prefix: "app", zone: "example.com",
+        manifests = K3s.new(@config, prefix: "app", zone: "example.com",
                                      db_password: "testpw").generate
 
         assert_includes manifests, Base64.strict_encode64("postgresql://app:testpw@app-postgres:5432/app")
@@ -53,7 +56,7 @@ module RbrunCore
           db.username = "insiti"
           db.database = "insiti_production"
         end
-        manifests = K3s.new(@config, target: :production, prefix: "app", zone: "example.com",
+        manifests = K3s.new(@config, prefix: "app", zone: "example.com",
                                      db_password: "secret").generate
 
         assert_includes manifests,
@@ -62,7 +65,7 @@ module RbrunCore
 
       def test_generates_postgres_env_vars
         @config.database(:postgres)
-        manifests = K3s.new(@config, target: :production, prefix: "app", zone: "example.com",
+        manifests = K3s.new(@config, prefix: "app", zone: "example.com",
                                      db_password: "pw").generate
 
         %w[POSTGRES_HOST POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB POSTGRES_PORT].each do |var|
@@ -72,7 +75,7 @@ module RbrunCore
 
       def test_generates_web_deployment
         @config.app { |a| a.process(:web) { |p| p.port = 3000 } }
-        manifests = K3s.new(@config, target: :production, prefix: "myapp", zone: "example.com",
+        manifests = K3s.new(@config, prefix: "myapp", zone: "example.com",
                                      registry_tag: "localhost:5000/app:v1").generate
 
         assert_includes manifests, "myapp-web"
@@ -81,7 +84,7 @@ module RbrunCore
 
       def test_generates_worker_deployment
         @config.app { |a| a.process(:worker) { |p| p.command = "bin/jobs" } }
-        manifests = K3s.new(@config, target: :production, prefix: "myapp", zone: "example.com",
+        manifests = K3s.new(@config, prefix: "myapp", zone: "example.com",
                                      registry_tag: "localhost:5000/app:v1").generate
 
         assert_includes manifests, "myapp-worker"
@@ -95,7 +98,7 @@ module RbrunCore
             p.subdomain = "app"
           end
         end
-        manifests = K3s.new(@config, target: :production, prefix: "myapp", zone: "example.com",
+        manifests = K3s.new(@config, prefix: "myapp", zone: "example.com",
                                      registry_tag: "localhost:5000/app:v1").generate
 
         assert_includes manifests, "kind: Ingress"
@@ -103,7 +106,7 @@ module RbrunCore
       end
 
       def test_generates_cloudflared_with_tunnel_token
-        manifests = K3s.new(@config, target: :production, prefix: "myapp", zone: "example.com",
+        manifests = K3s.new(@config, prefix: "myapp", zone: "example.com",
                                      tunnel_token: "cf-token-123").generate
 
         assert_includes manifests, "myapp-cloudflared"
@@ -111,9 +114,58 @@ module RbrunCore
       end
 
       def test_no_cloudflared_without_tunnel_token
-        manifests = K3s.new(@config, target: :production, prefix: "myapp", zone: "example.com").generate
+        manifests = K3s.new(@config, prefix: "myapp", zone: "example.com").generate
 
         refute_includes manifests, "cloudflared"
+      end
+
+      def test_process_deployment_uses_custom_replicas
+        @config.app do |a|
+          a.process(:web) do |p|
+            p.port = 3000
+            p.replicas = 3
+          end
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        web_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
+
+        assert_equal 3, web_deploy["spec"]["replicas"]
+      end
+
+      def test_database_deployment_stays_at_one_replica
+        @config.database(:postgres)
+        gen = K3s.new(@config, prefix: "app", zone: "example.com", db_password: "pw")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        pg_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "app-postgres" }
+
+        assert_equal 1, pg_deploy["spec"]["replicas"]
+      end
+
+      def test_generates_node_selector_for_database_runs_on
+        @config.database(:postgres) { |db| db.runs_on = :worker }
+        manifests = K3s.new(@config, prefix: "app", zone: "example.com",
+                                     db_password: "pw").generate
+
+        assert_includes manifests, "rbrun.dev/server-group"
+        assert_includes manifests, "worker"
+      end
+
+      def test_generates_node_selector_for_process_runs_on
+        @config.app do |a|
+          a.process(:web) do |p|
+            p.port = 3000
+            p.runs_on = %i[web]
+          end
+        end
+        manifests = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                                     registry_tag: "localhost:5000/app:v1").generate
+
+        assert_includes manifests, "rbrun.dev/server-group"
+        assert_includes manifests, "web"
       end
     end
   end
