@@ -23,14 +23,15 @@ module RbrunCore
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
         YAML
 
         config = load_yaml(yaml)
 
         assert_equal :production, config.target
         assert_equal :hetzner, config.compute_config.provider_name
-        assert_equal "cpx11", config.compute_config.server
+        assert_equal "cpx11", config.compute_config.master.instance_type
       end
 
       def test_interpolates_env_vars
@@ -40,7 +41,8 @@ module RbrunCore
             provider: hetzner
             api_key: ${HETZNER_TOKEN}
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
         YAML
 
         config = load_yaml(yaml, env: { "HETZNER_TOKEN" => "interpolated-key" })
@@ -55,19 +57,40 @@ module RbrunCore
             provider: hetzner
             api_key: ${MISSING_VAR}
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
         YAML
 
         assert_raises(KeyError) { load_yaml(yaml, env: {}) }
       end
 
-      def test_loads_multi_server_config
+      def test_loads_master_with_count
         yaml = <<~YAML
           target: production
           compute:
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx21
+              count: 3
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal "cpx21", config.compute_config.master.instance_type
+        assert_equal 3, config.compute_config.master.count
+      end
+
+      def test_loads_multi_server_config_with_master_and_servers
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx21
             servers:
               web:
                 type: cpx21
@@ -85,23 +108,7 @@ module RbrunCore
         assert_equal 1, config.compute_config.servers[:worker].count
       end
 
-      def test_raises_when_both_server_and_servers
-        yaml = <<~YAML
-          target: production
-          compute:
-            provider: hetzner
-            api_key: test-key
-            ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
-            servers:
-              web:
-                type: cpx21
-        YAML
-
-        assert_raises(RbrunCore::ConfigurationError) { load_yaml(yaml) }
-      end
-
-      def test_raises_when_neither_server_nor_servers
+      def test_raises_when_no_master
         yaml = <<~YAML
           target: production
           compute:
@@ -120,7 +127,8 @@ module RbrunCore
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
           databases:
             postgres:
               image: pgvector/pgvector:pg17
@@ -139,7 +147,8 @@ module RbrunCore
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
           databases:
             redis: {}
         YAML
@@ -154,7 +163,8 @@ module RbrunCore
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
           services:
             redis:
               image: redis:7-alpine
@@ -180,7 +190,8 @@ module RbrunCore
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
           services:
             redis: {}
         YAML
@@ -195,7 +206,8 @@ module RbrunCore
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
           app:
             dockerfile: Dockerfile.prod
             processes:
@@ -223,6 +235,8 @@ module RbrunCore
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx21
             servers:
               web:
                 type: cpx21
@@ -255,7 +269,8 @@ module RbrunCore
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
           setup:
             - bundle install
             - rails db:prepare
@@ -278,7 +293,8 @@ module RbrunCore
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
           cloudflare:
             api_token: cf-token
             account_id: cf-account
@@ -299,7 +315,8 @@ module RbrunCore
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
           claude:
             auth_token: anthropic-key
         YAML
@@ -310,33 +327,15 @@ module RbrunCore
         assert_equal "anthropic-key", config.claude_config.auth_token
       end
 
-      def test_raises_runs_on_database_with_single_server
+      def test_raises_runs_on_service_with_master_only
         yaml = <<~YAML
           target: production
           compute:
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
-          databases:
-            postgres:
-              runs_on: worker
-        YAML
-
-        err = assert_raises(RbrunCore::ConfigurationError) { load_yaml(yaml) }
-
-        assert_match(/runs_on.*multi-server/, err.message)
-        assert_match(/database/, err.message)
-      end
-
-      def test_raises_runs_on_service_with_single_server
-        yaml = <<~YAML
-          target: production
-          compute:
-            provider: hetzner
-            api_key: test-key
-            ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
           services:
             redis:
               image: redis:7-alpine
@@ -349,14 +348,15 @@ module RbrunCore
         assert_match(/service/, err.message)
       end
 
-      def test_raises_runs_on_process_with_single_server
+      def test_raises_runs_on_process_with_master_only
         yaml = <<~YAML
           target: production
           compute:
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
           app:
             processes:
               web:
@@ -378,15 +378,14 @@ module RbrunCore
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx21
             servers:
               web:
                 type: cpx21
                 count: 2
               worker:
                 type: cpx11
-          databases:
-            postgres:
-              runs_on: worker
           services:
             redis:
               image: redis:7-alpine
@@ -401,7 +400,7 @@ module RbrunCore
 
         config = load_yaml(yaml)
 
-        assert_equal :worker, config.database_configs[:postgres].runs_on
+        # Note: database runs_on is no longer supported (databases always run on master)
         assert_equal :worker, config.service_configs[:redis].runs_on
         assert_equal %i[web], config.app_config.processes[:web].runs_on
       end
@@ -413,7 +412,8 @@ module RbrunCore
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
           app:
             processes:
               web:
@@ -437,7 +437,8 @@ module RbrunCore
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
           app:
             processes:
               web:
@@ -461,7 +462,8 @@ module RbrunCore
             provider: hetzner
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
-            server: cpx11
+            master:
+              instance_type: cpx11
         YAML
 
         RbrunCore::LocalGit.stub(:repo_from_remote, "myorg/myapp") do
@@ -472,6 +474,40 @@ module RbrunCore
             assert_equal "gh-token-123", config.git_config.pat
           end
         end
+      end
+
+      def test_loads_aws_provider
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: aws
+            access_key_id: AKIAIOSFODNN7EXAMPLE
+            secret_access_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: t3.micro
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal :aws, config.compute_config.provider_name
+        assert_equal "t3.micro", config.compute_config.master.instance_type
+      end
+
+      def test_master_type_alias
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              type: cpx11
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal "cpx11", config.compute_config.master.instance_type
       end
 
       private

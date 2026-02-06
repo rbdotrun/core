@@ -9,16 +9,18 @@ Core engine for rbrun. Handles everything from server provisioning to Kubernetes
 - Reconciliation engine diffs desired state against cloud provider — creates what's missing, removes what's excess
 - Idempotent: redeploying the same config is a no-op for infrastructure
 
-### Multi-server with server groups
-- Named server groups (`app`, `worker`, `db`) with independent instance types and counts
-- Pin workloads to groups via `runs_on`
+### Unified server naming with implicit master
+- Master server(s) always created as `prefix-master-1`, `prefix-master-2`, etc.
+- Additional worker groups use `prefix-{group}-{N}` format (e.g., `prefix-app-1`, `prefix-worker-1`)
+- Database and tunnel always pinned to master node
+- Pin processes/services to groups via `runs_on`
 - Scale groups up/down by changing `count` — reconciliation handles the rest
 
 ### Server reconciliation
 - Scale up: new servers are created, joined to K3s as workers, labeled
 - Scale down: pods are drained (cordoned, evicted, polled until empty), K3s node removed, server deleted from provider
 - Scale down processes highest-index-first (`app-3` before `app-2`)
-- Master node (first server of first group) is protected — cannot be removed
+- Master node (`master-1`) is protected — cannot be removed or changed
 
 ### Kubernetes (K3s)
 - Automatic K3s installation on master with WireGuard networking
@@ -39,6 +41,7 @@ Core engine for rbrun. Handles everything from server provisioning to Kubernetes
 - Host-path volumes for data persistence
 - Connection env vars auto-injected (`DATABASE_URL`, `POSTGRES_*`)
 - Backup configuration (schedule, retention)
+- Always runs on master node (data persistence)
 
 ### Services
 - Sidecar services (Redis, Meilisearch, etc.) with custom images
@@ -134,7 +137,7 @@ CreateInfrastructure  →  SetupApplication
 ## Test suite
 
 ```
-252 runs, 485 assertions, 0 failures, 0 errors
+295 runs, 551 assertions, 0 failures, 0 errors
 ```
 
 ```bash

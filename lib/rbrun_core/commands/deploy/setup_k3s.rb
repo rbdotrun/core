@@ -10,9 +10,9 @@ module RbrunCore
         CLOUD_INIT_TIMEOUT = 120
         REGISTRY_TIMEOUT = 60
 
-        def initialize(ctx, on_log: nil)
+        def initialize(ctx, logger: nil)
           @ctx = ctx
-          @on_log = on_log
+          @logger = logger
         end
 
         def run
@@ -229,7 +229,7 @@ module RbrunCore
               group = server_info[:group]
               node_name = "#{@ctx.prefix}-#{server_key}"
               log("label_node", "Labeling node #{node_name}")
-              ssh!("kubectl --kubeconfig=#{kubeconfig} label node #{node_name} rbrun.dev/server-group=#{group} --overwrite",
+              ssh!("kubectl --kubeconfig=#{kubeconfig} label node #{node_name} #{Naming::LABEL_SERVER_GROUP}=#{group} --overwrite",
                    raise_on_error: false)
             end
           end
@@ -330,7 +330,7 @@ module RbrunCore
           end
 
           def log(category, message = nil)
-            @on_log&.call(category, message)
+            @logger&.log(category, message)
           end
       end
     end

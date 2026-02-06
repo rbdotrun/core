@@ -44,6 +44,7 @@ module RbrunCore
 
         with_mocked_ssh(output: "ok", exit_code: 0) do
           DeploySandbox.new(@ctx,
+                            logger: TestLogger.new,
                             on_state_change: ->(state) { states << state }).run
         end
 
@@ -62,7 +63,7 @@ module RbrunCore
         Shared::CreateInfrastructure.stub(:new, boom) do
           assert_raises(RbrunCore::Error) do
             DeploySandbox.new(@ctx,
-                              on_log: ->(_, _) { },
+                              logger: TestLogger.new,
                               on_state_change: ->(s) { states << s }).run
           end
         end
@@ -74,11 +75,11 @@ module RbrunCore
 
         def run_and_collect_logs
           stub_hetzner_sandbox!
-          logs = []
+          logger = TestLogger.new
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            DeploySandbox.new(@ctx, on_log: ->(cat, _) { logs << cat }).run
+            DeploySandbox.new(@ctx, logger:).run
           end
-          logs
+          logger.categories
         end
 
         def stub_hetzner_sandbox!

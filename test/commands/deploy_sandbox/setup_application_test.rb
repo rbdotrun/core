@@ -16,7 +16,7 @@ module RbrunCore
 
         def test_clones_repo_checks_out_branch_and_runs_compose
           cmds = with_capturing_ssh(exit_code_for: { "test -d" => 1 }) do
-            SetupApplication.new(@ctx, on_log: ->(_, _) { }).run
+            SetupApplication.new(@ctx, logger: TestLogger.new).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("git clone") })
@@ -28,7 +28,7 @@ module RbrunCore
           @ctx.config.setup("bundle install", "rails db:prepare")
 
           cmds = with_capturing_ssh(exit_code_for: { "test -d" => 1 }) do
-            SetupApplication.new(@ctx, on_log: ->(_, _) { }).run
+            SetupApplication.new(@ctx, logger: TestLogger.new).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?(Shellwords.escape("bundle install")) })
@@ -39,7 +39,7 @@ module RbrunCore
           @ctx.config.env(RAILS_ENV: "development", SECRET: "abc")
 
           cmds = with_capturing_ssh(exit_code_for: { "test -d" => 1 }) do
-            SetupApplication.new(@ctx, on_log: ->(_, _) { }).run
+            SetupApplication.new(@ctx, logger: TestLogger.new).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?(".env") })
@@ -63,7 +63,7 @@ module RbrunCore
         def test_installs_node_when_not_present
           cmds = with_capturing_ssh(exit_code_for: { "test -d" => 1, "command -v node" => 1, "command -v claude" => 1,
                                                      "command -v gh" => 1, "command -v docker" => 1 }) do
-            SetupApplication.new(@ctx, on_log: ->(_, _) { }).run
+            SetupApplication.new(@ctx, logger: TestLogger.new).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("nodesource") || cmd.include?("setup_20.x") })
@@ -72,7 +72,7 @@ module RbrunCore
         def test_installs_claude_code_when_not_present
           cmds = with_capturing_ssh(exit_code_for: { "test -d" => 1, "command -v node" => 1, "command -v claude" => 1,
                                                      "command -v gh" => 1, "command -v docker" => 1 }) do
-            SetupApplication.new(@ctx, on_log: ->(_, _) { }).run
+            SetupApplication.new(@ctx, logger: TestLogger.new).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("@anthropic-ai/claude-code") })
@@ -81,7 +81,7 @@ module RbrunCore
         def test_installs_gh_cli_when_not_present
           cmds = with_capturing_ssh(exit_code_for: { "test -d" => 1, "command -v node" => 1, "command -v claude" => 1,
                                                      "command -v gh\n" => 1, "command -v gh" => 1, "command -v docker" => 1 }) do
-            SetupApplication.new(@ctx, on_log: ->(_, _) { }).run
+            SetupApplication.new(@ctx, logger: TestLogger.new).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("githubcli-archive-keyring") })
@@ -90,7 +90,7 @@ module RbrunCore
         def test_gh_auth_login_runs_when_pat_present
           cmds = with_capturing_ssh(exit_code_for: { "test -d" => 1, "command -v node" => 1, "command -v claude" => 1,
                                                      "command -v gh" => 1, "command -v docker" => 1 }) do
-            SetupApplication.new(@ctx, on_log: ->(_, _) { }).run
+            SetupApplication.new(@ctx, logger: TestLogger.new).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("gh auth login --with-token") })
@@ -98,7 +98,7 @@ module RbrunCore
 
         def test_skips_install_when_commands_exist
           cmds = with_capturing_ssh(exit_code_for: { "test -d" => 1 }) do
-            SetupApplication.new(@ctx, on_log: ->(_, _) { }).run
+            SetupApplication.new(@ctx, logger: TestLogger.new).run
           end
 
           refute(cmds.any? { |cmd| cmd.include?("nodesource") || cmd.include?("setup_20.x") })
@@ -108,11 +108,11 @@ module RbrunCore
         private
 
           def collect_log_categories
-            logs = []
+            logger = TestLogger.new
             with_capturing_ssh(exit_code_for: { "test -d" => 1 }) do
-              SetupApplication.new(@ctx, on_log: ->(cat, _) { logs << cat }).run
+              SetupApplication.new(@ctx, logger:).run
             end
-            logs
+            logger.categories
           end
       end
     end

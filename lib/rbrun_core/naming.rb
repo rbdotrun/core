@@ -9,6 +9,15 @@ module RbrunCore
     SLUG_LENGTH = 6
     SLUG_REGEX = /\A[a-f0-9]{#{SLUG_LENGTH}}\z/
 
+    # Server group constants
+    MASTER_GROUP = "master"
+
+    # Kubernetes label keys
+    LABEL_APP = "app.kubernetes.io/name"
+    LABEL_INSTANCE = "app.kubernetes.io/instance"
+    LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"
+    LABEL_SERVER_GROUP = "rb.run/server-group"
+
     class << self
       # Generate a new slug for sandbox identification.
       # Output: 6 lowercase hex characters (e.g., "a1b2c3").

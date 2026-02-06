@@ -20,8 +20,8 @@ module RbrunCore
       end
 
       def test_accepts_on_log_callback
-        logs = []
-        cmd = Deploy.new(@ctx, on_log: ->(category, _) { logs << category })
+        logger = TestLogger.new
+        cmd = Deploy.new(@ctx, logger:)
 
         assert_kind_of Deploy, cmd
       end
@@ -31,7 +31,7 @@ module RbrunCore
         stub_cloudflare!
 
         with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady", exit_code: 0) do
-          cmd = Deploy.new(@ctx, on_log: ->(cat, _) { })
+          cmd = Deploy.new(@ctx, logger: TestLogger.new)
           cmd.run
         end
 
@@ -43,14 +43,14 @@ module RbrunCore
       def test_on_log_callback_fires
         stub_hetzner_infrastructure!
         stub_cloudflare!
-        logs = []
+        logger = TestLogger.new
 
         with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady", exit_code: 0) do
-          Deploy.new(@ctx, on_log: ->(cat, _) { logs << cat }).run
+          Deploy.new(@ctx, logger:).run
         end
 
-        assert_includes logs, "firewall"
-        assert_includes logs, "server"
+        assert_includes logger.categories, "firewall"
+        assert_includes logger.categories, "server"
       end
 
       def test_cleanup_images_runs_when_app_configured
@@ -62,15 +62,14 @@ module RbrunCore
         end
         stub_hetzner_infrastructure!
         stub_cloudflare!
-        logs = []
         cleanup_ran = false
 
         noop_build = ->(*) { Object.new.tap { |o| o.define_singleton_method(:run) { } } }
-        noop_cleanup = lambda { |_ctx, on_log: nil|
+        noop_cleanup = lambda { |_ctx, logger: nil|
           Object.new.tap do |o|
             o.define_singleton_method(:run) do
               cleanup_ran = true
-              on_log&.call("cleanup_images", "Cleaning up")
+              logger&.log("cleanup_images", "Cleaning up")
             end
           end
         }
@@ -78,7 +77,7 @@ module RbrunCore
         Deploy::BuildImage.stub(:new, noop_build) do
           Deploy::CleanupImages.stub(:new, noop_cleanup) do
             with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady", exit_code: 0) do
-              Deploy.new(@ctx, on_log: ->(cat, _) { logs << cat }).run
+              Deploy.new(@ctx, logger: TestLogger.new).run
             end
           end
         end
@@ -97,7 +96,7 @@ module RbrunCore
         Shared::CreateInfrastructure.stub(:new, boom) do
           assert_raises(RbrunCore::Error) do
             Deploy.new(@ctx,
-                       on_log: ->(_, _) { },
+                       logger: TestLogger.new,
                        on_state_change: ->(s) { states << s }).run
           end
         end

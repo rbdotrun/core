@@ -4,6 +4,8 @@ module RbrunCore
   module Clients
     module Compute
       class Hetzner < Base
+        include Interface
+
         BASE_URL = "https://api.hetzner.cloud/v1"
 
         NETWORK_ZONES = {
@@ -21,24 +23,25 @@ module RbrunCore
           super(timeout: 300)
         end
 
-        def find_or_create_server(name:, server_type:, image: "ubuntu-22.04", location: nil, ssh_keys: [],
-                                  user_data: nil, labels: {}, firewalls: nil, networks: nil)
+        def find_or_create_server(name:, instance_type:, image: "ubuntu-22.04", location: nil, ssh_keys: [],
+                                  user_data: nil, labels: {}, firewall_ids: [], network_ids: [])
           existing = find_server(name)
           return existing if existing
 
-          create_server(name:, server_type:, image:, location:, ssh_keys:, user_data:, labels:, firewalls:, networks:)
+          create_server(name:, instance_type:, image:, location:, ssh_keys:, user_data:, labels:,
+                        firewall_ids:, network_ids:)
         end
 
-        def create_server(name:, server_type:, image: "ubuntu-22.04", location: nil, ssh_keys: [], user_data: nil,
-                          labels: {}, firewalls: nil, networks: nil)
+        def create_server(name:, instance_type:, image: "ubuntu-22.04", location: nil, ssh_keys: [], user_data: nil,
+                          labels: {}, firewall_ids: [], network_ids: [])
           payload = {
-            name:, server_type:, image:, location:,
+            name:, server_type: instance_type, image:, location:,
             start_after_create: true, labels: labels || {}
           }
           payload[:ssh_keys] = ssh_keys if ssh_keys.any?
           payload[:user_data] = user_data if user_data && !user_data.empty?
-          payload[:firewalls] = firewalls.map { |id| { firewall: id.to_i } } if firewalls&.any?
-          payload[:networks] = networks.map(&:to_i) if networks&.any?
+          payload[:firewalls] = firewall_ids.map { |id| { firewall: id.to_i } } if firewall_ids&.any?
+          payload[:networks] = network_ids.map(&:to_i) if network_ids&.any?
 
           response = post("/servers", payload)
           to_server(response["server"])
@@ -73,23 +76,33 @@ module RbrunCore
           end
         end
 
+        def wait_for_server_deletion(id, max_attempts: 30, interval: 2)
+          Waiter.poll(max_attempts:, interval:, message: "Server #{id} was not deleted after #{max_attempts} attempts") do
+            get_server(id).nil?
+          end
+        end
+
         def delete_server(id)
           server_id = id.to_i
 
           begin
             server = get("/servers/#{server_id}")["server"]
 
+            # Detach from firewalls and wait for actions to complete
             get("/firewalls")["firewalls"].each do |fw|
               fw["applied_to"]&.each do |applied|
                 next unless applied["type"] == "server" && applied.dig("server", "id") == server_id
 
-                remove_firewall_from_server(fw["id"], server_id)
+                response = remove_firewall_from_server(fw["id"], server_id)
+                wait_for_action(response.dig("actions", 0, "id")) if response.dig("actions", 0, "id")
               rescue StandardError
               end
             end
 
+            # Detach from networks and wait for actions to complete
             server["private_net"]&.each do |pn|
-              detach_server_from_network(server_id, pn["network"])
+              response = detach_server_from_network(server_id, pn["network"])
+              wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
             rescue StandardError
             end
           rescue HttpErrors::ApiError => e
@@ -99,6 +112,7 @@ module RbrunCore
           end
 
           delete("/servers/#{server_id}")
+          wait_for_server_deletion(server_id)
         end
 
         def power_on(id) = post("/servers/#{id.to_i}/actions/poweron")
@@ -192,9 +206,17 @@ module RbrunCore
           {
             servers: list_servers,
             firewalls: list_firewalls,
-            networks: list_networks,
-            volumes: list_volumes
+            networks: list_networks
           }
+        end
+
+        def wait_for_action(action_id, max_attempts: 30, interval: 2)
+          Waiter.poll(max_attempts:, interval:, message: "Action #{action_id} timed out") do
+            response = get("/actions/#{action_id}")
+            status = response.dig("action", "status")
+            raise RbrunCore::Error, "Action #{action_id} failed" if status == "error"
+            status == "success"
+          end
         end
 
         def validate_credentials
@@ -204,91 +226,6 @@ module RbrunCore
           raise RbrunCore::Error, "Hetzner credentials invalid: #{e.message}" if e.unauthorized?
 
           raise
-        end
-
-        # Volume Management
-        def find_or_create_volume(name:, size:, location:, labels: {}, format: "xfs")
-          existing = find_volume(name)
-          return existing if existing
-
-          create_volume(name:, size:, location:, labels:, format:)
-        end
-
-        def create_volume(name:, size:, location:, labels: {}, format: "xfs")
-          response = post("/volumes", {
-                            name:, size:, location:, labels: labels || {},
-                            automount: false, format:
-                          })
-          to_volume(response["volume"])
-        end
-
-        def get_volume(id)
-          response = get("/volumes/#{id.to_i}")
-          to_volume(response["volume"])
-        rescue HttpErrors::ApiError => e
-          raise unless e.not_found?
-
-          nil
-        end
-
-        def find_volume(name)
-          response = get("/volumes", name:)
-          volume = response["volumes"]&.first
-          volume ? to_volume(volume) : nil
-        end
-
-        def list_volumes(label_selector: nil)
-          params = {}
-          params[:label_selector] = label_selector if label_selector
-          response = get("/volumes", params)
-          response["volumes"].map { |v| to_volume(v) }
-        end
-
-        def attach_volume(volume_id:, server_id:, automount: false)
-          volume = get_volume(volume_id)
-          if volume&.server_id && !volume.server_id.empty? && volume.server_id.to_s != server_id.to_s
-            detach_volume(volume_id:)
-          end
-
-          response = post("/volumes/#{volume_id.to_i}/actions/attach", {
-                            server: server_id.to_i, automount:
-                          })
-          wait_for_action(response["action"]["id"]) if response["action"]
-          get_volume(volume_id)
-        end
-
-        def detach_volume(volume_id:)
-          response = post("/volumes/#{volume_id.to_i}/actions/detach")
-          wait_for_action(response["action"]["id"]) if response["action"]
-        rescue HttpErrors::ApiError => e
-          raise unless e.message.include?("not attached")
-        end
-
-        def delete_volume(id)
-          delete("/volumes/#{id.to_i}")
-        rescue HttpErrors::ApiError => e
-          raise unless e.not_found?
-
-          nil
-        end
-
-        def resize_volume(id, size:)
-          response = post("/volumes/#{id.to_i}/actions/resize", { size: })
-          wait_for_action(response["action"]["id"]) if response["action"]
-          get_volume(id)
-        end
-
-        def wait_for_action(action_id, max_attempts: 60, interval: 2)
-          Waiter.poll(max_attempts:, interval:, message: "Action #{action_id} timed out after #{max_attempts * interval} seconds") do
-            response = get("/actions/#{action_id}")
-            status = response.dig("action", "status")
-
-            if status == "error"
-              raise RbrunCore::Error, "Action #{action_id} failed: #{response.dig('action', 'error', 'message')}"
-            end
-
-            status == "success"
-          end
         end
 
         private
@@ -341,19 +278,6 @@ module RbrunCore
 
           def detach_server_from_network(server_id, network_id)
             post("/servers/#{server_id}/actions/detach_from_network", { network: network_id })
-          end
-
-          def to_volume(data)
-            Types::Volume.new(
-              id: data["id"].to_s, name: data["name"],
-              size_gb: data["size"],
-              volume_type: data["format"] || "xfs",
-              status: data["status"],
-              server_id: data["server"]&.to_s,
-              location: data["location"].is_a?(Hash) ? data["location"]["name"] : data["location"],
-              device_path: data["linux_device"],
-              created_at: data["created"]
-            )
           end
       end
     end

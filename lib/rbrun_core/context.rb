@@ -9,7 +9,7 @@ module RbrunCore
     attr_reader :config, :target, :branch
     attr_accessor :server_id, :server_ip, :ssh_private_key, :ssh_public_key,
                   :registry_tag, :tunnel_id, :tunnel_token, :slug, :state,
-                  :db_password, :servers, :new_servers
+                  :db_password, :servers, :new_servers, :source_folder
 
     def initialize(config:, target: nil, slug: nil, branch: nil)
       @config = config

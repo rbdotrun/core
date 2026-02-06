@@ -31,13 +31,14 @@ class ConfigurationTest < Minitest::Test
     assert_equal "ubuntu-22.04", @config.compute_config.image
   end
 
-  def test_compute_single_server_mode
+  def test_compute_master_config
     @config.compute(:hetzner) do |c|
       c.api_key = "key"
-      c.server = "cpx11"
+      c.master.instance_type = "cpx11"
     end
 
-    assert_equal "cpx11", @config.compute_config.server
+    assert_equal "cpx11", @config.compute_config.master.instance_type
+    assert_equal 1, @config.compute_config.master.count
     refute_predicate @config.compute_config, :multi_server?
   end
 
@@ -62,6 +63,26 @@ class ConfigurationTest < Minitest::Test
     end
 
     assert_equal :scaleway, @config.compute_config.provider_name
+  end
+
+  def test_compute_creates_aws_config_with_correct_provider
+    @config.compute(:aws) do |c|
+      c.access_key_id = "AKIAIOSFODNN7EXAMPLE"
+      c.secret_access_key = "secret"
+    end
+
+    assert_equal :aws, @config.compute_config.provider_name
+  end
+
+  def test_compute_creates_aws_config_with_default_region_and_image
+    @config.compute(:aws) do |c|
+      c.access_key_id = "AKIAIOSFODNN7EXAMPLE"
+      c.secret_access_key = "secret"
+    end
+
+    assert_equal "us-east-1", @config.compute_config.location
+    assert_equal "ubuntu-22.04", @config.compute_config.image
+    assert_equal "t3.micro", @config.compute_config.server
   end
 
   def test_compute_raises_for_unknown_provider
@@ -110,11 +131,7 @@ class ConfigurationTest < Minitest::Test
     refute_predicate @config, :database?
   end
 
-  def test_database_runs_on
-    @config.database(:postgres) { |db| db.runs_on = :worker }
-
-    assert_equal :worker, @config.database_configs[:postgres].runs_on
-  end
+  # Note: database runs_on is no longer supported - databases always run on master
 
   # ── Service ──
 

@@ -52,7 +52,7 @@ module RbrunCore
       end
 
       def get_pod_name(deployment, namespace: "default")
-        result = run!("kubectl get pods -l app=#{deployment} -n #{namespace} -o jsonpath='{.items[0].metadata.name}'",
+        result = run!("kubectl get pods -l #{Naming::LABEL_APP}=#{deployment} -n #{namespace} -o jsonpath='{.items[0].metadata.name}'",
                        raise_on_error: false)
         return nil unless result[:exit_code].zero?
 

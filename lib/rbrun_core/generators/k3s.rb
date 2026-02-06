@@ -95,7 +95,7 @@ module RbrunCore
             secret(name: secret_name, data: { "DB_PASSWORD" => @db_password }),
             deployment(
               name:, replicas: 1,
-              node_selector: node_selector_for(db_config.runs_on),
+              node_selector: { Naming::LABEL_SERVER_GROUP => Naming::MASTER_GROUP },
               containers: [ {
                 name: "postgres", image: db_config.image,
                 ports: [ { containerPort: 5432 } ],
@@ -193,6 +193,7 @@ module RbrunCore
           name = "#{@prefix}-cloudflared"
           deployment(
             name:, replicas: 1, host_network: true,
+            node_selector: { Naming::LABEL_SERVER_GROUP => Naming::MASTER_GROUP },
             containers: [ {
               name: "cloudflared", image: "cloudflare/cloudflared:latest",
               args: [ "tunnel", "--no-autoupdate", "run", "--token", @tunnel_token ]
@@ -203,7 +204,7 @@ module RbrunCore
         def node_selector_for(runs_on)
           return nil unless runs_on
 
-          { "rbrun.dev/server-group" => runs_on.to_s }
+          { Naming::LABEL_SERVER_GROUP => runs_on.to_s }
         end
 
         def node_selector_for_process(runs_on)
@@ -213,15 +214,15 @@ module RbrunCore
             # Use nodeAffinity for multiple groups
             :affinity
           elsif runs_on.is_a?(Array)
-            { "rbrun.dev/server-group" => runs_on.first.to_s }
+            { Naming::LABEL_SERVER_GROUP => runs_on.first.to_s }
           else
-            { "rbrun.dev/server-group" => runs_on.to_s }
+            { Naming::LABEL_SERVER_GROUP => runs_on.to_s }
           end
         end
 
         def labels(name)
-          { "app.kubernetes.io/name" => name, "app.kubernetes.io/instance" => @prefix,
-            "app.kubernetes.io/managed-by" => "rbrun" }
+          { Naming::LABEL_APP => name, Naming::LABEL_INSTANCE => @prefix,
+            Naming::LABEL_MANAGED_BY => "rbrun" }
         end
 
         def deployment(name:, containers:, volumes: [], replicas: 1, host_network: false, node_selector: nil)
@@ -237,7 +238,7 @@ module RbrunCore
                   requiredDuringSchedulingIgnoredDuringExecution: {
                     nodeSelectorTerms: [ {
                       matchExpressions: [ {
-                        key: "rbrun.dev/server-group",
+                        key: Naming::LABEL_SERVER_GROUP,
                         operator: "In",
                         values: process.runs_on.map(&:to_s)
                       } ]
@@ -255,7 +256,7 @@ module RbrunCore
             metadata: { name:, namespace: NAMESPACE, labels: labels(name) },
             spec: {
               replicas:,
-              selector: { matchLabels: { "app.kubernetes.io/name" => name } },
+              selector: { matchLabels: { Naming::LABEL_APP => name } },
               template: { metadata: { labels: labels(name) }, spec: }
             }
           }
@@ -265,7 +266,7 @@ module RbrunCore
           {
             apiVersion: "v1", kind: "Service",
             metadata: { name:, namespace: NAMESPACE, labels: labels(name) },
-            spec: { selector: { "app.kubernetes.io/name" => name }, ports: [ { port:, targetPort: port } ] }
+            spec: { selector: { Naming::LABEL_APP => name }, ports: [ { port:, targetPort: port } ] }
           }
         end
 

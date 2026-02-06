@@ -4,9 +4,9 @@ module RbrunCore
   module Commands
     module Shared
       class CreateInfrastructure
-        def initialize(ctx, on_log: nil)
+        def initialize(ctx, logger: nil)
           @ctx = ctx
-          @on_log = on_log
+          @logger = logger
         end
 
         def run
@@ -19,38 +19,17 @@ module RbrunCore
             location:
           )
 
-          if multi_server?
-            create_multi_server!(firewall_id: firewall.id, network_id: network.id)
-          else
-            create_single_server!(firewall_id: firewall.id, network_id: network.id)
-          end
+          create_all_servers!(firewall_id: firewall.id, network_id: network.id)
         end
 
         private
 
-          def multi_server?
-            @ctx.config.compute_config.respond_to?(:multi_server?) && @ctx.config.compute_config.multi_server?
-          end
-
-          def create_single_server!(firewall_id:, network_id:)
-            log("server", "Finding or creating server")
-            server = create_server!(
-              name: @ctx.prefix,
-              server_type: @ctx.config.compute_config.server,
-              firewall_id:, network_id:
-            )
-
-            @ctx.server_id = server.id
-            @ctx.server_ip = server.public_ipv4
-
-            log("ssh_wait", "Waiting for SSH")
-            wait_for_ssh!
-          end
-
-          def create_multi_server!(firewall_id:, network_id:)
+          def create_all_servers!(firewall_id:, network_id:)
             desired = build_desired_servers
             existing = discover_existing_servers
             master_key = desired.keys.first
+
+            validate_master_unchanged!(existing, master_key)
 
             to_create = desired.keys - existing.keys
             to_remove = existing.keys - desired.keys
@@ -132,11 +111,20 @@ module RbrunCore
           def build_desired_servers
             compute = @ctx.config.compute_config
             desired = {}
+
+            # Master servers (always present)
+            master = compute.master
+            (1..master.count).each do |i|
+              desired["#{Naming::MASTER_GROUP}-#{i}"] = master
+            end
+
+            # Additional server groups (optional)
             compute.servers.each do |group_name, group|
               (1..group.count).each do |i|
                 desired["#{group_name}-#{i}"] = group
               end
             end
+
             desired
           end
 
@@ -153,10 +141,23 @@ module RbrunCore
               key = match[1]
               existing[key] = {
                 id: server.id, ip: server.public_ipv4,
-                private_ip: nil, group: key.split("-").first
+                private_ip: nil, group: key.split("-").first,
+                instance_type: server.instance_type
               }
             end
             existing
+          end
+
+          def validate_master_unchanged!(existing, master_key)
+            existing_master = existing[master_key]
+            return unless existing_master
+
+            configured_type = @ctx.config.compute_config.master.instance_type
+            return if existing_master[:instance_type] == configured_type
+
+            raise RbrunCore::Error,
+                  "Master instance_type mismatch: existing=#{existing_master[:instance_type]}, " \
+                  "config=#{configured_type}. Cannot change master type without destroying infrastructure."
           end
 
           def create_firewall!
@@ -172,13 +173,13 @@ module RbrunCore
 
             compute_client.find_or_create_server(
               name:,
-              server_type:,
+              instance_type: server_type,
               location:,
               image: @ctx.config.compute_config.image,
               user_data:,
               labels: { purpose: @ctx.target.to_s },
-              firewalls: [ firewall_id ],
-              networks: [ network_id ]
+              firewall_ids: [ firewall_id ],
+              network_ids: [ network_id ]
             )
           end
 
@@ -195,7 +196,7 @@ module RbrunCore
           end
 
           def log(category, message = nil)
-            @on_log&.call(category, message)
+            @logger&.log(category, message)
           end
       end
     end

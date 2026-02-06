@@ -34,7 +34,7 @@ module RbrunCore
           stub_request(:get, %r{/servers}).to_return(
             status: 200, body: { servers: [ hetzner_server_data ] }.to_json, headers: json_headers
           )
-          server = @client.find_or_create_server(name: "test-server", server_type: "cpx11", image: "ubuntu-22.04",
+          server = @client.find_or_create_server(name: "test-server", instance_type: "cpx11", image: "ubuntu-22.04",
                                                  location: "ash")
 
           assert_equal "123", server.id
@@ -47,7 +47,7 @@ module RbrunCore
           stub_request(:post, %r{/servers}).to_return(
             status: 201, body: { server: hetzner_server_data }.to_json, headers: json_headers
           )
-          server = @client.find_or_create_server(name: "new", server_type: "cpx11", image: "ubuntu-22.04",
+          server = @client.find_or_create_server(name: "new", instance_type: "cpx11", image: "ubuntu-22.04",
                                                  location: "ash")
 
           assert_equal "123", server.id
@@ -70,27 +70,6 @@ module RbrunCore
           net = @client.find_or_create_network("net", location: "ash")
 
           assert_equal "1", net.id
-        end
-
-        def test_find_volume_returns_nil
-          stub_request(:get, %r{/volumes}).to_return(
-            status: 200, body: { volumes: [] }.to_json, headers: json_headers
-          )
-
-          assert_nil @client.find_volume("nonexistent")
-        end
-
-        def test_find_or_create_volume_creates_when_not_found
-          stub_request(:get, %r{/volumes}).to_return(
-            status: 200, body: { volumes: [] }.to_json, headers: json_headers
-          )
-          stub_request(:post, %r{/volumes}).to_return(
-            status: 201, body: { volume: { id: 1, name: "vol", size: 20, linux_device: "/dev/sda", format: "xfs",
-                                           status: "available", server: nil, location: { name: "ash" } } }.to_json, headers: json_headers
-          )
-          vol = @client.find_or_create_volume(name: "vol", size: 20, location: "ash")
-
-          assert_equal "1", vol.id
         end
 
         def test_find_or_create_ssh_key_returns_existing

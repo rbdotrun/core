@@ -52,22 +52,35 @@ module RbrunCore
             raise ConfigurationError, "compute.provider is required" unless provider
 
             config.compute(provider) do |c|
-              c.api_key = compute_data["api_key"]
+              # Common fields
               c.location = compute_data["location"] if compute_data["location"]
               c.image = compute_data["image"] if compute_data["image"]
               c.ssh_key_path = compute_data["ssh_key_path"] if compute_data["ssh_key_path"]
 
-              has_server = compute_data.key?("server")
-              has_servers = compute_data.key?("servers")
-
-              if has_server && has_servers
-                raise ConfigurationError, "compute.server and compute.servers are mutually exclusive"
+              # Provider-specific credentials
+              case provider
+              when :hetzner
+                c.api_key = compute_data["api_key"]
+              when :scaleway
+                c.api_key = compute_data["api_key"]
+                c.project_id = compute_data["project_id"] if compute_data["project_id"]
+                c.zone = compute_data["zone"] if compute_data["zone"]
+              when :aws
+                c.access_key_id = compute_data["access_key_id"]
+                c.secret_access_key = compute_data["secret_access_key"]
+                c.region = compute_data["region"] if compute_data["region"]
               end
-              raise ConfigurationError, "compute.server or compute.servers is required" unless has_server || has_servers
 
-              if has_server
-                c.server = compute_data["server"]
+              # Master config (required)
+              if compute_data["master"]
+                c.master.instance_type = compute_data.dig("master", "instance_type") || compute_data.dig("master", "type")
+                c.master.count = compute_data.dig("master", "count") || 1
               else
+                raise ConfigurationError, "compute.master is required"
+              end
+
+              # Optional additional server groups
+              if compute_data["servers"]
                 compute_data["servers"].each do |group_name, group_data|
                   c.add_server_group(group_name, type: group_data["type"], count: group_data["count"] || 1)
                 end
@@ -98,7 +111,7 @@ module RbrunCore
 
               config.database(type) do |db|
                 db.image = db_data["image"] if db_data&.dig("image")
-                db.runs_on = db_data["runs_on"]&.to_sym if db_data&.dig("runs_on")
+                # Note: runs_on is no longer supported for databases - they always run on master
               end
             end
           end
@@ -155,13 +168,8 @@ module RbrunCore
           end
 
           def validate_runs_on!(config)
+            # runs_on is only valid with additional server groups
             return if config.compute_config&.respond_to?(:multi_server?) && config.compute_config.multi_server?
-
-            config.database_configs.each do |type, db|
-              if db.runs_on
-                raise ConfigurationError, "runs_on is only valid with multi-server mode (database: #{type})"
-              end
-            end
 
             config.service_configs.each do |name, svc|
               if svc.runs_on

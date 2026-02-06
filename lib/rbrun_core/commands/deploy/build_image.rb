@@ -6,33 +6,56 @@ require "tmpdir"
 module RbrunCore
   module Commands
     class Deploy
+      # Builds Docker image locally and pushes to in-cluster registry.
+      #
+      # Uses DOCKER_HOST=ssh:// to target remote Docker daemon:
+      # - Build context (local folder) is sent over SSH to remote daemon
+      # - Build executes on remote, image stored on remote
+      # - No local Docker daemon required
+      #
+      # Source priority:
+      # 1. source_folder (if set) - build directly from local folder
+      # 2. git clone (fallback) - clone repo to tmpdir, build from there
       class BuildImage
         REGISTRY_PORT = 30_500
 
-        def initialize(ctx, on_log: nil)
+        def initialize(ctx, logger: nil)
           @ctx = ctx
-          @on_log = on_log
+          @logger = logger
         end
 
         def run
-          Dir.mktmpdir("rbrun-build-") do |tmpdir|
-            log("git_clone", "Cloning repository")
-            clone_to_tmpdir!(tmpdir)
+          ensure_host_key!
 
-            log("docker_build", "Building Docker image")
-            ensure_host_key!
-            result = build_and_push!(tmpdir)
-            @ctx.registry_tag = result[:registry_tag]
+          if @ctx.source_folder
+            log("docker_build", "Building from #{@ctx.source_folder}")
+            result = build_and_push!(@ctx.source_folder)
+          else
+            Dir.mktmpdir("rbrun-build-") do |tmpdir|
+              log("git_clone", "Cloning repository")
+              git_clone!(tmpdir)
+
+              log("docker_build", "Building Docker image")
+              result = build_and_push!(tmpdir)
+            end
           end
+
+          @ctx.registry_tag = result[:registry_tag]
         end
 
         private
 
-          def clone_to_tmpdir!(tmpdir)
-            clone_url = "https://#{@ctx.config.git_config.pat}@github.com/#{@ctx.config.git_config.repo}.git"
-            branch = @ctx.branch
+          def git_clone!(tmpdir)
+            git_config = @ctx.config.git_config
+            unless git_config&.pat && git_config&.repo
+              raise RbrunCore::Error, "No source_folder and no git config - cannot build"
+            end
 
-            success = system("git", "clone", "--depth=1", "--branch", branch, clone_url, tmpdir, out: File::NULL, err: File::NULL)
+            clone_url = "https://#{git_config.pat}@github.com/#{git_config.repo}.git"
+            branch = @ctx.branch || "main"
+
+            success = system("git", "clone", "--depth=1", "--branch", branch, clone_url, tmpdir,
+                             out: File::NULL, err: File::NULL)
             raise RbrunCore::Error, "git clone failed for branch #{branch}" unless success
           end
 
@@ -75,7 +98,7 @@ module RbrunCore
           end
 
           def log(category, message = nil)
-            @on_log&.call(category, message)
+            @logger&.log(category, message)
           end
       end
     end

@@ -3,16 +3,29 @@
 module RbrunCore
   module Config
     module Compute
-      class Hetzner < Base
-        attr_accessor :api_key, :location, :image, :ssh_key_path
+      class Aws < Base
+        attr_accessor :access_key_id, :secret_access_key, :region, :server, :image, :ssh_key_path
         attr_reader :servers
 
         def initialize
           super
-          @servers = {}
-          @location = "ash"
+          @region = "us-east-1"
           @image = "ubuntu-22.04"
+          @server = "t3.micro"
+          @servers = {}
           @ssh_key_path = nil
+        end
+
+        def provider_name
+          :aws
+        end
+
+        def location
+          @region
+        end
+
+        def location=(val)
+          @region = val
         end
 
         def add_server_group(name, type:, count: 1)
@@ -21,6 +34,10 @@ module RbrunCore
 
         def multi_server?
           @servers.any?
+        end
+
+        def supports_self_hosted?
+          true
         end
 
         def ssh_keys_configured?
@@ -41,28 +58,6 @@ module RbrunCore
           }
         end
 
-        def provider_name
-          :hetzner
-        end
-
-        def supports_self_hosted?
-          true
-        end
-
-        def validate!
-          raise ConfigurationError, "compute.api_key is required for Hetzner" if api_key.nil? || api_key.empty?
-          raise ConfigurationError, "compute.ssh_key_path is required" if ssh_key_path.nil? || ssh_key_path.empty?
-
-          unless File.exist?(File.expand_path(ssh_key_path))
-            raise ConfigurationError,
-                  "SSH private key not found: #{ssh_key_path}"
-          end
-          return if File.exist?(File.expand_path("#{ssh_key_path}.pub"))
-
-          raise ConfigurationError,
-                "SSH public key not found: #{ssh_key_path}.pub"
-        end
-
         def ssh_private_key
           File.read(File.expand_path(ssh_key_path))
         end
@@ -71,8 +66,30 @@ module RbrunCore
           File.read(File.expand_path("#{ssh_key_path}.pub")).strip
         end
 
+        def validate!
+          raise ConfigurationError, "compute.access_key_id required" if access_key_id.nil? || access_key_id.empty?
+
+          if secret_access_key.nil? || secret_access_key.empty?
+            raise ConfigurationError, "compute.secret_access_key required"
+          end
+
+          raise ConfigurationError, "compute.ssh_key_path is required" if ssh_key_path.nil? || ssh_key_path.empty?
+
+          unless File.exist?(File.expand_path(ssh_key_path))
+            raise ConfigurationError, "SSH private key not found: #{ssh_key_path}"
+          end
+
+          return if File.exist?(File.expand_path("#{ssh_key_path}.pub"))
+
+          raise ConfigurationError, "SSH public key not found: #{ssh_key_path}.pub"
+        end
+
         def client
-          @client ||= Clients::Compute::Hetzner.new(api_key: @api_key)
+          @client ||= Clients::Compute::Aws.new(
+            access_key_id:,
+            secret_access_key:,
+            region:
+          )
         end
       end
     end

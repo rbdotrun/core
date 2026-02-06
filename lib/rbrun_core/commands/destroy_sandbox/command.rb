@@ -3,18 +3,18 @@
 module RbrunCore
   module Commands
     class DestroySandbox
-      def initialize(ctx, on_log: nil, on_state_change: nil)
+      def initialize(ctx, logger: nil, on_state_change: nil)
         @ctx = ctx
-        @on_log = on_log
+        @logger = logger || RbrunCore::Logger.new
         @on_state_change = on_state_change
       end
 
       def run
         change_state(:destroying)
 
-        Shared::CleanupTunnel.new(@ctx, on_log: @on_log).run if @ctx.cloudflare_configured?
-        StopContainers.new(@ctx, on_log: @on_log).run if @ctx.server_ip
-        Shared::DeleteInfrastructure.new(@ctx, on_log: @on_log).run
+        Shared::CleanupTunnel.new(@ctx, logger: @logger).run if @ctx.cloudflare_configured?
+        StopContainers.new(@ctx, logger: @logger).run if @ctx.server_ip
+        Shared::DeleteInfrastructure.new(@ctx, logger: @logger).run
 
         change_state(:destroyed)
       end

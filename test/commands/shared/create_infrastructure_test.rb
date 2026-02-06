@@ -14,7 +14,7 @@ module RbrunCore
           @ctx.ssh_private_key = TEST_SSH_KEY.private_key
         end
 
-        # ── Single-server mode ──
+        # ── Master-only mode ──
 
         def test_creates_firewall_network_server_and_sets_context
           stub_request(:get, /firewalls/).to_return(
@@ -37,25 +37,26 @@ module RbrunCore
             status: 200, body: { servers: [] }.to_json, headers: json_headers
           )
           stub_request(:post, /servers/).to_return(
-            status: 201, body: { server: hetzner_server }.to_json, headers: json_headers
+            status: 201, body: { server: hetzner_master_server }.to_json, headers: json_headers
           )
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(@ctx, on_log: ->(_, _) { }).run
+            CreateInfrastructure.new(@ctx, logger: TestLogger.new).run
           end
 
           assert_equal "123", @ctx.server_id
           assert_equal "1.2.3.4", @ctx.server_ip
         end
 
-        def test_single_server_does_not_populate_servers_hash
+        def test_master_only_populates_servers_hash
           stub_all_existing!
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(@ctx, on_log: ->(_, _) { }).run
+            CreateInfrastructure.new(@ctx, logger: TestLogger.new).run
           end
 
-          assert_empty @ctx.servers
+          assert_equal 1, @ctx.servers.size
+          assert_includes @ctx.servers.keys, "master-1"
         end
 
         def test_reuses_existing_firewall_and_network
@@ -67,14 +68,14 @@ module RbrunCore
                                               ip_range: "10.0.0.0/16" } ] }.to_json, headers: json_headers
           )
           stub_request(:get, /servers/).to_return(
-            status: 200, body: { servers: [ hetzner_server ] }.to_json, headers: json_headers
+            status: 200, body: { servers: [ hetzner_master_server ] }.to_json, headers: json_headers
           )
           stub_request(:get, /ssh_keys/).to_return(
             status: 200, body: { ssh_keys: [ { id: 1, name: "key", fingerprint: "aa" } ] }.to_json, headers: json_headers
           )
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(@ctx, on_log: ->(_, _) { }).run
+            CreateInfrastructure.new(@ctx, logger: TestLogger.new).run
           end
 
           assert_not_requested(:post, /firewalls/)
@@ -83,24 +84,35 @@ module RbrunCore
 
         def test_on_log_fires_for_infrastructure_steps
           stub_all_existing!
-          logs = []
+          logger = TestLogger.new
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(@ctx, on_log: ->(cat, _) { logs << cat }).run
+            CreateInfrastructure.new(@ctx, logger:).run
           end
 
-          assert_includes logs, "firewall"
-          assert_includes logs, "network"
+          assert_includes logger.categories, "firewall"
+          assert_includes logger.categories, "network"
         end
 
-        def test_on_log_fires_for_server_steps
-          stub_all_existing!
-          logs = []
+        def test_on_log_fires_for_server_steps_when_creating_new_server
+          # Stub existing firewall and network, but no servers
+          stub_request(:get, /firewalls/).to_return(status: 200,
+                                                    body: { firewalls: [ { id: 1, name: @ctx.prefix } ] }.to_json, headers: json_headers)
+          stub_request(:get, /networks/).to_return(status: 200,
+                                                   body: { networks: [ { id: 2, name: @ctx.prefix, ip_range: "10.0.0.0/16" } ] }.to_json, headers: json_headers)
+          stub_request(:get, /servers/).to_return(status: 200, body: { servers: [] }.to_json, headers: json_headers)
+          stub_request(:get, /ssh_keys/).to_return(status: 200,
+                                                   body: { ssh_keys: [ { id: 1, name: "key", fingerprint: "aa" } ] }.to_json, headers: json_headers)
+          stub_request(:post, /servers/).to_return(
+            status: 201, body: { server: hetzner_master_server }.to_json, headers: json_headers
+          )
+
+          logger = TestLogger.new
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(@ctx, on_log: ->(cat, _) { logs << cat }).run
+            CreateInfrastructure.new(@ctx, logger:).run
           end
 
-          assert_includes logs, "server"
-          assert_includes logs, "ssh_wait"
+          assert_includes logger.categories, "server"
+          assert_includes logger.categories, "ssh_wait"
         end
 
         # ── Firewall sandbox vs release ──
@@ -123,14 +135,14 @@ module RbrunCore
                                               ip_range: "10.0.0.0/16" } ] }.to_json, headers: json_headers
           )
           stub_request(:get, /servers/).to_return(
-            status: 200, body: { servers: [ sandbox_server ] }.to_json, headers: json_headers
+            status: 200, body: { servers: [ sandbox_master_server(sandbox_ctx) ] }.to_json, headers: json_headers
           )
           stub_request(:get, /ssh_keys/).to_return(
             status: 200, body: { ssh_keys: [ { id: 1, name: "key", fingerprint: "aa" } ] }.to_json, headers: json_headers
           )
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(sandbox_ctx, on_log: ->(_, _) { }).run
+            CreateInfrastructure.new(sandbox_ctx, logger: TestLogger.new).run
           end
 
           rules = captured_body["rules"]
@@ -153,14 +165,14 @@ module RbrunCore
                                               ip_range: "10.0.0.0/16" } ] }.to_json, headers: json_headers
           )
           stub_request(:get, /servers/).to_return(
-            status: 200, body: { servers: [ hetzner_server ] }.to_json, headers: json_headers
+            status: 200, body: { servers: [ hetzner_master_server ] }.to_json, headers: json_headers
           )
           stub_request(:get, /ssh_keys/).to_return(
             status: 200, body: { ssh_keys: [ { id: 1, name: "key", fingerprint: "aa" } ] }.to_json, headers: json_headers
           )
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(@ctx, on_log: ->(_, _) { }).run
+            CreateInfrastructure.new(@ctx, logger: TestLogger.new).run
           end
 
           rules = captured_body["rules"]
@@ -171,7 +183,7 @@ module RbrunCore
           assert_includes ports, "6443"
         end
 
-        # ── Multi-server mode ──
+        # ── Multi-server mode (master + additional servers) ──
 
         def test_multi_server_creates_all_servers_and_populates_ctx
           ctx = build_multi_server_context
@@ -187,10 +199,12 @@ module RbrunCore
           })
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, on_log: ->(_, _) { }).run
+            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
           end
 
-          assert_equal 3, ctx.servers.size
+          # master-1 + web-1 + web-2 + worker-1 = 4
+          assert_equal 4, ctx.servers.size
+          assert_includes ctx.servers.keys, "master-1"
           assert_includes ctx.servers.keys, "web-1"
           assert_includes ctx.servers.keys, "web-2"
           assert_includes ctx.servers.keys, "worker-1"
@@ -210,7 +224,7 @@ module RbrunCore
           })
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, on_log: ->(_, _) { }).run
+            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
           end
 
           # First server created becomes master
@@ -232,9 +246,10 @@ module RbrunCore
           })
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, on_log: ->(_, _) { }).run
+            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
           end
 
+          assert_equal "master", ctx.servers["master-1"][:group]
           assert_equal "web", ctx.servers["web-1"][:group]
           assert_equal "web", ctx.servers["web-2"][:group]
           assert_equal "worker", ctx.servers["worker-1"][:group]
@@ -252,16 +267,16 @@ module RbrunCore
           })
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, on_log: ->(_, _) { }).run
+            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
           end
 
-          # web: count 2, worker: count 1 → 3 POST /servers calls
-          assert_requested(:post, /servers/, times: 3)
+          # master: 1 + web: 2 + worker: 1 = 4 POST /servers calls
+          assert_requested(:post, /servers/, times: 4)
         end
 
         def test_multi_server_logs_each_server_creation
           ctx = build_multi_server_context
-          logs = []
+          logger = TestLogger.new
 
           stub_all_existing_for!(ctx)
           stub_request(:get, /servers/).to_return(
@@ -272,12 +287,13 @@ module RbrunCore
           })
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, on_log: ->(cat, msg) { logs << [ cat, msg ] }).run
+            CreateInfrastructure.new(ctx, logger:).run
           end
 
-          server_logs = logs.select { |cat, _| cat == "server" }
+          server_logs = logger.logs.select { |cat, _| cat == "server" }
 
-          assert_equal 3, server_logs.size
+          assert_equal 4, server_logs.size
+          assert(server_logs.any? { |_, msg| msg.include?("master-1") })
           assert(server_logs.any? { |_, msg| msg.include?("web-1") })
           assert(server_logs.any? { |_, msg| msg.include?("web-2") })
           assert(server_logs.any? { |_, msg| msg.include?("worker-1") })
@@ -287,25 +303,59 @@ module RbrunCore
 
         def test_scale_up_creates_only_new_servers
           ctx = build_multi_server_context_with_count(app: 3, db: 1)
-          existing_list = [ hetzner_named_server(ctx, "app-1", 1) ]
+          # Existing: master-1, app-1
+          existing_list = [
+            hetzner_named_server(ctx, "master-1", 1),
+            hetzner_named_server(ctx, "app-1", 2)
+          ]
 
           stub_all_existing_for!(ctx)
           stub_reconciliation_servers!(ctx, existing_list)
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, on_log: ->(_, _) { }).run
+            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
           end
 
-          assert_equal 4, ctx.servers.size
+          # master-1 + app-1 + app-2 + app-3 + db-1 = 5
+          assert_equal 5, ctx.servers.size
           assert_equal Set["app-2", "app-3", "db-1"], ctx.new_servers
         end
 
         def test_scale_down_drains_and_deletes_excess
           ctx = build_multi_server_context_with_count(app: 1, db: 1)
+          # Existing: master-1, app-1, app-2, app-3, db-1
           existing_list = [
-            hetzner_named_server(ctx, "app-1", 1),
-            hetzner_named_server(ctx, "app-2", 2),
-            hetzner_named_server(ctx, "app-3", 3),
+            hetzner_named_server(ctx, "master-1", 1),
+            hetzner_named_server(ctx, "app-1", 2),
+            hetzner_named_server(ctx, "app-2", 3),
+            hetzner_named_server(ctx, "app-3", 4),
+            hetzner_named_server(ctx, "db-1", 5)
+          ]
+
+          stub_all_existing_for!(ctx)
+          stub_reconciliation_servers!(ctx, existing_list)
+          stub_server_deletion!
+
+          with_mocked_ssh(output: "", exit_code_for: { "kubectl get node" => 1 }) do
+            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
+          end
+
+          assert_requested(:delete, /servers\/3/)
+          assert_requested(:delete, /servers\/4/)
+          # master-1, app-1, db-1 remain
+          assert_equal 3, ctx.servers.size
+          assert_includes ctx.servers.keys, "master-1"
+          assert_includes ctx.servers.keys, "app-1"
+          assert_includes ctx.servers.keys, "db-1"
+          assert_empty ctx.new_servers
+        end
+
+        def test_scale_down_preserves_master_node
+          ctx = build_multi_server_context_with_count(app: 1, db: 1)
+          existing_list = [
+            hetzner_named_server(ctx, "master-1", 1),
+            hetzner_named_server(ctx, "app-1", 2),
+            hetzner_named_server(ctx, "app-2", 3),
             hetzner_named_server(ctx, "db-1", 4)
           ]
 
@@ -314,46 +364,21 @@ module RbrunCore
           stub_server_deletion!
 
           with_mocked_ssh(output: "", exit_code_for: { "kubectl get node" => 1 }) do
-            CreateInfrastructure.new(ctx, on_log: ->(_, _) { }).run
+            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
           end
 
-          assert_requested(:delete, /servers\/2/)
+          # master-1 and db-1 kept, app-2 removed
+          assert_includes ctx.servers.keys, "master-1"
           assert_requested(:delete, /servers\/3/)
-          assert_equal 2, ctx.servers.size
-          assert_includes ctx.servers.keys, "app-1"
-          assert_includes ctx.servers.keys, "db-1"
-          assert_empty ctx.new_servers
-        end
-
-        def test_scale_down_preserves_master_node
-          # Master is always desired.keys.first — which is always in the desired set.
-          # Verify scale-down never touches the master even when other servers are removed.
-          ctx = build_multi_server_context_with_count(app: 1, db: 1)
-          existing_list = [
-            hetzner_named_server(ctx, "app-1", 1),
-            hetzner_named_server(ctx, "app-2", 2),
-            hetzner_named_server(ctx, "db-1", 3)
-          ]
-
-          stub_all_existing_for!(ctx)
-          stub_reconciliation_servers!(ctx, existing_list)
-          stub_server_deletion!
-
-          with_mocked_ssh(output: "", exit_code_for: { "kubectl get node" => 1 }) do
-            CreateInfrastructure.new(ctx, on_log: ->(_, _) { }).run
-          end
-
-          # app-1 (master) and db-1 kept, app-2 removed
-          assert_includes ctx.servers.keys, "app-1"
-          assert_requested(:delete, /servers\/2/)
           assert_not_requested(:delete, /servers\/1/)
         end
 
         def test_drain_failure_continues_with_deletion
           ctx = build_multi_server_context_with_count(app: 1, db: 0)
           existing_list = [
-            hetzner_named_server(ctx, "app-1", 1),
-            hetzner_named_server(ctx, "app-2", 2)
+            hetzner_named_server(ctx, "master-1", 1),
+            hetzner_named_server(ctx, "app-1", 2),
+            hetzner_named_server(ctx, "app-2", 3)
           ]
 
           stub_all_existing_for!(ctx)
@@ -362,62 +387,65 @@ module RbrunCore
 
           # drain will see non-empty pods output (triggering the "still has pods" error), but we rescue it
           with_mocked_ssh(output: "some-pod", exit_code_for: { "kubectl get node" => 1 }) do
-            CreateInfrastructure.new(ctx, on_log: ->(_, _) { }).run
+            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
           end
 
-          assert_requested(:delete, /servers\/2/)
+          assert_requested(:delete, /servers\/3/)
         end
 
         def test_no_change_when_counts_match
           ctx = build_multi_server_context
           existing_list = [
-            hetzner_named_server(ctx, "web-1", 1),
-            hetzner_named_server(ctx, "web-2", 2),
-            hetzner_named_server(ctx, "worker-1", 3)
+            hetzner_named_server(ctx, "master-1", 1),
+            hetzner_named_server(ctx, "web-1", 2),
+            hetzner_named_server(ctx, "web-2", 3),
+            hetzner_named_server(ctx, "worker-1", 4)
           ]
 
           stub_all_existing_for!(ctx)
           stub_reconciliation_servers!(ctx, existing_list)
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, on_log: ->(_, _) { }).run
+            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
           end
 
-          assert_equal 3, ctx.servers.size
+          assert_equal 4, ctx.servers.size
           assert_empty ctx.new_servers
         end
 
         def test_idempotent_rerun_preserves_existing_servers
           ctx = build_multi_server_context
           existing_list = [
-            hetzner_named_server(ctx, "web-1", 10),
-            hetzner_named_server(ctx, "web-2", 20),
-            hetzner_named_server(ctx, "worker-1", 30)
+            hetzner_named_server(ctx, "master-1", 10),
+            hetzner_named_server(ctx, "web-1", 20),
+            hetzner_named_server(ctx, "web-2", 30),
+            hetzner_named_server(ctx, "worker-1", 40)
           ]
 
           stub_all_existing_for!(ctx)
           stub_reconciliation_servers!(ctx, existing_list)
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, on_log: ->(_, _) { }).run
+            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
           end
 
-          assert_equal "10.0.0.10", ctx.servers["web-1"][:ip]
-          assert_equal "10.0.0.20", ctx.servers["web-2"][:ip]
-          assert_equal "10.0.0.30", ctx.servers["worker-1"][:ip]
+          assert_equal "10.0.0.10", ctx.servers["master-1"][:ip]
+          assert_equal "10.0.0.20", ctx.servers["web-1"][:ip]
+          assert_equal "10.0.0.30", ctx.servers["web-2"][:ip]
+          assert_equal "10.0.0.40", ctx.servers["worker-1"][:ip]
         end
 
         private
 
-          def sandbox_server
-            { "id" => 456, "name" => "rbrun-sandbox-a1b2c3", "status" => "running",
+          def sandbox_master_server(ctx)
+            { "id" => 456, "name" => "#{ctx.prefix}-master-1", "status" => "running",
               "public_net" => { "ipv4" => { "ip" => "5.6.7.8" } },
               "server_type" => { "name" => "cpx11" },
               "datacenter" => { "name" => "ash-dc1", "location" => { "name" => "ash" } }, "labels" => {} }
           end
 
-          def hetzner_server
-            { "id" => 123, "name" => @ctx.prefix, "status" => "running",
+          def hetzner_master_server
+            { "id" => 123, "name" => "#{@ctx.prefix}-master-1", "status" => "running",
               "public_net" => { "ipv4" => { "ip" => "1.2.3.4" } },
               "server_type" => { "name" => "cpx11" },
               "datacenter" => { "name" => "ash-dc1", "location" => { "name" => "ash" } }, "labels" => {} }
@@ -435,6 +463,7 @@ module RbrunCore
             config.compute(:hetzner) do |c|
               c.api_key = "test-hetzner-key"
               c.ssh_key_path = TEST_SSH_KEY_PATH
+              c.master.instance_type = "cpx21"
               c.add_server_group(:web, type: "cpx21", count: 2)
               c.add_server_group(:worker, type: "cpx11", count: 1)
             end
@@ -459,7 +488,7 @@ module RbrunCore
                                                       body: { firewalls: [ { id: 1, name: @ctx.prefix } ] }.to_json, headers: json_headers)
             stub_request(:get, /networks/).to_return(status: 200,
                                                      body: { networks: [ { id: 2, name: @ctx.prefix, ip_range: "10.0.0.0/16" } ] }.to_json, headers: json_headers)
-            stub_request(:get, /servers/).to_return(status: 200, body: { servers: [ hetzner_server ] }.to_json,
+            stub_request(:get, /servers/).to_return(status: 200, body: { servers: [ hetzner_master_server ] }.to_json,
                                                     headers: json_headers)
             stub_request(:get, /ssh_keys/).to_return(status: 200,
                                                      body: { ssh_keys: [ { id: 1, name: "key", fingerprint: "aa" } ] }.to_json, headers: json_headers)
@@ -497,11 +526,20 @@ module RbrunCore
           end
 
           def stub_server_deletion!
+            deleted_servers = Set.new
             stub_request(:get, /servers\/\d+\b/).to_return(lambda { |req|
               id = req.uri.to_s[/servers\/(\d+)/, 1]
-              { status: 200, body: { server: multi_server_response(id.to_i) }.to_json, headers: json_headers }
+              if deleted_servers.include?(id)
+                { status: 404, body: { error: { code: "not_found" } }.to_json, headers: json_headers }
+              else
+                { status: 200, body: { server: multi_server_response(id.to_i) }.to_json, headers: json_headers }
+              end
             })
-            stub_request(:delete, /servers\/\d+/).to_return(status: 200, body: "".to_json, headers: json_headers)
+            stub_request(:delete, /servers\/\d+/).to_return(lambda { |req|
+              id = req.uri.to_s[/servers\/(\d+)/, 1]
+              deleted_servers.add(id)
+              { status: 200, body: "".to_json, headers: json_headers }
+            })
             stub_request(:post, /servers\/\d+\/actions/).to_return(
               status: 200, body: { action: { id: 1 } }.to_json, headers: json_headers
             )
@@ -519,6 +557,7 @@ module RbrunCore
             config.compute(:hetzner) do |c|
               c.api_key = "test-hetzner-key"
               c.ssh_key_path = TEST_SSH_KEY_PATH
+              c.master.instance_type = "cpx21"
               c.add_server_group(:app, type: "cpx21", count: app) if app > 0
               c.add_server_group(:db, type: "cpx11", count: db) if db > 0
             end

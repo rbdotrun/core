@@ -7,9 +7,9 @@ module RbrunCore
         WORKSPACE = "/home/deploy/workspace"
         COMPOSE_FILE = "docker-compose.generated.yml"
 
-        def initialize(ctx, on_log: nil)
+        def initialize(ctx, logger: nil)
           @ctx = ctx
-          @on_log = on_log
+          @logger = logger
         end
 
         def run
@@ -27,7 +27,7 @@ module RbrunCore
         private
 
           def log(category, message = nil)
-            @on_log&.call(category, message)
+            @logger&.log(category, message)
           end
       end
     end

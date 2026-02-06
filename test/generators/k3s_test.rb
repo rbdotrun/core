@@ -145,13 +145,13 @@ module RbrunCore
         assert_equal 1, pg_deploy["spec"]["replicas"]
       end
 
-      def test_generates_node_selector_for_database_runs_on
-        @config.database(:postgres) { |db| db.runs_on = :worker }
+      def test_database_always_runs_on_master
+        @config.database(:postgres)
         manifests = K3s.new(@config, prefix: "app", zone: "example.com",
                                      db_password: "pw").generate
 
-        assert_includes manifests, "rbrun.dev/server-group"
-        assert_includes manifests, "worker"
+        assert_includes manifests, RbrunCore::Naming::LABEL_SERVER_GROUP
+        assert_includes manifests, RbrunCore::Naming::MASTER_GROUP
       end
 
       def test_generates_node_selector_for_process_runs_on
@@ -164,7 +164,7 @@ module RbrunCore
         manifests = K3s.new(@config, prefix: "myapp", zone: "example.com",
                                      registry_tag: "localhost:5000/app:v1").generate
 
-        assert_includes manifests, "rbrun.dev/server-group"
+        assert_includes manifests, RbrunCore::Naming::LABEL_SERVER_GROUP
         assert_includes manifests, "web"
       end
     end

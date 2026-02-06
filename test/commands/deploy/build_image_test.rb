@@ -18,7 +18,7 @@ module RbrunCore
         end
 
         def test_sets_registry_tag_on_context_after_build
-          step = BuildImage.new(@ctx, on_log: ->(_, _) { })
+          step = BuildImage.new(@ctx, logger: TestLogger.new)
           step.stub(:system, true) do
             step.run
           end
@@ -27,15 +27,42 @@ module RbrunCore
           assert_includes @ctx.registry_tag, "localhost"
         end
 
-        def test_on_log_fires_for_git_clone_and_docker_build
-          logs = []
-          step = BuildImage.new(@ctx, on_log: ->(cat, _) { logs << cat })
+        def test_uses_source_folder_directly_when_set
+          @ctx.source_folder = "/tmp/my-app"
+
+          logger = TestLogger.new
+          step = BuildImage.new(@ctx, logger:)
           step.stub(:system, true) do
             step.run
           end
 
-          assert_includes logs, "git_clone"
-          assert_includes logs, "docker_build"
+          # Should log docker_build with source folder path
+          assert logger.logs.any? { |cat, msg| cat == "docker_build" && msg.include?("/tmp/my-app") }
+          # Should NOT log git_clone
+          refute logger.logs.any? { |cat, _| cat == "git_clone" }
+        end
+
+        def test_falls_back_to_git_clone_when_no_source_folder
+          @ctx.source_folder = nil
+
+          logger = TestLogger.new
+          step = BuildImage.new(@ctx, logger:)
+          step.stub(:system, true) do
+            step.run
+          end
+
+          assert_includes logger.categories, "git_clone"
+          assert_includes logger.categories, "docker_build"
+        end
+
+        def test_raises_when_no_source_and_no_git_config
+          @ctx.source_folder = nil
+          @ctx.config.instance_variable_set(:@git_config, nil)
+
+          step = BuildImage.new(@ctx, logger: TestLogger.new)
+          step.stub(:system, true) do
+            assert_raises(RbrunCore::Error) { step.run }
+          end
         end
       end
     end

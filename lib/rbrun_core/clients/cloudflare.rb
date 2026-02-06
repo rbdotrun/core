@@ -205,16 +205,30 @@ module RbrunCore
         delete("/accounts/#{@account_id}/workers/scripts/#{name}")
       end
 
-      def inventory
-        zones = list_zones
-        result = { tunnels: list_tunnels, zones: [] }
+      def inventory(domain: nil, prefix: nil)
+        tunnels = list_tunnels
+        tunnels = tunnels.select { |t| t[:name].start_with?(prefix) } if prefix
+        tunnel_ids = tunnels.map { |t| t[:id] }.to_set
 
-        zones.each do |zone|
-          result[:zones] << {
-            name: zone[:name],
-            status: zone[:status],
-            dns_records: list_dns_records(zone[:id])
-          }
+        result = { tunnels:, zones: [] }
+
+        if domain
+          zone = find_zone(domain)
+          if zone
+            dns_records = list_dns_records(zone["id"])
+            # Filter DNS to only CNAME records pointing to our tunnels
+            if prefix
+              dns_records = dns_records.select do |r|
+                r[:type] == "CNAME" && r[:content]&.end_with?(".cfargotunnel.com") &&
+                  tunnel_ids.include?(r[:content].split(".").first)
+              end
+            end
+            result[:zones] << { name: zone["name"], status: zone["status"], dns_records: }
+          end
+        else
+          list_zones.each do |zone|
+            result[:zones] << { name: zone[:name], status: zone[:status], dns_records: list_dns_records(zone[:id]) }
+          end
         end
 
         result

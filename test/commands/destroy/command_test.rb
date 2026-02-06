@@ -20,7 +20,7 @@ module RbrunCore
       end
 
       def test_run_deletes_infrastructure
-        server_data = { "id" => 1, "name" => @ctx.prefix, "status" => "running",
+        server_data = { "id" => 1, "name" => "#{@ctx.prefix}-master-1", "status" => "running",
                         "public_net" => { "ipv4" => { "ip" => "1.2.3.4" } },
                         "server_type" => { "name" => "cpx11" },
                         "datacenter" => { "name" => "ash-dc1", "location" => { "name" => "ash" } },
@@ -32,11 +32,13 @@ module RbrunCore
         stub_request(:get, /zones\?/).to_return(
           status: 200, body: { success: true, result: [] }.to_json, headers: json_headers
         )
-        stub_request(:get, %r{hetzner\.cloud/v1/servers\?}).to_return(
+        stub_request(:get, %r{hetzner\.cloud/v1/servers$}).to_return(
           status: 200, body: { servers: [ server_data ] }.to_json, headers: json_headers
         )
+        # First call returns server (for firewall detach), subsequent calls return 404 (server deleted)
         stub_request(:get, %r{hetzner\.cloud/v1/servers/1$}).to_return(
-          status: 200, body: { server: server_data }.to_json, headers: json_headers
+          { status: 200, body: { server: server_data }.to_json, headers: json_headers },
+          { status: 404, body: { error: { code: "not_found" } }.to_json, headers: json_headers }
         )
         stub_request(:delete, %r{servers/1}).to_return(status: 200, body: {}.to_json, headers: json_headers)
         stub_request(:get, %r{hetzner\.cloud/v1/networks}).to_return(status: 200,
@@ -46,7 +48,7 @@ module RbrunCore
                                                                       body: { firewalls: [ { id: 3, name: @ctx.prefix } ] }.to_json, headers: json_headers)
         stub_request(:delete, %r{firewalls/3}).to_return(status: 200, body: {}.to_json, headers: json_headers)
 
-        Destroy.new(@ctx, on_log: ->(_, _) { }).run
+        Destroy.new(@ctx, logger: TestLogger.new).run
 
         assert_requested(:delete, %r{servers/1})
         assert_requested(:delete, %r{networks/2})
@@ -77,7 +79,7 @@ module RbrunCore
           status: 200, body: { firewalls: [] }.to_json, headers: json_headers
         )
 
-        Destroy.new(@ctx, on_log: ->(_, _) { }).run
+        Destroy.new(@ctx, logger: TestLogger.new).run
 
         assert_requested(:delete, %r{cfd_tunnel/tun-1$})
       end

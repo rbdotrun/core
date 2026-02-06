@@ -6,7 +6,8 @@ module RbrunCore
       class Registry
         PROVIDERS = {
           hetzner: "RbrunCore::Config::Compute::Hetzner",
-          scaleway: "RbrunCore::Config::Compute::Scaleway"
+          scaleway: "RbrunCore::Config::Compute::Scaleway",
+          aws: "RbrunCore::Config::Compute::Aws"
         }.freeze
 
         def self.build(provider)

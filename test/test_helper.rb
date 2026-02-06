@@ -92,6 +92,31 @@ class MockSsh
   def exec!(_) = "ok"
 end
 
+# Test logger that captures log calls
+class TestLogger
+  attr_reader :logs
+
+  def initialize
+    @logs = []
+  end
+
+  def log(category, message)
+    @logs << [category, message]
+  end
+
+  def categories
+    @logs.map(&:first)
+  end
+
+  def include?(category)
+    categories.include?(category)
+  end
+
+  def find(category)
+    @logs.find { |cat, _| cat == category }
+  end
+end
+
 module RbrunCoreTestSetup
   def setup
     super
@@ -116,7 +141,7 @@ module RbrunCoreTestSetup
       config.compute(:hetzner) do |c|
         c.api_key = "test-hetzner-key"
         c.ssh_key_path = TEST_SSH_KEY_PATH
-        c.server = "cpx11"
+        c.master.instance_type = "cpx11"
       end
       config.cloudflare do |cf|
         cf.api_token = "test-cloudflare-key"

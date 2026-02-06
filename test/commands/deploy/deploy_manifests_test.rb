@@ -16,7 +16,7 @@ module RbrunCore
 
         def test_applies_generated_k3s_manifests_via_ssh_kubectl
           cmds = with_capturing_ssh do
-            DeployManifests.new(@ctx, on_log: ->(_, _) { }).run
+            DeployManifests.new(@ctx, logger: TestLogger.new).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("kubectl") && cmd.include?("apply") })
@@ -27,7 +27,7 @@ module RbrunCore
           @ctx.config.app { |a| a.process(:web) { |p| p.port = 3000 } }
 
           cmds = with_capturing_ssh do
-            DeployManifests.new(@ctx, on_log: ->(_, _) { }).run
+            DeployManifests.new(@ctx, logger: TestLogger.new).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("rollout status") })

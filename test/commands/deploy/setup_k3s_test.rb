@@ -17,7 +17,7 @@ module RbrunCore
 
         def test_runs_k3s_install_commands_via_ssh
           cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady") do
-            SetupK3s.new(@ctx, on_log: ->(_, _) { }).run
+            SetupK3s.new(@ctx, logger: TestLogger.new).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("k3s") || cmd.include?("curl") })
@@ -25,7 +25,7 @@ module RbrunCore
 
         def test_installs_docker_registry
           cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady") do
-            SetupK3s.new(@ctx, on_log: ->(_, _) { }).run
+            SetupK3s.new(@ctx, logger: TestLogger.new).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("registry") || cmd.include?("docker") })
@@ -33,7 +33,7 @@ module RbrunCore
 
         def test_is_idempotent_checks_if_already_installed
           cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady") do
-            SetupK3s.new(@ctx, on_log: ->(_, _) { }).run
+            SetupK3s.new(@ctx, logger: TestLogger.new).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("command -v") || cmd.include?("test") })
@@ -41,10 +41,10 @@ module RbrunCore
 
         def test_single_server_does_not_label_or_join_workers
           cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady") do
-            SetupK3s.new(@ctx, on_log: ->(_, _) { }).run
+            SetupK3s.new(@ctx, logger: TestLogger.new).run
           end
 
-          refute(cmds.any? { |cmd| cmd.include?("rbrun.dev/server-group") })
+          refute(cmds.any? { |cmd| cmd.include?(RbrunCore::Naming::LABEL_SERVER_GROUP) })
           refute(cmds.any? { |cmd| cmd.include?("node-token") })
         end
 
@@ -55,10 +55,10 @@ module RbrunCore
           @ctx.new_servers = Set["worker-1"]
 
           cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\nTrue\ntoken123") do
-            SetupK3s.new(@ctx, on_log: ->(_, _) { }).run
+            SetupK3s.new(@ctx, logger: TestLogger.new).run
           end
 
-          label_cmds = cmds.select { |cmd| cmd.include?("rbrun.dev/server-group") }
+          label_cmds = cmds.select { |cmd| cmd.include?(RbrunCore::Naming::LABEL_SERVER_GROUP) }
 
           assert_operator(label_cmds.length, :>=, 2, "Expected label commands for all nodes (master + worker)")
         end
@@ -68,7 +68,7 @@ module RbrunCore
           @ctx.new_servers = Set["worker-1"]
 
           cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\nTrue\ntoken123") do
-            SetupK3s.new(@ctx, on_log: ->(_, _) { }).run
+            SetupK3s.new(@ctx, logger: TestLogger.new).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("node-token") })
@@ -78,28 +78,28 @@ module RbrunCore
           setup_multi_server_ctx!
           # Mark all as new so they get joined
           @ctx.new_servers = Set["web-1", "worker-1"]
-          logs = []
+          logger = TestLogger.new
 
           with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\nTrue\ntoken123") do
-            SetupK3s.new(@ctx, on_log: ->(cat, msg) { logs << [ cat, msg ] }).run
+            SetupK3s.new(@ctx, logger:).run
           end
 
-          assert(logs.any? { |cat, _| cat == "setup_worker" })
-          assert(logs.any? { |cat, _| cat == "cluster_token" })
+          assert(logger.logs.any? { |cat, _| cat == "setup_worker" })
+          assert(logger.logs.any? { |cat, _| cat == "cluster_token" })
         end
 
         def test_skips_existing_workers
           setup_multi_server_ctx!
           # worker-1 is NOT in new_servers → should be skipped
           @ctx.new_servers = Set.new
-          logs = []
+          logger = TestLogger.new
 
           with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\ntoken123") do
-            SetupK3s.new(@ctx, on_log: ->(cat, msg) { logs << [ cat, msg ] }).run
+            SetupK3s.new(@ctx, logger:).run
           end
 
-          assert(logs.any? { |cat, msg| cat == "skip_worker" && msg.include?("worker-1") })
-          refute(logs.any? { |cat, _| cat == "setup_worker" })
+          assert(logger.logs.any? { |cat, msg| cat == "skip_worker" && msg.include?("worker-1") })
+          refute(logger.logs.any? { |cat, _| cat == "setup_worker" })
         end
 
         def test_joins_only_new_workers
@@ -110,14 +110,14 @@ module RbrunCore
           }
           # Only worker-2 is new
           @ctx.new_servers = Set["worker-2"]
-          logs = []
+          logger = TestLogger.new
 
           with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\nTrue\ntoken123") do
-            SetupK3s.new(@ctx, on_log: ->(cat, msg) { logs << [ cat, msg ] }).run
+            SetupK3s.new(@ctx, logger:).run
           end
 
-          assert(logs.any? { |cat, msg| cat == "skip_worker" && msg.include?("worker-1") })
-          assert(logs.any? { |cat, msg| cat == "setup_worker" && msg.include?("worker-2") })
+          assert(logger.logs.any? { |cat, msg| cat == "skip_worker" && msg.include?("worker-1") })
+          assert(logger.logs.any? { |cat, msg| cat == "setup_worker" && msg.include?("worker-2") })
         end
 
         private

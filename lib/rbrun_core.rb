@@ -15,6 +15,7 @@ require_relative "rbrun_core/errors"
 require_relative "rbrun_core/waiter"
 require_relative "rbrun_core/naming"
 require_relative "rbrun_core/local_git"
+require_relative "rbrun_core/logger"
 
 # Config
 require_relative "rbrun_core/config/git"
@@ -23,6 +24,7 @@ require_relative "rbrun_core/config/compute/base"
 require_relative "rbrun_core/config/compute/server_group"
 require_relative "rbrun_core/config/compute/hetzner"
 require_relative "rbrun_core/config/compute/scaleway"
+require_relative "rbrun_core/config/compute/aws"
 require_relative "rbrun_core/config/compute/registry"
 require_relative "rbrun_core/config/cloudflare"
 require_relative "rbrun_core/config/configuration"
@@ -37,8 +39,10 @@ require_relative "rbrun_core/clients/cloudflare"
 require_relative "rbrun_core/clients/cloudflare_r2"
 require_relative "rbrun_core/clients/cloudflare_worker"
 require_relative "rbrun_core/clients/compute/types"
+require_relative "rbrun_core/clients/compute/interface"
 require_relative "rbrun_core/clients/compute/hetzner"
 require_relative "rbrun_core/clients/compute/scaleway"
+require_relative "rbrun_core/clients/compute/aws"
 
 # Generators
 require_relative "rbrun_core/generators/cloud_init"
@@ -47,6 +51,9 @@ require_relative "rbrun_core/generators/compose"
 
 # Context
 require_relative "rbrun_core/context"
+
+# Topology
+require_relative "rbrun_core/topology"
 
 # Commands — shared steps
 require_relative "rbrun_core/commands/shared/create_infrastructure"

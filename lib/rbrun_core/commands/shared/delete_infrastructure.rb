@@ -4,35 +4,31 @@ module RbrunCore
   module Commands
     module Shared
       class DeleteInfrastructure
-        def initialize(ctx, on_log: nil)
+        def initialize(ctx, logger: nil)
           @ctx = ctx
-          @on_log = on_log
+          @logger = logger
         end
 
         def run
           delete_servers!
           delete_resource(:network)
-          delete_resource(:firewall)
+          delete_firewall_with_retry!
         end
 
         private
 
           def delete_servers!
-            if multi_server?
-              all_servers = @ctx.compute_client.list_servers
-              prefix = @ctx.prefix
-              matching = all_servers.select { |s| s.name.start_with?("#{prefix}-") }
-              matching.each do |server|
-                log("delete_server", "Deleting server #{server.name}")
-                @ctx.compute_client.delete_server(server.id)
-              end
-            else
-              delete_resource(:server)
-            end
-          end
+            all_servers = @ctx.compute_client.list_servers
+            prefix = @ctx.prefix
 
-          def multi_server?
-            @ctx.config.compute_config.respond_to?(:multi_server?) && @ctx.config.compute_config.multi_server?
+            # Match both new naming (prefix-group-N) and legacy bare name (prefix)
+            matching = all_servers.select { |s| s.name == prefix || s.name.start_with?("#{prefix}-") }
+
+            # Delete all servers (delete_server waits for action to complete)
+            matching.each do |server|
+              log("delete_server", "Deleting server #{server.name}")
+              @ctx.compute_client.delete_server(server.id)
+            end
           end
 
           def delete_resource(type)
@@ -43,8 +39,28 @@ module RbrunCore
             @ctx.compute_client.public_send(deleter, resource.id) if resource
           end
 
+          def delete_firewall_with_retry!(max_attempts: 5, interval: 3)
+            log("delete_firewall", "Deleting firewall")
+            firewall = @ctx.compute_client.find_firewall(@ctx.prefix)
+            return unless firewall
+
+            max_attempts.times do |i|
+              @ctx.compute_client.delete_firewall(firewall.id)
+              return # Success
+            rescue HttpErrors::ApiError => e
+              raise unless e.message.include?("resource_in_use")
+
+              if i < max_attempts - 1
+                log("delete_firewall_retry", "Firewall still in use, retrying in #{interval}s (attempt #{i + 1}/#{max_attempts})")
+                sleep(interval)
+              else
+                raise
+              end
+            end
+          end
+
           def log(category, message = nil)
-            @on_log&.call(category, message)
+            @logger&.log(category, message)
           end
       end
     end

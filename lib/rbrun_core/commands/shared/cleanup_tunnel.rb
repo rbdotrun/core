@@ -4,9 +4,9 @@ module RbrunCore
   module Commands
     module Shared
       class CleanupTunnel
-        def initialize(ctx, on_log: nil)
+        def initialize(ctx, logger: nil)
           @ctx = ctx
-          @on_log = on_log
+          @logger = logger
         end
 
         def run
@@ -49,7 +49,7 @@ module RbrunCore
           end
 
           def log(category, message = nil)
-            @on_log&.call(category, message)
+            @logger&.log(category, message)
           end
       end
     end

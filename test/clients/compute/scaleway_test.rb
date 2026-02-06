@@ -46,22 +46,42 @@ module RbrunCore
           assert_equal "key-123", key.id
         end
 
-        def test_find_or_create_security_group_creates_when_not_found
+        def test_find_or_create_firewall_creates_when_not_found
           stub_security_groups_list([])
           stub_request(:post, /security_groups/)
             .to_return(status: 201, body: { security_group: security_group_data }.to_json, headers: json_headers)
-          sg = @client.find_or_create_security_group(name: "new-sg")
+          stub_request(:post, /security_groups\/sg-123\/rules/)
+            .to_return(status: 201, body: { rule: {} }.to_json, headers: json_headers)
 
-          assert_equal "sg-123", sg.id
+          rules = [ { direction: "in", protocol: "tcp", port: "22", source_ips: [ "0.0.0.0/0" ] } ]
+          fw = @client.find_or_create_firewall("new-fw", rules:)
+
+          assert_equal "sg-123", fw.id
         end
 
-        def test_create_volume_sends_bytes
-          stub_request(:post, /volumes/)
-            .with(body: hash_including("size" => 10_000_000_000))
-            .to_return(status: 201, body: { volume: volume_data }.to_json, headers: json_headers)
-          vol = @client.create_volume(name: "new-vol", size_gb: 10)
+        def test_find_or_create_network_creates_when_not_found
+          stub_networks_list([])
+          stub_request(:post, %r{/private-networks})
+            .to_return(status: 201, body: { private_network: network_data }.to_json, headers: json_headers)
 
-          assert_equal "vol-123", vol.id
+          network = @client.find_or_create_network("test-net", location: "fr-par-1")
+
+          assert_equal "net-123", network.id
+        end
+
+        def test_find_network_returns_nil_when_not_found
+          stub_networks_list([])
+
+          assert_nil @client.find_network("nonexistent")
+        end
+
+        def test_find_network_returns_network
+          stub_networks_list([ network_data ])
+
+          network = @client.find_network("test-network")
+
+          assert_equal "net-123", network.id
+          assert_equal "test-network", network.name
         end
 
         def test_validate_credentials_returns_true
@@ -96,6 +116,12 @@ module RbrunCore
               .to_return(status: 200, body: { security_groups: groups }.to_json, headers: json_headers)
           end
 
+          def stub_networks_list(networks)
+            stub_request(:get, %r{/private-networks})
+              .with(query: hash_including("project_id" => @project_id))
+              .to_return(status: 200, body: { private_networks: networks }.to_json, headers: json_headers)
+          end
+
           def server_data(id: "server-123", name: "test-server", state: "running")
             { "id" => id, "name" => name, "state" => state, "public_ip" => { "address" => "1.2.3.4" },
               "private_ip" => "10.0.0.1", "commercial_type" => "DEV1-S",
@@ -113,9 +139,9 @@ module RbrunCore
               "outbound_default_policy" => "accept", "servers" => [] }
           end
 
-          def volume_data(id: "vol-123", name: "test-vol", size: 20_000_000_000)
-            { "id" => id, "name" => name, "size" => size, "volume_type" => "b_ssd",
-              "state" => "available", "server" => nil, "zone" => "fr-par-1" }
+          def network_data(id: "net-123", name: "test-network")
+            { "id" => id, "name" => name, "subnets" => [ { "subnet" => "10.0.0.0/24" } ],
+              "region" => "fr-par", "created_at" => "2024-01-01T00:00:00Z" }
           end
       end
     end

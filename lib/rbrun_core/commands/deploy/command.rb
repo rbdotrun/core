@@ -3,23 +3,23 @@
 module RbrunCore
   module Commands
     class Deploy
-      def initialize(ctx, on_log: nil, on_state_change: nil)
+      def initialize(ctx, logger: nil, on_state_change: nil)
         @ctx = ctx
-        @on_log = on_log
+        @logger = logger || RbrunCore::Logger.new
         @on_state_change = on_state_change
       end
 
       def run
         change_state(:provisioning)
 
-        Shared::CreateInfrastructure.new(@ctx, on_log: @on_log).run
-        SetupK3s.new(@ctx, on_log: @on_log).run
-        SetupTunnel.new(@ctx, on_log: @on_log).run if needs_tunnel?
+        Shared::CreateInfrastructure.new(@ctx, logger: @logger).run
+        SetupK3s.new(@ctx, logger: @logger).run
+        SetupTunnel.new(@ctx, logger: @logger).run if needs_tunnel?
         if has_app?
-          BuildImage.new(@ctx, on_log: @on_log).run
-          CleanupImages.new(@ctx, on_log: @on_log).run
+          BuildImage.new(@ctx, logger: @logger).run
+          CleanupImages.new(@ctx, logger: @logger).run
         end
-        DeployManifests.new(@ctx, on_log: @on_log).run
+        DeployManifests.new(@ctx, logger: @logger).run
 
         change_state(:deployed)
       rescue StandardError

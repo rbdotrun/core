@@ -171,7 +171,7 @@ module RbrunCore
             key_data: [ @private_key ],
             non_interactive: true,
             verify_host_key: @strict_mode ? :accept_new : :never,
-            logger: Logger.new(IO::NULL),
+            logger: ::Logger.new(IO::NULL),
             timeout: timeout || 30
           }
 
