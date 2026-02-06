@@ -11,11 +11,13 @@ module RbrunCore
       end
 
       def apply(manifest_yaml)
-        run!("kubectl apply -f - << 'EOF'\n#{manifest_yaml}\nEOF")
+        encoded = Base64.strict_encode64(manifest_yaml)
+        run!("echo '#{encoded}' | base64 -d | kubectl apply -f -")
       end
 
       def delete(manifest_yaml)
-        run!("kubectl delete -f - --ignore-not-found << 'EOF'\n#{manifest_yaml}\nEOF", raise_on_error: false)
+        encoded = Base64.strict_encode64(manifest_yaml)
+        run!("echo '#{encoded}' | base64 -d | kubectl delete -f - --ignore-not-found", raise_on_error: false)
       end
 
       def get(resource, name = nil, namespace: "default")

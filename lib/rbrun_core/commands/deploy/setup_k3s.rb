@@ -80,7 +80,7 @@ module RbrunCore
             }.to_json
 
             ssh!("sudo mkdir -p /etc/docker")
-            ssh!("sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'\n#{daemon_json}\nEOF")
+            ssh!("echo '#{daemon_json}' | sudo tee /etc/docker/daemon.json > /dev/null")
             ssh!("sudo systemctl restart docker")
           end
 
@@ -94,7 +94,8 @@ module RbrunCore
                   - "http://localhost:#{REGISTRY_PORT}"
           YAML
             ssh!("sudo mkdir -p /etc/rancher/k3s")
-            ssh!("sudo tee /etc/rancher/k3s/registries.yaml > /dev/null << 'EOF'\n#{registries_yaml}\nEOF")
+            encoded = Base64.strict_encode64(registries_yaml)
+            ssh!("echo '#{encoded}' | base64 -d | sudo tee /etc/rancher/k3s/registries.yaml > /dev/null")
           end
 
           def install_k3s!(public_ip, private_ip, interface)
@@ -317,7 +318,8 @@ module RbrunCore
             if yaml.start_with?("http")
               ssh!("kubectl --kubeconfig=#{kubeconfig} apply -f #{yaml}")
             else
-              ssh!("kubectl --kubeconfig=#{kubeconfig} apply -f - << 'EOF'\n#{yaml}\nEOF")
+              encoded = Base64.strict_encode64(yaml)
+              ssh!("echo '#{encoded}' | base64 -d | kubectl --kubeconfig=#{kubeconfig} apply -f -")
             end
           end
 
