@@ -155,8 +155,9 @@ module RbrunCoreTestSetup
 
   private
 
-    def build_config
+    def build_config(target: :production)
       config = RbrunCore::Configuration.new
+      config.target = target
       config.compute(:hetzner) do |c|
         c.api_key = "test-hetzner-key"
         c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -174,8 +175,10 @@ module RbrunCoreTestSetup
       config
     end
 
-    def build_context(target: :production, **overrides)
-      RbrunCore::Context.new(config: build_config, target:, **overrides)
+    def build_context(target: nil, **overrides)
+      config = build_config
+      # If no explicit target, use config.target (defaults to :production)
+      RbrunCore::Context.new(config:, target: target || config.target, **overrides)
     end
 
     def json_headers

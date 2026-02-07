@@ -13,7 +13,7 @@ module RbrunCore
 
     def initialize(config:, target: nil, slug: nil, branch: nil)
       @config = config
-      @target = (target || config.target || :production).to_sym
+      @target = (target || config.target).to_sym
       @slug = slug || Naming.generate_slug
       @branch = branch || auto_detect_branch
       @state = :pending

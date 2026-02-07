@@ -34,6 +34,72 @@ module RbrunCore
         assert_equal "cpx11", config.compute_config.master.instance_type
       end
 
+      # ─── Target Configuration ───
+
+      def test_target_defaults_to_production_when_not_specified
+        yaml = <<~YAML
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal :production, config.target
+        refute_nil config.target, "config.target must never be nil"
+      end
+
+      def test_target_respects_staging_from_yaml
+        yaml = <<~YAML
+          target: staging
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal :staging, config.target
+      end
+
+      def test_target_respects_custom_value_from_yaml
+        yaml = <<~YAML
+          target: canary
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal :canary, config.target
+      end
+
+      def test_target_is_always_a_symbol
+        yaml = <<~YAML
+          target: preview
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_kind_of Symbol, config.target
+      end
+
       def test_interpolates_env_vars
         yaml = <<~YAML
           target: production

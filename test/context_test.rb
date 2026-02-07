@@ -42,9 +42,20 @@ class ContextTest < Minitest::Test
     assert_equal :staging, ctx.target
   end
 
-  def test_target_defaults_to_production
+  def test_target_uses_config_target
     config = build_config
+    config.target = :staging
+
     ctx = RbrunCore::Context.new(config:)
+
+    assert_equal :staging, ctx.target
+  end
+
+  def test_explicit_target_overrides_config_target
+    config = build_config
+    config.target = :staging
+
+    ctx = RbrunCore::Context.new(config:, target: :production)
 
     assert_equal :production, ctx.target
   end

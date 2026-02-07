@@ -52,13 +52,14 @@ class TargetPropagationTest < Minitest::Test
     assert_equal :staging, ctx.target
   end
 
-  def test_context_defaults_to_production_when_no_target_anywhere
+  def test_context_requires_config_target
     config = build_config
     config.target = nil
 
-    ctx = RbrunCore::Context.new(config:)
-
-    assert_equal :production, ctx.target
+    # Context requires config.target to be set (loader guarantees this)
+    assert_raises(NoMethodError) do
+      RbrunCore::Context.new(config:)
+    end
   end
 
   # ─── Prefix Generation ───
