@@ -185,28 +185,28 @@ module RbrunCore
 
         # ── Multi-server mode (master + additional servers) ──
 
-        def test_multi_server_creates_all_servers_and_populates_ctx
-          ctx = build_multi_server_context
-          server_index = 0
+        def test_multi_server_creates_correct_server_count
+          ctx = run_multi_server_create
 
-          stub_all_existing_for!(ctx)
-          stub_request(:get, /servers/).to_return(
-            status: 200, body: { servers: [] }.to_json, headers: json_headers
-          )
-          stub_request(:post, /servers/).to_return(lambda { |_req|
-            server_index += 1
-            { status: 201, body: { server: multi_server_response(server_index) }.to_json, headers: json_headers }
-          })
-
-          with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
-          end
-
-          # master-1 + web-1 + web-2 + worker-1 = 4
           assert_equal 4, ctx.servers.size
+        end
+
+        def test_multi_server_creates_master
+          ctx = run_multi_server_create
+
           assert_includes ctx.servers.keys, "master-1"
+        end
+
+        def test_multi_server_creates_web_servers
+          ctx = run_multi_server_create
+
           assert_includes ctx.servers.keys, "web-1"
           assert_includes ctx.servers.keys, "web-2"
+        end
+
+        def test_multi_server_creates_worker
+          ctx = run_multi_server_create
+
           assert_includes ctx.servers.keys, "worker-1"
         end
 
@@ -232,26 +232,22 @@ module RbrunCore
           assert_equal "10.0.0.1", ctx.server_ip
         end
 
-        def test_multi_server_stores_group_info
-          ctx = build_multi_server_context
-          server_index = 0
-
-          stub_all_existing_for!(ctx)
-          stub_request(:get, /servers/).to_return(
-            status: 200, body: { servers: [] }.to_json, headers: json_headers
-          )
-          stub_request(:post, /servers/).to_return(lambda { |_req|
-            server_index += 1
-            { status: 201, body: { server: multi_server_response(server_index) }.to_json, headers: json_headers }
-          })
-
-          with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
-          end
+        def test_multi_server_stores_master_group
+          ctx = run_multi_server_create
 
           assert_equal "master", ctx.servers["master-1"][:group]
+        end
+
+        def test_multi_server_stores_web_group
+          ctx = run_multi_server_create
+
           assert_equal "web", ctx.servers["web-1"][:group]
           assert_equal "web", ctx.servers["web-2"][:group]
+        end
+
+        def test_multi_server_stores_worker_group
+          ctx = run_multi_server_create
+
           assert_equal "worker", ctx.servers["worker-1"][:group]
         end
 
@@ -274,28 +270,36 @@ module RbrunCore
           assert_requested(:post, /servers/, times: 4)
         end
 
-        def test_multi_server_logs_each_server_creation
-          ctx = build_multi_server_context
-          logger = TestLogger.new
-
-          stub_all_existing_for!(ctx)
-          stub_request(:get, /servers/).to_return(
-            status: 200, body: { servers: [] }.to_json, headers: json_headers
-          )
-          stub_request(:post, /servers/).to_return(lambda { |_req|
-            { status: 201, body: { server: multi_server_response(1) }.to_json, headers: json_headers }
-          })
-
-          with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, logger:).run
-          end
+        def test_multi_server_logs_correct_count
+          _, logger = run_multi_server_create_with_logger
 
           server_logs = logger.logs.select { |cat, _| cat == "server" }
 
           assert_equal 4, server_logs.size
+        end
+
+        def test_multi_server_logs_master_creation
+          _, logger = run_multi_server_create_with_logger
+
+          server_logs = logger.logs.select { |cat, _| cat == "server" }
+
           assert(server_logs.any? { |_, msg| msg.include?("master-1") })
+        end
+
+        def test_multi_server_logs_web_creation
+          _, logger = run_multi_server_create_with_logger
+
+          server_logs = logger.logs.select { |cat, _| cat == "server" }
+
           assert(server_logs.any? { |_, msg| msg.include?("web-1") })
           assert(server_logs.any? { |_, msg| msg.include?("web-2") })
+        end
+
+        def test_multi_server_logs_worker_creation
+          _, logger = run_multi_server_create_with_logger
+
+          server_logs = logger.logs.select { |cat, _| cat == "server" }
+
           assert(server_logs.any? { |_, msg| msg.include?("worker-1") })
         end
 
@@ -321,31 +325,34 @@ module RbrunCore
           assert_equal Set["app-2", "app-3", "db-1"], ctx.new_servers
         end
 
-        def test_scale_down_stores_servers_to_remove
-          ctx = build_multi_server_context_with_count(app: 1, db: 1)
-          # Existing: master-1, app-1, app-2, app-3, db-1
-          existing_list = [
-            hetzner_named_server(ctx, "master-1", 1),
-            hetzner_named_server(ctx, "app-1", 2),
-            hetzner_named_server(ctx, "app-2", 3),
-            hetzner_named_server(ctx, "app-3", 4),
-            hetzner_named_server(ctx, "db-1", 5)
-          ]
+        def test_scale_down_stores_servers_to_remove_in_order
+          ctx = run_scale_down_scenario
 
-          stub_all_existing_for!(ctx)
-          stub_reconciliation_servers!(ctx, existing_list)
-
-          with_mocked_ssh(output: "", exit_code: 0) do
-            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
-          end
-
-          # Servers to remove stored for later (highest index first)
           assert_equal [ "#{ctx.prefix}-app-3", "#{ctx.prefix}-app-2" ], ctx.servers_to_remove
-          # master-1, app-1, db-1 remain in servers hash
+        end
+
+        def test_scale_down_keeps_correct_server_count
+          ctx = run_scale_down_scenario
+
           assert_equal 3, ctx.servers.size
+        end
+
+        def test_scale_down_keeps_master
+          ctx = run_scale_down_scenario
+
           assert_includes ctx.servers.keys, "master-1"
+        end
+
+        def test_scale_down_keeps_first_app_and_db
+          ctx = run_scale_down_scenario
+
           assert_includes ctx.servers.keys, "app-1"
           assert_includes ctx.servers.keys, "db-1"
+        end
+
+        def test_scale_down_has_no_new_servers
+          ctx = run_scale_down_scenario
+
           assert_empty ctx.new_servers
         end
 
@@ -409,25 +416,22 @@ module RbrunCore
           assert_empty ctx.new_servers
         end
 
-        def test_idempotent_rerun_preserves_existing_servers
-          ctx = build_multi_server_context
-          existing_list = [
-            hetzner_named_server(ctx, "master-1", 10),
-            hetzner_named_server(ctx, "web-1", 20),
-            hetzner_named_server(ctx, "web-2", 30),
-            hetzner_named_server(ctx, "worker-1", 40)
-          ]
-
-          stub_all_existing_for!(ctx)
-          stub_reconciliation_servers!(ctx, existing_list)
-
-          with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
-          end
+        def test_idempotent_rerun_preserves_master_ip
+          ctx = run_idempotent_scenario
 
           assert_equal "10.0.0.10", ctx.servers["master-1"][:ip]
+        end
+
+        def test_idempotent_rerun_preserves_web_ips
+          ctx = run_idempotent_scenario
+
           assert_equal "10.0.0.20", ctx.servers["web-1"][:ip]
           assert_equal "10.0.0.30", ctx.servers["web-2"][:ip]
+        end
+
+        def test_idempotent_rerun_preserves_worker_ip
+          ctx = run_idempotent_scenario
+
           assert_equal "10.0.0.40", ctx.servers["worker-1"][:ip]
         end
 
@@ -572,6 +576,84 @@ module RbrunCore
             ctx = RbrunCore::Context.new(config:)
             ctx.ssh_public_key = TEST_SSH_KEY.ssh_public_key
             ctx.ssh_private_key = TEST_SSH_KEY.private_key
+            ctx
+          end
+
+          def run_multi_server_create
+            ctx = build_multi_server_context
+            server_index = 0
+
+            stub_all_existing_for!(ctx)
+            stub_request(:get, /servers/).to_return(
+              status: 200, body: { servers: [] }.to_json, headers: json_headers
+            )
+            stub_request(:post, /servers/).to_return(lambda { |_req|
+              server_index += 1
+              { status: 201, body: { server: multi_server_response(server_index) }.to_json, headers: json_headers }
+            })
+
+            with_mocked_ssh(output: "ok", exit_code: 0) do
+              CreateInfrastructure.new(ctx, logger: TestLogger.new).run
+            end
+
+            ctx
+          end
+
+          def run_multi_server_create_with_logger
+            ctx = build_multi_server_context
+            logger = TestLogger.new
+
+            stub_all_existing_for!(ctx)
+            stub_request(:get, /servers/).to_return(
+              status: 200, body: { servers: [] }.to_json, headers: json_headers
+            )
+            stub_request(:post, /servers/).to_return(lambda { |_req|
+              { status: 201, body: { server: multi_server_response(1) }.to_json, headers: json_headers }
+            })
+
+            with_mocked_ssh(output: "ok", exit_code: 0) do
+              CreateInfrastructure.new(ctx, logger:).run
+            end
+
+            [ ctx, logger ]
+          end
+
+          def run_scale_down_scenario
+            ctx = build_multi_server_context_with_count(app: 1, db: 1)
+            existing_list = [
+              hetzner_named_server(ctx, "master-1", 1),
+              hetzner_named_server(ctx, "app-1", 2),
+              hetzner_named_server(ctx, "app-2", 3),
+              hetzner_named_server(ctx, "app-3", 4),
+              hetzner_named_server(ctx, "db-1", 5)
+            ]
+
+            stub_all_existing_for!(ctx)
+            stub_reconciliation_servers!(ctx, existing_list)
+
+            with_mocked_ssh(output: "", exit_code: 0) do
+              CreateInfrastructure.new(ctx, logger: TestLogger.new).run
+            end
+
+            ctx
+          end
+
+          def run_idempotent_scenario
+            ctx = build_multi_server_context
+            existing_list = [
+              hetzner_named_server(ctx, "master-1", 10),
+              hetzner_named_server(ctx, "web-1", 20),
+              hetzner_named_server(ctx, "web-2", 30),
+              hetzner_named_server(ctx, "worker-1", 40)
+            ]
+
+            stub_all_existing_for!(ctx)
+            stub_reconciliation_servers!(ctx, existing_list)
+
+            with_mocked_ssh(output: "ok", exit_code: 0) do
+              CreateInfrastructure.new(ctx, logger: TestLogger.new).run
+            end
+
             ctx
           end
       end
