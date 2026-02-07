@@ -43,21 +43,11 @@ class ContextTest < Minitest::Test
   end
 
   def test_target_uses_config_target
-    config = build_config
-    config.target = :staging
+    config = build_config(target: :staging)
 
     ctx = RbrunCore::Context.new(config:)
 
     assert_equal :staging, ctx.target
-  end
-
-  def test_explicit_target_overrides_config_target
-    config = build_config
-    config.target = :staging
-
-    ctx = RbrunCore::Context.new(config:, target: :production)
-
-    assert_equal :production, ctx.target
   end
 
   def test_initial_state_is_pending

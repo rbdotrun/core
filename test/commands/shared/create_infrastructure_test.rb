@@ -456,6 +456,7 @@ module RbrunCore
 
           def build_multi_server_context
             config = RbrunCore::Configuration.new
+            config.target = :production
             config.compute(:hetzner) do |c|
               c.api_key = "test-hetzner-key"
               c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -473,7 +474,7 @@ module RbrunCore
               g.repo = "owner/test-repo"
             end
 
-            ctx = RbrunCore::Context.new(config:, target: :production)
+            ctx = RbrunCore::Context.new(config:)
             ctx.ssh_public_key = TEST_SSH_KEY.ssh_public_key
             ctx.ssh_private_key = TEST_SSH_KEY.private_key
             ctx
@@ -550,6 +551,7 @@ module RbrunCore
 
           def build_multi_server_context_with_count(app: 2, db: 0)
             config = RbrunCore::Configuration.new
+            config.target = :production
             config.compute(:hetzner) do |c|
               c.api_key = "test-hetzner-key"
               c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -567,7 +569,7 @@ module RbrunCore
               g.repo = "owner/test-repo"
             end
 
-            ctx = RbrunCore::Context.new(config:, target: :production)
+            ctx = RbrunCore::Context.new(config:)
             ctx.ssh_public_key = TEST_SSH_KEY.ssh_public_key
             ctx.ssh_private_key = TEST_SSH_KEY.private_key
             ctx

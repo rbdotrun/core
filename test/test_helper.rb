@@ -175,10 +175,9 @@ module RbrunCoreTestSetup
       config
     end
 
-    def build_context(target: nil, **overrides)
-      config = build_config
-      # If no explicit target, use config.target (defaults to :production)
-      RbrunCore::Context.new(config:, target: target || config.target, **overrides)
+    def build_context(target: :production, **overrides)
+      config = build_config(target:)
+      RbrunCore::Context.new(config:, **overrides)
     end
 
     def json_headers

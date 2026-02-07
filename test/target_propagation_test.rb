@@ -24,28 +24,20 @@ class TargetPropagationTest < Minitest::Test
     end
   end
 
-  def test_config_target_defaults_to_production_when_not_specified
+  def test_config_raises_when_target_not_specified
     with_yaml_config(target: nil) do |path|
-      config = RbrunCore::Config::Loader.load(path)
+      error = assert_raises(RbrunCore::Error::Configuration) do
+        RbrunCore::Config::Loader.load(path)
+      end
 
-      assert_equal :production, config.target
+      assert_match(/target is required/, error.message)
     end
   end
 
   # ─── Context Target Resolution ───
 
-  def test_context_uses_explicit_target_over_config
-    config = build_config
-    config.target = :staging
-
-    ctx = RbrunCore::Context.new(config:, target: :production)
-
-    assert_equal :production, ctx.target
-  end
-
-  def test_context_uses_config_target_when_no_explicit_target
-    config = build_config
-    config.target = :staging
+  def test_context_uses_config_target
+    config = build_config(target: :staging)
 
     ctx = RbrunCore::Context.new(config:)
 
@@ -65,29 +57,29 @@ class TargetPropagationTest < Minitest::Test
   # ─── Prefix Generation ───
 
   def test_prefix_for_staging_target
-    config = build_config
-    ctx = RbrunCore::Context.new(config:, target: :staging)
+    config = build_config(target: :staging)
+    ctx = RbrunCore::Context.new(config:)
 
     assert_equal "test-repo-staging", ctx.prefix
   end
 
   def test_prefix_for_production_target
-    config = build_config
-    ctx = RbrunCore::Context.new(config:, target: :production)
+    config = build_config(target: :production)
+    ctx = RbrunCore::Context.new(config:)
 
     assert_equal "test-repo-production", ctx.prefix
   end
 
   def test_prefix_for_custom_target
-    config = build_config
-    ctx = RbrunCore::Context.new(config:, target: :canary)
+    config = build_config(target: :canary)
+    ctx = RbrunCore::Context.new(config:)
 
     assert_equal "test-repo-canary", ctx.prefix
   end
 
   def test_prefix_for_sandbox_uses_slug
-    config = build_config
-    ctx = RbrunCore::Context.new(config:, target: :sandbox, slug: "abc123")
+    config = build_config(target: :sandbox)
+    ctx = RbrunCore::Context.new(config:, slug: "abc123")
 
     assert_equal "rbrun-sandbox-abc123", ctx.prefix
   end
@@ -104,11 +96,11 @@ class TargetPropagationTest < Minitest::Test
   end
 
   def test_app_name_lowercase_propagates_to_prefix
-    config = build_config
+    config = build_config(target: :staging)
     config.git do |g|
       g.repo = "CPFF/MyApp-NAME"
     end
-    ctx = RbrunCore::Context.new(config:, target: :staging)
+    ctx = RbrunCore::Context.new(config:)
 
     assert_equal "myapp-name-staging", ctx.prefix
   end
@@ -146,11 +138,11 @@ class TargetPropagationTest < Minitest::Test
   end
 
   def test_config_and_context_target_always_match_when_loaded_from_yaml
-    with_yaml_config(target: nil) do |path|
+    with_yaml_config(target: "staging") do |path|
       config = RbrunCore::Config::Loader.load(path)
       ctx = RbrunCore::Context.new(config:)
 
-      assert_equal :production, config.target, "Config should default to :production"
+      assert_equal :staging, config.target
       assert_equal config.target, ctx.target, "Context target should match config target"
     end
   end

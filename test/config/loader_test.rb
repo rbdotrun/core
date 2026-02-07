@@ -36,7 +36,7 @@ module RbrunCore
 
       # ─── Target Configuration ───
 
-      def test_target_defaults_to_production_when_not_specified
+      def test_raises_when_target_not_specified
         yaml = <<~YAML
           compute:
             provider: hetzner
@@ -46,10 +46,9 @@ module RbrunCore
               instance_type: cpx11
         YAML
 
-        config = load_yaml(yaml)
+        error = assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
 
-        assert_equal :production, config.target
-        refute_nil config.target, "config.target must never be nil"
+        assert_match(/target is required/, error.message)
       end
 
       def test_target_respects_staging_from_yaml
@@ -593,6 +592,58 @@ module RbrunCore
         config = load_yaml(yaml)
 
         assert_equal "cpx11", config.compute_config.master.instance_type
+      end
+
+      # ─── Sandbox Mode Validation ───
+
+      def test_raises_sandbox_with_service_runs_on
+        yaml = <<~YAML
+          target: sandbox
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx21
+            servers:
+              worker:
+                type: cpx11
+          services:
+            redis:
+              image: redis:7
+              runs_on: worker
+        YAML
+
+        err = assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
+
+        assert_match(/runs_on is not supported in sandbox mode/, err.message)
+        assert_match(/service: redis/, err.message)
+      end
+
+      def test_raises_sandbox_with_process_runs_on
+        yaml = <<~YAML
+          target: sandbox
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx21
+            servers:
+              worker:
+                type: cpx11
+          app:
+            processes:
+              worker:
+                command: bin/jobs
+                runs_on:
+                  - worker
+        YAML
+
+        err = assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
+
+        assert_match(/runs_on is not supported in sandbox mode/, err.message)
+        assert_match(/process: worker/, err.message)
       end
 
       private

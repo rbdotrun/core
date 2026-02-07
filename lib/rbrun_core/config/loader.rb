@@ -31,7 +31,8 @@ module RbrunCore
 
           def build_configuration(data)
             config = Configuration.new
-            config.target = (data["target"] || "production").to_sym
+            raise Error::Configuration, "target is required (e.g., target: production)" unless data["target"]
+            config.target = data["target"].to_sym
 
             apply_compute!(config, data["compute"]) if data["compute"]
             apply_cloudflare!(config, data["cloudflare"]) if data["cloudflare"]
@@ -168,6 +169,22 @@ module RbrunCore
           end
 
           def validate_runs_on!(config)
+            # Sandbox mode cannot use runs_on - sandboxes are single-server by design
+            if config.target == :sandbox
+              config.service_configs.each do |name, svc|
+                if svc.runs_on
+                  raise Error::Configuration, "runs_on is not supported in sandbox mode (service: #{name})"
+                end
+              end
+
+              config.app_config&.processes&.each do |name, proc|
+                if proc.runs_on
+                  raise Error::Configuration, "runs_on is not supported in sandbox mode (process: #{name})"
+                end
+              end
+              return
+            end
+
             # runs_on is only valid with additional server groups
             return if config.compute_config&.respond_to?(:multi_server?) && config.compute_config.multi_server?
 

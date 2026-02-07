@@ -103,12 +103,29 @@ module RbrunCore
 
     def validate!
       raise Error::Configuration, "Compute provider not configured" unless @compute_config
+      raise Error::Configuration, "target is required" unless @target
 
       @compute_config.validate!
       @cloudflare_config&.validate!
       @git_config.validate!
       validate_cloudflare_required!
       validate_replicas!
+    end
+
+    def validate_sandbox_mode!
+      return unless @target == :sandbox
+
+      @service_configs.each do |name, svc|
+        if svc.runs_on
+          raise Error::Configuration, "runs_on is not supported in sandbox mode (service: #{name})"
+        end
+      end
+
+      @app_config&.processes&.each do |name, proc|
+        if proc.runs_on
+          raise Error::Configuration, "runs_on is not supported in sandbox mode (process: #{name})"
+        end
+      end
     end
 
     def cloudflare_configured?

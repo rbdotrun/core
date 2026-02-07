@@ -266,7 +266,18 @@ class ConfigurationTest < Minitest::Test
     assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
   end
 
+  def test_validate_raises_when_target_not_set
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+
+    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
+    assert_match(/target is required/, error.message)
+  end
+
   def test_validate_passes_with_minimal_config
+    @config.target = :production
     @config.compute(:hetzner) do |c|
       c.api_key = "k"
       c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -276,6 +287,7 @@ class ConfigurationTest < Minitest::Test
   end
 
   def test_validate_raises_when_process_has_subdomain_without_cloudflare
+    @config.target = :production
     @config.compute(:hetzner) do |c|
       c.api_key = "k"
       c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -292,6 +304,7 @@ class ConfigurationTest < Minitest::Test
   end
 
   def test_validate_raises_when_service_has_subdomain_without_cloudflare
+    @config.target = :production
     @config.compute(:hetzner) do |c|
       c.api_key = "k"
       c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -306,6 +319,7 @@ class ConfigurationTest < Minitest::Test
   end
 
   def test_validate_passes_when_subdomain_with_cloudflare_configured
+    @config.target = :production
     @config.compute(:hetzner) do |c|
       c.api_key = "k"
       c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -326,6 +340,7 @@ class ConfigurationTest < Minitest::Test
   end
 
   def test_validate_passes_when_no_subdomains_and_no_cloudflare
+    @config.target = :production
     @config.compute(:hetzner) do |c|
       c.api_key = "k"
       c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -335,5 +350,76 @@ class ConfigurationTest < Minitest::Test
     end
 
     assert_nil @config.validate!
+  end
+
+  # ── Sandbox Mode Validation ──
+
+  def test_validate_sandbox_mode_raises_when_service_has_runs_on
+    @config.target = :sandbox
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+      c.add_server_group(:worker, type: "cpx11", count: 1)
+    end
+    @config.service(:redis) do |s|
+      s.image = "redis:7"
+      s.runs_on = :worker
+    end
+
+    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate_sandbox_mode! }
+    assert_match(/runs_on is not supported in sandbox mode/, error.message)
+    assert_match(/service: redis/, error.message)
+  end
+
+  def test_validate_sandbox_mode_raises_when_process_has_runs_on
+    @config.target = :sandbox
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+      c.add_server_group(:worker, type: "cpx11", count: 1)
+    end
+    @config.app do |a|
+      a.process(:worker) do |p|
+        p.command = "bin/jobs"
+        p.runs_on = %i[worker]
+      end
+    end
+
+    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate_sandbox_mode! }
+    assert_match(/runs_on is not supported in sandbox mode/, error.message)
+    assert_match(/process: worker/, error.message)
+  end
+
+  def test_validate_sandbox_mode_passes_without_runs_on
+    @config.target = :sandbox
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+    @config.service(:redis) { |s| s.image = "redis:7" }
+    @config.app do |a|
+      a.process(:web) { |p| p.command = "bin/rails server" }
+    end
+
+    # Should not raise
+    @config.validate_sandbox_mode!
+  end
+
+  def test_validate_sandbox_mode_is_no_op_for_non_sandbox
+    @config.target = :production
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+      c.add_server_group(:worker, type: "cpx11", count: 1)
+    end
+    @config.app do |a|
+      a.process(:worker) do |p|
+        p.command = "bin/jobs"
+        p.runs_on = %i[worker]
+      end
+    end
+
+    # Should not raise - runs_on is valid for non-sandbox
+    @config.validate_sandbox_mode!
   end
 end

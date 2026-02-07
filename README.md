@@ -8,14 +8,17 @@ The `target` config value determines which deployment strategy is used:
 
 | Target | Strategy | Naming | Use case |
 |--------|----------|--------|----------|
-| `sandbox` | Docker Compose | `rbrun-{random-slug}` | Ephemeral PR previews, testing |
+| `sandbox` | Docker Compose | `rbrun-sandbox-{slug}` | Ephemeral PR previews, testing |
 | Any other value | K3s/Kubernetes | `{app-name}-{target}` | Persistent deployments |
+
+**Important:** `target` is required in your config. There is no default.
 
 ### Sandbox flow
 
 Each `sandbox deploy` generates a unique 6-char slug (e.g., `a3f8b2`), creating isolated infrastructure:
-- Server: `rbrun-a3f8b2-master-1`
-- No volumes, no backups
+- Server: `rbrun-sandbox-a3f8b2`
+- Single-server only (no multi-server, no `runs_on`)
+- No K3s, uses Docker Compose directly
 - Destroyed with `sandbox destroy`
 
 ### Release flow
@@ -168,7 +171,7 @@ CreateInfrastructure  →  SetupApplication
 ## Test suite
 
 ```
-295 runs, 551 assertions, 0 failures, 0 errors
+380 runs, 695 assertions, 0 failures, 0 errors
 ```
 
 ```bash
