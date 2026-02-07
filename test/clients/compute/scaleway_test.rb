@@ -128,22 +128,44 @@ module RbrunCore
         end
 
         # delete_server tests
-        def test_delete_server_terminates_running_server
+        def test_delete_server_terminates_running_server_and_waits
           stub_list_private_nics
-          stub_get_server(server_data(state: "running"))
           stub_server_action("terminate")
+          # First call returns running server, second call returns 404 (deleted)
+          stub_request(:get, "https://api.scaleway.com/instance/v1/zones/fr-par-1/servers/server-123")
+            .to_return(status: 200, body: { server: server_data(state: "running") }.to_json, headers: json_headers)
+            .then.to_return(status: 404, body: { message: "not found" }.to_json, headers: json_headers)
+
           @client.delete_server("server-123")
 
           assert_requested :post, %r{/servers/server-123/action}
+          # Verify it polls for deletion (get_server called twice: once to check state, once to verify deleted)
+          assert_requested :get, "https://api.scaleway.com/instance/v1/zones/fr-par-1/servers/server-123", times: 2
         end
 
-        def test_delete_server_deletes_stopped_server
+        def test_delete_server_deletes_stopped_server_and_waits
           stub_list_private_nics
-          stub_get_server_stopped
           stub_delete_server
+          # First call returns stopped server, second call returns 404 (deleted)
+          stub_request(:get, "https://api.scaleway.com/instance/v1/zones/fr-par-1/servers/server-123")
+            .to_return(status: 200, body: { server: server_data(state: "stopped") }.to_json, headers: json_headers)
+            .then.to_return(status: 404, body: { message: "not found" }.to_json, headers: json_headers)
+
           @client.delete_server("server-123")
 
-          assert_requested :delete, %r{/servers/server-123}
+          assert_requested :delete, %r{/servers/server-123$}
+          # Verify it polls for deletion
+          assert_requested :get, "https://api.scaleway.com/instance/v1/zones/fr-par-1/servers/server-123", times: 2
+        end
+
+        def test_delete_server_returns_nil_when_not_found
+          stub_list_private_nics
+          stub_request(:get, %r{/servers/server-123})
+            .to_return(status: 404, body: { message: "not found" }.to_json, headers: json_headers)
+
+          result = @client.delete_server("server-123")
+
+          assert_nil result
         end
 
         # delete_firewall tests
@@ -286,6 +308,12 @@ module RbrunCore
 
           def stub_delete_network_not_found
             stub_request(:delete, %r{/private-networks/net-nonexistent})
+              .to_return(status: 404, body: { message: "not found" }.to_json, headers: json_headers)
+          end
+
+          def stub_wait_for_server_deletion
+            # After terminate/delete, the server should return 404 to indicate it's gone
+            stub_request(:get, %r{/servers/server-123})
               .to_return(status: 404, body: { message: "not found" }.to_json, headers: json_headers)
           end
       end

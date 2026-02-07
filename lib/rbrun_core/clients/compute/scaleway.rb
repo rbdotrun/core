@@ -110,6 +110,9 @@ module RbrunCore
             # Running servers: terminate (stops + deletes)
             server_action(id, "terminate")
           end
+
+          # Wait for server to be fully deleted before returning
+          wait_for_server_deletion(id)
         rescue Error::Api => e
           raise unless e.not_found?
         end

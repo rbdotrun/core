@@ -117,6 +117,7 @@ module RbrunCore
 
         def delete_server(id)
           @ec2.terminate_instances(instance_ids: [ id ])
+          wait_for_server_deletion(id)
         rescue ::Aws::EC2::Errors::InvalidInstanceIDNotFound
           nil
         end

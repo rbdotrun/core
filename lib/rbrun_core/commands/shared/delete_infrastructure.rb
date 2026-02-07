@@ -63,8 +63,8 @@ module RbrunCore
             max_attempts.times do |i|
               @ctx.compute_client.delete_firewall(firewall.id)
               return # Success
-            rescue HttpErrors::ApiError => e
-              raise unless e.message.include?("resource_in_use")
+            rescue Error::Api => e
+              raise unless e.message.include?("resource_in_use") || e.message.include?("precondition")
 
               if i < max_attempts - 1
                 log("delete_firewall_retry", "Firewall still in use, retrying in #{interval}s (attempt #{i + 1}/#{max_attempts})")

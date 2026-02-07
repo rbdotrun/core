@@ -176,14 +176,17 @@ module RbrunCore
         end
 
         # delete_server tests
-        def test_delete_server_terminates_instance
+        def test_delete_server_terminates_instance_and_waits
           stub_terminate_instances
+          stub_describe_instances_terminated
           client = build_client
 
           client.delete_server("i-1234567890abcdef0")
 
           assert_requested :post, "https://ec2.us-east-1.amazonaws.com/",
             body: /Action=TerminateInstances/
+          assert_requested :post, "https://ec2.us-east-1.amazonaws.com/",
+            body: /Action=DescribeInstances/
         end
 
         def test_delete_server_returns_nil_when_not_found
@@ -603,6 +606,15 @@ module RbrunCore
             stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
               .with(body: /Action=DescribeInstances.*InstanceId/)
               .to_return(status: 400, body: instance_not_found_response)
+          end
+
+          def stub_describe_instances_terminated
+            # Returns instance with terminated state for wait_for_server_deletion
+            stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+              .with(body: /Action=DescribeInstances/)
+              .to_return(status: 200, body: describe_instances_response([
+                { instances: [ aws_instance_data.merge(state: { name: "terminated" }) ] }
+              ]))
           end
 
           def stub_describe_instances_with_tag_filter(instances)
