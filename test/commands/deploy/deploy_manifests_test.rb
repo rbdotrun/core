@@ -26,12 +26,30 @@ module RbrunCore
           @ctx.config.database(:postgres)
           @ctx.config.app { |a| a.process(:web) { |p| p.port = 3000 } }
 
+          stub_cloudflare_token_verify
+
           cmds = with_capturing_ssh do
-            DeployManifests.new(@ctx, logger: TestLogger.new).run
+            Clients::CloudflareR2.stub(:new, mock_r2_client) do
+              DeployManifests.new(@ctx, logger: TestLogger.new).run
+            end
           end
 
           assert(cmds.any? { |cmd| cmd.include?("rollout status") })
         end
+
+        private
+
+          def mock_r2_client
+            client = Minitest::Mock.new
+            client.expect(:ensure_bucket, nil, [ String ])
+            client.expect(:credentials, { access_key_id: "key", secret_access_key: "secret", endpoint: "https://test.r2.cloudflarestorage.com" })
+            client
+          end
+
+          def stub_cloudflare_token_verify
+            stub_request(:get, "https://api.cloudflare.com/client/v4/user/tokens/verify")
+              .to_return(status: 200, body: { result: { id: "test-token-id" } }.to_json)
+          end
       end
     end
   end

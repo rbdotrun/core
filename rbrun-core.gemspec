@@ -22,6 +22,7 @@ Gem::Specification.new do |s|
   s.add_dependency 'faraday-multipart', '~> 1.0'
   s.add_dependency 'sshkey', '~> 3.0'
   s.add_dependency 'aws-sdk-ec2', '~> 1.0'
+  s.add_dependency 'aws-sdk-s3', '~> 1.0'
   s.add_dependency 'rexml'
   s.add_dependency 'sshkit', '~> 1.23'
   s.add_dependency 'zeitwerk', '~> 2.6'

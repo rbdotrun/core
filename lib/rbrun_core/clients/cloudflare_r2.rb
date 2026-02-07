@@ -29,7 +29,9 @@ module RbrunCore
             credentials[:access_key_id],
             credentials[:secret_access_key]
           ),
-          force_path_style: true
+          force_path_style: true,
+          http_wire_trace: false,
+          ssl_verify_peer: false
         )
       end
 
@@ -48,6 +50,15 @@ module RbrunCore
       def download_file(bucket:, key:)
         response = client.get_object(bucket:, key:)
         response.body.read
+      end
+
+      def list_objects(bucket:, prefix: nil)
+        options = { bucket: }
+        options[:prefix] = prefix if prefix
+        response = client.list_objects_v2(options)
+        response.contents.map do |obj|
+          { key: obj.key, size: obj.size, last_modified: obj.last_modified }
+        end
       end
 
       private

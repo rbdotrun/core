@@ -262,7 +262,7 @@ module RbrunCore
         assert_equal %i[worker], config.app_config.processes[:worker].runs_on
       end
 
-      def test_loads_setup_and_env
+      def test_loads_process_setup
         yaml = <<~YAML
           target: production
           compute:
@@ -271,9 +271,29 @@ module RbrunCore
             ssh_key_path: #{TEST_SSH_KEY_PATH}
             master:
               instance_type: cpx11
-          setup:
-            - bundle install
-            - rails db:prepare
+          app:
+            processes:
+              web:
+                port: 80
+                setup:
+                  - rails db:prepare
+                  - bundle exec rake imports:all
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal [ "rails db:prepare", "bundle exec rake imports:all" ], config.app_config.processes[:web].setup
+      end
+
+      def test_loads_env
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
           env:
             RAILS_ENV: production
             SECRET_KEY_BASE: abc123
@@ -281,7 +301,6 @@ module RbrunCore
 
         config = load_yaml(yaml)
 
-        assert_equal [ "bundle install", "rails db:prepare" ], config.setup_commands
         assert_equal "production", config.env_vars[:RAILS_ENV]
         assert_equal "abc123", config.env_vars[:SECRET_KEY_BASE]
       end

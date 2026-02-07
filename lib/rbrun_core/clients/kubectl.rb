@@ -46,53 +46,32 @@ module RbrunCore
         run!("kubectl rollout status deployment/#{deployment} -n #{namespace} --timeout=#{timeout}s")
       end
 
-      # Get deployment replica status for progress tracking.
-      # Returns { name:, ready:, desired:, available:, updated:, ready?: }
-      def deployment_status(deployment, namespace: "default")
-        result = run!(
-          "kubectl get deployment #{deployment} -n #{namespace} -o json",
-          raise_on_error: false
-        )
+      # Get pods as structured data
+      def get_pods(namespace: "default")
+        result = run!("kubectl get pods -n #{namespace} -o json", raise_on_error: false)
+        return [] unless result[:exit_code].zero?
 
-        return nil unless result[:exit_code].zero?
-
-        data = JSON.parse(result[:output])
-        status = data["status"] || {}
-        spec = data["spec"] || {}
-
-        desired = spec["replicas"] || 0
-        ready = status["readyReplicas"] || 0
-        available = status["availableReplicas"] || 0
-        updated = status["updatedReplicas"] || 0
-
-        {
-          name: deployment,
-          ready:,
-          desired:,
-          available:,
-          updated:,
-          ready?: ready >= desired && updated >= desired && available >= desired
-        }
+        items = JSON.parse(result[:output])["items"] || []
+        items.map { |pod| parse_pod(pod) }
       end
 
-      # Wait for multiple deployments to roll out, yielding progress updates.
-      # Yields { name:, ready:, desired:, ready?: } for each deployment on each poll.
-      def wait_for_deployments(deployments, namespace: "default", timeout: 300, interval: 2)
-        deadline = Time.now + timeout
-        pending = deployments.dup
+      def parse_pod(pod)
+        containers = pod.dig("status", "containerStatuses") || []
+        ready_count = containers.count { |c| c["ready"] }
+        total = [ containers.size, 1 ].max
 
-        while pending.any? && Time.now < deadline
-          pending.each do |deployment|
-            status = deployment_status(deployment, namespace:)
-            yield status if block_given? && status
+        phase = pod.dig("status", "phase") || "Pending"
+        waiting = containers.find { |c| c.dig("state", "waiting") }
+        status = waiting&.dig("state", "waiting", "reason") || phase
 
-            pending.delete(deployment) if status&.dig(:ready?)
-          end
-
-          sleep interval if pending.any? && Time.now < deadline
-        end
-
-        raise Error::Standard, "Rollout timed out for: #{pending.join(", ")}" if pending.any?
+        {
+          name: pod.dig("metadata", "name"),
+          app: pod.dig("metadata", "labels", Naming::LABEL_APP),
+          ready_count:,
+          total:,
+          status:,
+          ready: phase == "Running" && ready_count == total && total > 0
+        }
       end
 
       def exec(deployment, command, namespace: "default")
@@ -113,6 +92,12 @@ module RbrunCore
 
       def delete_resource(resource, name, namespace: "default")
         run!("kubectl delete #{resource} #{name} -n #{namespace} --ignore-not-found", raise_on_error: false)
+      end
+
+      def create_job_from_cronjob(cronjob_name, namespace: "default")
+        job_name = Naming.manual_job(cronjob_name)
+        run!("kubectl create job #{job_name} --from=cronjob/#{cronjob_name} -n #{namespace}")
+        job_name
       end
 
       def drain(node_name, max_attempts: 12, interval: 5)

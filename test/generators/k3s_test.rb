@@ -195,6 +195,27 @@ module RbrunCore
         assert_includes manifests, RbrunCore::Naming::LABEL_SERVER_GROUP
         assert_includes manifests, "web"
       end
+
+      def test_generates_process_env
+        @config.app do |a|
+          a.process(:worker) do |p|
+            p.command = "bin/jobs"
+            p.env = { "QUEUE" => "critical", "THREADS" => "10" }
+          end
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        worker_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-worker" }
+        container = worker_deploy["spec"]["template"]["spec"]["containers"].first
+
+        assert container["env"]
+        env_names = container["env"].map { |e| e["name"] }
+
+        assert_includes env_names, "QUEUE"
+        assert_includes env_names, "THREADS"
+      end
     end
   end
 end

@@ -9,13 +9,14 @@ module RbrunCore
     class K3s
       NAMESPACE = "default"
 
-      def initialize(config, prefix:, zone:, db_password: nil, registry_tag: nil, tunnel_token: nil)
+      def initialize(config, prefix:, zone:, db_password: nil, registry_tag: nil, tunnel_token: nil, r2_credentials: nil)
         @config = config
         @prefix = prefix
         @zone = zone
         @db_password = db_password || SecureRandom.hex(16)
         @registry_tag = registry_tag
         @tunnel_token = tunnel_token
+        @r2_credentials = r2_credentials
       end
 
       def generate
@@ -25,6 +26,7 @@ module RbrunCore
         manifests.concat(service_manifests) if @config.service?
         manifests.concat(app_manifests) if @config.app? && @registry_tag
         manifests << tunnel_manifest if @tunnel_token
+        manifests.concat(backup_manifests) if @config.database?(:postgres) && @r2_credentials
         to_yaml(manifests)
       end
 
@@ -146,7 +148,7 @@ module RbrunCore
             name: deployment_name, replicas: 1,
             node_selector: node_selector_for(svc_config.runs_on),
             containers: [ container.compact ],
-            volumes: volumes
+            volumes:
           )
 
           manifests << service(name: deployment_name, port: svc_config.port) if svc_config.port
@@ -176,6 +178,9 @@ module RbrunCore
             name: name.to_s, image: @registry_tag,
             envFrom: [ { secretRef: { name: "#{@prefix}-app-secret" } } ]
           }
+          if process.env&.any?
+            container[:env] = process.env.map { |k, v| { name: k.to_s, value: v.to_s } }
+          end
           container[:args] = Shellwords.split(process.command) if process.command
           container[:ports] = [ { containerPort: process.port } ] if process.port
 
@@ -185,9 +190,11 @@ module RbrunCore
             container[:readinessProbe] = { httpGet: http_get, initialDelaySeconds: 10, periodSeconds: 10 }
           end
 
+          init_containers = setup_init_containers(process)
+
           manifests << deployment(name: deployment_name, replicas: process.replicas,
                                   node_selector: node_selector_for_process(process.runs_on),
-                                  containers: [ container ])
+                                  containers: [ container ], init_containers:)
           manifests << service(name: deployment_name, port: process.port) if process.port
           if subdomain && process.port
             manifests << ingress(name: deployment_name, hostname: "#{subdomain}.#{@zone}",
@@ -195,6 +202,19 @@ module RbrunCore
           end
 
           manifests
+        end
+
+        def setup_init_containers(process)
+          return [] if process.setup.empty?
+
+          process.setup.each_with_index.map do |cmd, idx|
+            {
+              name: "setup-#{idx}",
+              image: @registry_tag,
+              command: [ "sh", "-c", cmd ],
+              envFrom: [ { secretRef: { name: "#{@prefix}-app-secret" } } ]
+            }
+          end
         end
 
         def tunnel_manifest
@@ -233,8 +253,10 @@ module RbrunCore
             Naming::LABEL_MANAGED_BY => "rbrun" }
         end
 
-        def deployment(name:, containers:, volumes: [], replicas: 1, host_network: false, node_selector: nil)
+        def deployment(name:, containers:, volumes: [], replicas: 1, host_network: false, node_selector: nil,
+                       init_containers: [])
           spec = { containers: }
+          spec[:initContainers] = init_containers if init_containers.any?
           spec[:volumes] = volumes if volumes.any?
           spec[:hostNetwork] = true if host_network
           if node_selector == :affinity
@@ -302,6 +324,70 @@ module RbrunCore
 
         def host_path_volume(name, path)
           { name:, hostPath: { path:, type: "DirectoryOrCreate" } }
+        end
+
+        def backup_manifests
+          return [] unless @r2_credentials
+
+          name = "#{@prefix}-postgres-backup"
+          pg = @config.database_configs[:postgres]
+          pg_user = pg.username || "app"
+          pg_db = pg.database || "app"
+
+          [
+            secret(name: "#{name}-secret", data: {
+              "AWS_ACCESS_KEY_ID" => @r2_credentials[:access_key_id],
+              "AWS_SECRET_ACCESS_KEY" => @r2_credentials[:secret_access_key],
+              "R2_ENDPOINT_URL" => @r2_credentials[:endpoint],
+              "BUCKET" => @r2_credentials[:bucket],
+              "PGHOST" => "#{@prefix}-postgres",
+              "PGUSER" => pg_user,
+              "PGPASSWORD" => @db_password,
+              "PGDATABASE" => pg_db
+            }),
+            {
+              apiVersion: "batch/v1", kind: "CronJob",
+              metadata: { name:, namespace: NAMESPACE },
+              spec: {
+                schedule: "0 */6 * * *",
+                concurrencyPolicy: "Forbid",
+                successfulJobsHistoryLimit: 1,
+                failedJobsHistoryLimit: 1,
+                jobTemplate: {
+                  spec: {
+                    template: {
+                      spec: {
+                        restartPolicy: "OnFailure",
+                        nodeSelector: { Naming::LABEL_SERVER_GROUP => Naming::MASTER_GROUP },
+                        containers: [ {
+                          name: "backup",
+                          image: "postgres:16-alpine",
+                          command: [ "/bin/sh", "-c" ],
+                          args: [ backup_script ],
+                          envFrom: [ { secretRef: { name: "#{name}-secret" } } ]
+                        } ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        end
+
+        def backup_script
+          <<~SH.strip
+            apk add --no-cache aws-cli &&
+            TIMESTAMP=$(date +%Y%m%d-%H%M%S) &&
+            pg_dump -h $PGHOST -U $PGUSER -d $PGDATABASE --no-owner --no-acl |
+            gzip |
+            aws s3 cp - s3://$BUCKET/backup-$TIMESTAMP.sql.gz --endpoint-url $R2_ENDPOINT_URL &&
+            aws s3 ls s3://$BUCKET/ --endpoint-url $R2_ENDPOINT_URL |
+            sort -r |
+            tail -n +8 |
+            awk '{print $4}' |
+            xargs -I {} aws s3 rm s3://$BUCKET/{} --endpoint-url $R2_ENDPOINT_URL
+          SH
         end
     end
   end

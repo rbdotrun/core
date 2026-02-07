@@ -163,6 +163,7 @@ class ConfigurationTest < Minitest::Test
     end
 
     svc = @config.service_configs[:meilisearch]
+
     assert_equal 7700, svc.port
     assert_equal "/meili_data", svc.mount_path
   end
@@ -242,17 +243,10 @@ class ConfigurationTest < Minitest::Test
     assert_predicate @config, :claude_configured?
   end
 
-  # ── Setup & Env ──
+  # ── Env ──
 
   def test_defaults_to_empty
-    assert_empty @config.setup_commands
     assert_empty(@config.env_vars)
-  end
-
-  def test_setup_collects_commands
-    @config.setup("bundle install", "rails db:prepare")
-
-    assert_equal [ "bundle install", "rails db:prepare" ], @config.setup_commands
   end
 
   def test_env_collects_variables

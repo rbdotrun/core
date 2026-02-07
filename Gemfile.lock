@@ -3,6 +3,7 @@ PATH
   specs:
     rbrun-core (0.1.0)
       aws-sdk-ec2 (~> 1.0)
+      aws-sdk-s3 (~> 1.0)
       base64
       bcrypt_pbkdf (>= 1.0)
       ed25519 (>= 1.2)
@@ -44,6 +45,13 @@ GEM
       logger
     aws-sdk-ec2 (1.597.0)
       aws-sdk-core (~> 3, >= 3.241.4)
+      aws-sigv4 (~> 1.5)
+    aws-sdk-kms (1.121.0)
+      aws-sdk-core (~> 3, >= 3.241.4)
+      aws-sigv4 (~> 1.5)
+    aws-sdk-s3 (1.213.0)
+      aws-sdk-core (~> 3, >= 3.241.4)
+      aws-sdk-kms (~> 1)
       aws-sigv4 (~> 1.5)
     aws-sigv4 (1.12.1)
       aws-eventstream (~> 1, >= 1.0.2)

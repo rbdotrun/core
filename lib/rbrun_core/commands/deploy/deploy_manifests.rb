@@ -15,13 +15,16 @@ module RbrunCore
         def run
           log("deploy_manifests", "Generating and applying K3s manifests")
 
+          r2_credentials = setup_backup_bucket
+
           generator = Generators::K3s.new(
             @ctx.config,
             prefix: @ctx.prefix,
             zone: @ctx.zone,
             db_password: resolve_db_password,
             registry_tag: @ctx.registry_tag,
-            tunnel_token: @ctx.tunnel_token
+            tunnel_token: @ctx.tunnel_token,
+            r2_credentials:
           )
 
           kubectl.apply(generator.generate)
@@ -31,6 +34,18 @@ module RbrunCore
         end
 
         private
+
+          def setup_backup_bucket
+            return nil unless @ctx.config.database?(:postgres) && @ctx.config.cloudflare_configured?
+
+            cf_config = @ctx.config.cloudflare_config
+            r2 = Clients::CloudflareR2.new(api_token: cf_config.api_token, account_id: cf_config.account_id)
+
+            bucket_name = Naming.backup_bucket(@ctx.config.git_config.app_name, @ctx.config.target)
+            r2.ensure_bucket(bucket_name)
+
+            r2.credentials.merge(bucket: bucket_name)
+          end
 
           def resolve_db_password
             @ctx.db_password ||
@@ -57,16 +72,8 @@ module RbrunCore
             return if deployments.empty?
 
             if @on_rollout_progress
-              # Use polling with progress callback
-              @on_rollout_progress.call(:start, deployments)
-
-              kubectl.wait_for_deployments(deployments, timeout: 300) do |status|
-                @on_rollout_progress.call(:update, status)
-              end
-
-              @on_rollout_progress.call(:done, nil)
+              @on_rollout_progress.call(:wait, { kubectl:, deployments: })
             else
-              # Fallback to sequential rollout status (no progress display)
               deployments.each do |deployment|
                 kubectl.rollout_status(deployment, timeout: 300)
               end

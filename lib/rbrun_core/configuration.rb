@@ -3,7 +3,7 @@
 module RbrunCore
   class Configuration
     attr_reader :compute_config, :cloudflare_config, :git_config, :claude_config, :database_configs, :service_configs,
-                :app_config, :setup_commands, :env_vars
+                :app_config, :env_vars
     attr_accessor :target
 
     def initialize
@@ -12,7 +12,6 @@ module RbrunCore
       @database_configs = {}
       @service_configs = {}
       @app_config = nil
-      @setup_commands = []
       @env_vars = {}
     end
 
@@ -91,12 +90,8 @@ module RbrunCore
     end
 
     # ─────────────────────────────────────────────────────────────
-    # Setup & Environment DSL
+    # Environment DSL
     # ─────────────────────────────────────────────────────────────
-
-    def setup(*commands)
-      @setup_commands = commands.flatten
-    end
 
     def env(vars = {})
       @env_vars = vars
@@ -159,7 +154,7 @@ module RbrunCore
   module Config
     class Database
       attr_accessor :password, :username, :database, :runs_on
-      attr_reader :type, :backup_config
+      attr_reader :type
       attr_writer :image
 
       DEFAULT_IMAGES = {
@@ -176,28 +171,13 @@ module RbrunCore
         @runs_on = nil
       end
 
-      def backup
-        @backup_config = Backup.new
-        yield @backup_config if block_given?
-        @backup_config
-      end
-
       def image
         @image || DEFAULT_IMAGES[@type]
       end
     end
 
-    class Backup
-      attr_accessor :schedule, :retention
-
-      def initialize
-        @schedule = "@daily"
-        @retention = 30
-      end
-    end
-
     class Service
-      attr_accessor :subdomain, :env, :runs_on, :port, :mount_path
+      attr_accessor :subdomain, :env, :runs_on, :port, :mount_path, :setup
       attr_reader :name
       attr_writer :image
 
@@ -209,6 +189,7 @@ module RbrunCore
         @runs_on = nil
         @mount_path = nil
         @port = nil
+        @setup = []
       end
 
       def image
@@ -238,7 +219,7 @@ module RbrunCore
     end
 
     class Process
-      attr_accessor :command, :port, :subdomain, :runs_on, :replicas
+      attr_accessor :command, :port, :subdomain, :runs_on, :replicas, :env, :setup
       attr_reader :name
 
       def initialize(name)
@@ -248,6 +229,8 @@ module RbrunCore
         @subdomain = nil
         @runs_on = nil
         @replicas = 2
+        @env = {}
+        @setup = []
       end
     end
   end

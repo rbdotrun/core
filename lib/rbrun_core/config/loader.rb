@@ -39,7 +39,6 @@ module RbrunCore
             apply_databases!(config, data["databases"]) if data["databases"]
             apply_services!(config, data["services"]) if data["services"]
             apply_app!(config, data["app"]) if data["app"]
-            apply_setup!(config, data["setup"]) if data["setup"]
             apply_env!(config, data["env"]) if data["env"]
             apply_git!(config)
             validate_runs_on!(config)
@@ -127,6 +126,7 @@ module RbrunCore
                 s.mount_path = svc_data["mount_path"] if svc_data["mount_path"]
                 s.subdomain = svc_data["subdomain"] if svc_data["subdomain"]
                 s.runs_on = svc_data["runs_on"]&.to_sym if svc_data["runs_on"]
+                s.setup = svc_data["setup"] || []
                 if svc_data["env"]
                   s.env = svc_data["env"].transform_keys(&:to_sym)
                 end
@@ -144,16 +144,14 @@ module RbrunCore
                   p.port = proc_data["port"] if proc_data["port"]
                   p.subdomain = proc_data["subdomain"] if proc_data["subdomain"]
                   p.replicas = proc_data["replicas"] if proc_data["replicas"]
+                  p.env = proc_data["env"] if proc_data["env"]
+                  p.setup = proc_data["setup"] || []
                   if proc_data["runs_on"]
                     p.runs_on = Array(proc_data["runs_on"]).map(&:to_sym)
                   end
                 end
               end
             end
-          end
-
-          def apply_setup!(config, setup_data)
-            config.setup(*setup_data)
           end
 
           def apply_env!(config, env_data)
