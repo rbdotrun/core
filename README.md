@@ -2,6 +2,37 @@
 
 Core engine for rbrun. Handles everything from server provisioning to Kubernetes deployment.
 
+## Deployment strategies
+
+The `target` config value determines which deployment strategy is used:
+
+| Target | Strategy | Naming | Use case |
+|--------|----------|--------|----------|
+| `sandbox` | Docker Compose | `rbrun-{random-slug}` | Ephemeral PR previews, testing |
+| Any other value | K3s/Kubernetes | `{app-name}-{target}` | Persistent deployments |
+
+### Sandbox flow
+
+Each `sandbox deploy` generates a unique 6-char slug (e.g., `a3f8b2`), creating isolated infrastructure:
+- Server: `rbrun-a3f8b2-master-1`
+- No volumes, no backups
+- Destroyed with `sandbox destroy`
+
+### Release flow
+
+For `target: production`, `target: staging`, or any non-sandbox value:
+- Server: `{app-name}-{target}-master-1` (e.g., `myapp-production-master-1`)
+- Persistent volumes, backups, K3s cluster
+- Multiple environments run side by side with different targets
+
+```yaml
+# rbrun.yaml           → myapp-production-*
+target: production
+
+# rbrun.staging.yaml   → myapp-staging-*
+target: staging
+```
+
 ## Features
 
 ### Declarative infrastructure
