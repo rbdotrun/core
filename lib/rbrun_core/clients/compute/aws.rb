@@ -421,7 +421,6 @@ module RbrunCore
               created_at: nil
             )
           end
-
       end
     end
   end

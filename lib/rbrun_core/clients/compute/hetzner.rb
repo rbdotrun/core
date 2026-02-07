@@ -270,6 +270,14 @@ module RbrunCore
           get_volume(id)
         end
 
+        def wait_for_device_path(volume_id, _ssh_client)
+          Waiter.poll(max_attempts: 30, interval: 2, message: "Volume device path not available") do
+            volume = get("/volumes/#{volume_id.to_i}")["volume"]
+            device = volume&.dig("linux_device")
+            device unless device.nil? || device.empty?
+          end
+        end
+
         def wait_for_action(action_id, max_attempts: 60, interval: 2)
           Waiter.poll(max_attempts:, interval:, message: "Action #{action_id} timed out after #{max_attempts * interval} seconds") do
             response = get("/actions/#{action_id}")

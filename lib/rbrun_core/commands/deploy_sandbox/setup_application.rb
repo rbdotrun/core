@@ -118,10 +118,12 @@ module RbrunCore
             docker_compose!("up -d postgres", raise_on_error: false) if config.database?(:postgres)
             docker_compose!("up -d redis", raise_on_error: false) if config.service?(:redis)
 
-            config.setup_commands.each do |cmd|
-              next if cmd.nil? || cmd.empty?
+            config.app_config&.processes&.each do |name, process|
+              process.setup.each do |cmd|
+                next if cmd.nil? || cmd.empty?
 
-              docker_compose!("run --rm web sh -c #{Shellwords.escape(cmd)}")
+                docker_compose!("run --rm #{name} sh -c #{Shellwords.escape(cmd)}")
+              end
             end
 
             docker_compose!("up -d")

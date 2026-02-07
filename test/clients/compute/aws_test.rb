@@ -154,7 +154,7 @@ module RbrunCore
           client = build_client
           servers = client.list_servers
 
-          assert_equal [], servers
+          assert_empty servers
         end
 
         def test_list_servers_returns_servers

@@ -92,12 +92,14 @@ module RbrunCore
           secret_name = "#{name}-secret"
           pg_user = db_config.username || "app"
           pg_db = db_config.database || "app"
+          node_selector = node_selector_for(db_config.runs_on) ||
+                          { Naming::LABEL_SERVER_GROUP => Naming::MASTER_GROUP }
 
           [
             secret(name: secret_name, data: { "DB_PASSWORD" => @db_password }),
-            deployment(
-              name:, replicas: 1,
-              node_selector: { Naming::LABEL_SERVER_GROUP => Naming::MASTER_GROUP },
+            statefulset(
+              name:,
+              node_selector:,
               containers: [ {
                 name: "postgres", image: db_config.image,
                 ports: [ { containerPort: 5432 } ],
@@ -112,7 +114,7 @@ module RbrunCore
               } ],
               volumes: [ host_path_volume("data", "/mnt/data/#{name}") ]
             ),
-            service(name:, port: 5432)
+            headless_service(name:, port: 5432)
           ]
         end
 
@@ -300,6 +302,31 @@ module RbrunCore
           }
         end
 
+        def headless_service(name:, port:)
+          {
+            apiVersion: "v1", kind: "Service",
+            metadata: { name:, namespace: NAMESPACE, labels: labels(name) },
+            spec: { clusterIP: "None", selector: { Naming::LABEL_APP => name }, ports: [ { port:, targetPort: port } ] }
+          }
+        end
+
+        def statefulset(name:, containers:, volumes: [], node_selector: nil)
+          spec = { containers: }
+          spec[:volumes] = volumes if volumes.any?
+          spec[:nodeSelector] = node_selector if node_selector
+
+          {
+            apiVersion: "apps/v1", kind: "StatefulSet",
+            metadata: { name:, namespace: NAMESPACE, labels: labels(name) },
+            spec: {
+              serviceName: name,
+              replicas: 1,
+              selector: { matchLabels: { Naming::LABEL_APP => name } },
+              template: { metadata: { labels: labels(name) }, spec: }
+            }
+          }
+        end
+
         def secret(name:, data:)
           {
             apiVersion: "v1", kind: "Secret",
@@ -361,7 +388,7 @@ module RbrunCore
                         nodeSelector: { Naming::LABEL_SERVER_GROUP => Naming::MASTER_GROUP },
                         containers: [ {
                           name: "backup",
-                          image: "postgres:16-alpine",
+                          image: pg.image,
                           command: [ "/bin/sh", "-c" ],
                           args: [ backup_script ],
                           envFrom: [ { secretRef: { name: "#{name}-secret" } } ]
@@ -377,7 +404,11 @@ module RbrunCore
 
         def backup_script
           <<~SH.strip
-            apk add --no-cache aws-cli &&
+            if command -v apk >/dev/null; then
+              apk add --no-cache aws-cli
+            else
+              apt-get update && apt-get install -y awscli
+            fi &&
             TIMESTAMP=$(date +%Y%m%d-%H%M%S) &&
             pg_dump -h $PGHOST -U $PGUSER -d $PGDATABASE --no-owner --no-acl |
             gzip |

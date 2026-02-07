@@ -44,10 +44,6 @@ app:
       runs_on:
         - app
 
-setup:
-  - bundle install
-  - rails db:prepare
-
 env:
   RAILS_ENV: production
   SECRET_KEY_BASE: ${SECRET_KEY_BASE}

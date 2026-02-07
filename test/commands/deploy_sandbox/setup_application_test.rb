@@ -24,8 +24,12 @@ module RbrunCore
           assert(cmds.any? { |cmd| cmd.include?("docker compose") })
         end
 
-        def test_runs_setup_commands_from_config
-          @ctx.config.setup("bundle install", "rails db:prepare")
+        def test_runs_setup_commands_from_process
+          @ctx.config.app do |a|
+            a.process(:web) do |p|
+              p.setup = [ "bundle install", "rails db:prepare" ]
+            end
+          end
 
           cmds = with_capturing_ssh(exit_code_for: { "test -d" => 1 }) do
             SetupApplication.new(@ctx, logger: TestLogger.new).run

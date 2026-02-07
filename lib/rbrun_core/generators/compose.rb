@@ -35,10 +35,11 @@ module RbrunCore
         end
 
         def app_service(_name, process)
+          env = resolved_env_vars.merge(process.env || {})
           service = {
             "build" => ".",
             "volumes" => [ ".:/app" ],
-            "environment" => resolved_env_vars
+            "environment" => env
           }
           service["command"] = process.command if process.command
           service["ports"] = [ "#{process.port}:#{process.port}" ] if process.port

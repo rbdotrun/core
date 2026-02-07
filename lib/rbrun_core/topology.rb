@@ -38,7 +38,7 @@ module RbrunCore
 
     def topology_hash(namespace: "default")
       {
-        nodes: nodes,
+        nodes:,
         pods: pods(namespace:),
         placement: build_placement(namespace:)
       }

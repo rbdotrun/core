@@ -16,6 +16,7 @@ module RbrunCore
 
         Shared::CreateInfrastructure.new(@ctx, logger: @logger).run
         SetupK3s.new(@ctx, logger: @logger).run
+        ProvisionVolumes.new(@ctx, logger: @logger).run if needs_volumes?
         SetupTunnel.new(@ctx, logger: @logger).run if needs_tunnel?
         if has_app?
           BuildImage.new(@ctx, logger: @logger).run
@@ -58,6 +59,10 @@ module RbrunCore
 
         def needs_tunnel?
           @ctx.cloudflare_configured?
+        end
+
+        def needs_volumes?
+          @ctx.config.database?(:postgres)
         end
 
         def has_app?

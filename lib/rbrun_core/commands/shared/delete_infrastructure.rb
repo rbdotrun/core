@@ -10,12 +10,28 @@ module RbrunCore
         end
 
         def run
+          detach_volumes!
           delete_servers!
           delete_resource(:network)
           delete_firewall_with_retry!
         end
 
         private
+
+          def detach_volumes!
+            return unless @ctx.compute_client.respond_to?(:list_volumes)
+
+            prefix = @ctx.prefix
+            volumes = @ctx.compute_client.list_volumes
+            matching = volumes.select { |v| v.name&.start_with?("#{prefix}-") }
+
+            matching.each do |volume|
+              log("detach_volume", "Detaching volume #{volume.name}")
+              @ctx.compute_client.detach_volume(volume_id: volume.id)
+            rescue StandardError => e
+              log("detach_volume", "Warning: Could not detach #{volume.name}: #{e.message}")
+            end
+          end
 
           def delete_servers!
             all_servers = @ctx.compute_client.list_servers

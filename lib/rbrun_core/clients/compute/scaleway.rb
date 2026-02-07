@@ -93,21 +93,37 @@ module RbrunCore
         end
 
         def delete_server(id)
-          server = get_server(id)
-          return nil unless server
-
-          if server.status == "running"
-            power_off(id)
-            wait_for_server_stopped(id)
-          end
-
-          full_server = get(instance_path("/servers/#{id}"))["server"]
-          full_server["volumes"]&.each_value do |vol|
-            delete_volume_internal(vol["id"]) if vol["id"]
+          # Delete private NICs first
+          list_private_nics(id).each do |nic|
+            delete_private_nic(id, nic["id"])
           rescue StandardError
+            # Ignore cleanup errors
           end
 
-          delete(instance_path("/servers/#{id}"))
+          server = get_server(id)
+          return if server.nil?
+
+          if server.status == "stopped"
+            # Stopped servers can't be terminated, delete directly
+            delete(instance_path("/servers/#{id}"))
+          else
+            # Running servers: terminate (stops + deletes)
+            server_action(id, "terminate")
+          end
+        rescue Error::Api => e
+          raise unless e.not_found?
+        end
+
+        def list_private_nics(server_id)
+          get(instance_path("/servers/#{server_id}/private_nics"))["private_nics"] || []
+        end
+
+        def delete_private_nic(server_id, nic_id)
+          delete(instance_path("/servers/#{server_id}/private_nics/#{nic_id}"))
+        end
+
+        def server_action(id, action)
+          post(instance_path("/servers/#{id}/action"), { action: })
         end
 
         def power_on(id) = post(instance_path("/servers/#{id}/action"), { action: "poweron" })
@@ -204,12 +220,92 @@ module RbrunCore
           nil
         end
 
-        def delete_volume(id)
-          delete(instance_path("/volumes/#{id}"))
+        # Volume Management (Block Storage)
+        def find_or_create_volume(name:, size:, location: nil, labels: {})
+          existing = find_volume(name)
+          return existing if existing
+
+          create_volume(name:, size:)
+        end
+
+        def create_volume(name:, size:, labels: {})
+          response = post(block_path("/volumes"), {
+                            name:,
+                            perf_iops: 5000,
+                            from_empty: { size: size * 1_000_000_000 },
+                            project_id: @project_id
+                          })
+          to_volume(response)
+        end
+
+        def get_volume(id)
+          response = get(block_path("/volumes/#{id}"))
+          to_volume(response)
         rescue Error::Api => e
           raise unless e.not_found?
 
           nil
+        end
+
+        def find_volume(name)
+          list_volumes.find { |v| v.name == name }
+        end
+
+        def list_volumes(label_selector: nil)
+          response = get(block_path("/volumes"))
+          (response["volumes"] || []).map { |v| to_volume(v) }
+        end
+
+        def attach_volume(volume_id:, server_id:)
+          server = get(instance_path("/servers/#{server_id}"))["server"]
+          raise Error::Standard, "Server not found: #{server_id}" unless server
+
+          wait_for_volume_available(volume_id)
+
+          current_volumes = server["volumes"] || {}
+          next_index = current_volumes.keys.map(&:to_i).max.to_i + 1
+
+          new_volumes = current_volumes.dup
+          new_volumes[next_index.to_s] = { id: volume_id, volume_type: "sbs_volume" }
+
+          patch(instance_path("/servers/#{server_id}"), { volumes: new_volumes })
+          get_volume(volume_id)
+        end
+
+        def detach_volume(volume_id:)
+          response = get(instance_path("/servers"), project: @project_id)
+          response["servers"]&.each do |server|
+            volumes = server["volumes"] || {}
+            volumes.each do |idx, vol|
+              next unless vol["id"] == volume_id
+
+              new_volumes = volumes.reject { |k, _| k == idx }
+              patch(instance_path("/servers/#{server["id"]}"), { volumes: new_volumes })
+              # Wait for volume to be detached
+              wait_for_volume_available(volume_id)
+              return
+            end
+          end
+        end
+
+        def delete_volume(id)
+          delete(block_path("/volumes/#{id}"))
+        rescue Error::Api => e
+          raise unless e.not_found?
+
+          nil
+        end
+
+        def wait_for_device_path(volume_id, ssh_client)
+          Waiter.poll(max_attempts: 30, interval: 2, message: "Volume device not found") do
+            result = ssh_client.execute("ls /dev/disk/by-id/ 2>/dev/null | grep -i '#{volume_id}' || true",
+                                        raise_on_error: false)
+            output = result[:output].strip
+            next nil if output.empty?
+
+            device_name = output.lines.first.strip
+            "/dev/disk/by-id/#{device_name}"
+          end
         end
 
         def inventory
@@ -234,6 +330,7 @@ module RbrunCore
 
           def instance_path(path) = "/instance/v1/zones/#{@zone}#{path}"
           def iam_path(path) = "/iam/v1alpha1#{path}"
+          def block_path(path) = "/block/v1alpha1/zones/#{@zone}#{path}"
 
           def vpc_path(path)
             region = zone_to_region(@zone)
@@ -282,11 +379,15 @@ module RbrunCore
             direction = rule[:direction] == "in" ? "inbound" : "outbound"
             protocol = rule[:protocol]&.upcase || "TCP"
             port = rule[:port]
+            source_ips = rule[:source_ips]
+            raise Error::Standard, "source_ips required for firewall rule" if source_ips.nil? || source_ips.empty?
 
-            post(instance_path("/security_groups/#{sg_id}/rules"), {
-                   direction:, protocol:, dest_port_from: port.to_i, dest_port_to: port.to_i,
-                   action: "accept", ip_range: "0.0.0.0/0"
-                 })
+            source_ips.each do |ip_range|
+              post(instance_path("/security_groups/#{sg_id}/rules"), {
+                     direction:, protocol:, dest_port_from: port.to_i, dest_port_to: port.to_i,
+                     action: "accept", ip_range:
+                   })
+            end
           end
 
           def delete_volume_internal(id)
@@ -339,6 +440,30 @@ module RbrunCore
                 [ t, true ]
               end
             end
+          end
+
+          def wait_for_volume_available(volume_id, timeout: 60)
+            Waiter.poll(max_attempts: 30, interval: 2, message: "Volume #{volume_id} did not become available") do
+              vol = get(block_path("/volumes/#{volume_id}"))
+              vol["status"] == "available"
+            end
+          end
+
+          def to_volume(data)
+            server_id = data["references"]&.find { |r|
+              r["product_resource_type"] == "instance_server"
+            }&.dig("product_resource_id")
+
+            Types::Volume.new(
+              id: data["id"],
+              name: data["name"],
+              size: (data["size"] || 0) / 1_000_000_000,
+              server_id:,
+              location: data["zone"],
+              status: data["status"],
+              labels: {},
+              created_at: data["created_at"]
+            )
           end
       end
     end

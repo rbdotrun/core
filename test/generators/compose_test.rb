@@ -59,6 +59,23 @@ module RbrunCore
 
         assert_includes compose, "development"
       end
+
+      def test_process_env_merges_with_global
+        @config.env(RAILS_ENV: "development")
+        @config.app do |a|
+          a.process(:worker) do |p|
+            p.command = "bin/jobs"
+            p.env = { "QUEUE" => "critical" }
+          end
+        end
+        compose = Compose.new(@config).generate
+        parsed = YAML.safe_load(compose)
+
+        worker_env = parsed["services"]["worker"]["environment"]
+
+        assert_equal "critical", worker_env["QUEUE"]
+        assert_equal "development", worker_env["RAILS_ENV"]
+      end
     end
   end
 end

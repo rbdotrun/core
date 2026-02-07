@@ -32,6 +32,7 @@ module RbrunCore
         stub_request(:delete, %r{servers/1}).to_return(status: 200, body: {}.to_json, headers: json_headers)
         stub_request(:get, /firewalls/).to_return(status: 200, body: { firewalls: [] }.to_json, headers: json_headers)
         stub_request(:get, /networks\?/).to_return(status: 200, body: { networks: [] }.to_json, headers: json_headers)
+        stub_request(:get, /volumes/).to_return(status: 200, body: { volumes: [] }.to_json, headers: json_headers)
         stub_cloudflare_tunnel!
 
         with_mocked_ssh { DestroySandbox.new(@ctx, logger: TestLogger.new).run }
@@ -45,6 +46,7 @@ module RbrunCore
         )
         stub_request(:get, /networks/).to_return(status: 200, body: { networks: [] }.to_json, headers: json_headers)
         stub_request(:get, /firewalls/).to_return(status: 200, body: { firewalls: [] }.to_json, headers: json_headers)
+        stub_request(:get, /volumes/).to_return(status: 200, body: { volumes: [] }.to_json, headers: json_headers)
         stub_cloudflare_tunnel!
 
         cmds = with_capturing_ssh { DestroySandbox.new(@ctx, logger: TestLogger.new).run }
@@ -105,6 +107,7 @@ module RbrunCore
           )
           stub_request(:get, /networks/).to_return(status: 200, body: { networks: [] }.to_json, headers: json_headers)
           stub_request(:get, /firewalls/).to_return(status: 200, body: { firewalls: [] }.to_json, headers: json_headers)
+          stub_request(:get, /volumes/).to_return(status: 200, body: { volumes: [] }.to_json, headers: json_headers)
         end
 
         def stub_cloudflare_tunnel!

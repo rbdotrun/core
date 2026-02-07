@@ -127,13 +127,19 @@ module RbrunCore
           assert_equal "server-456", servers[1].id
         end
 
-        # delete_server test
-        def test_delete_server_powers_off_and_deletes
+        # delete_server tests
+        def test_delete_server_terminates_running_server
+          stub_list_private_nics
           stub_get_server(server_data(state: "running"))
-          stub_server_action("poweroff")
+          stub_server_action("terminate")
+          @client.delete_server("server-123")
+
+          assert_requested :post, %r{/servers/server-123/action}
+        end
+
+        def test_delete_server_deletes_stopped_server
+          stub_list_private_nics
           stub_get_server_stopped
-          stub_get_server_for_volumes
-          stub_delete_volume
           stub_delete_server
           @client.delete_server("server-123")
 
@@ -224,6 +230,11 @@ module RbrunCore
             stub_request(:post, %r{/servers/server-123/action})
               .with(body: hash_including("action" => action))
               .to_return(status: 202, body: { task: { id: "task-123" } }.to_json, headers: json_headers)
+          end
+
+          def stub_list_private_nics
+            stub_request(:get, %r{/servers/server-123/private_nics})
+              .to_return(status: 200, body: { private_nics: [] }.to_json, headers: json_headers)
           end
 
           def stub_get_server(data)

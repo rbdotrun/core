@@ -124,6 +124,11 @@ module RbrunCore
         "#{app_name}-#{environment}-backups"
       end
 
+      # Database volume name.
+      def database_volume(prefix, type)
+        "#{prefix}-#{type}-data"
+      end
+
       # Manual job name from cronjob (max 63 chars for k8s label).
       def manual_job(cronjob_name)
         suffix = Time.now.to_i.to_s[-6..]

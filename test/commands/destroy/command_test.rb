@@ -47,6 +47,8 @@ module RbrunCore
         stub_request(:get, %r{hetzner\.cloud/v1/firewalls}).to_return(status: 200,
                                                                       body: { firewalls: [ { id: 3, name: @ctx.prefix } ] }.to_json, headers: json_headers)
         stub_request(:delete, %r{firewalls/3}).to_return(status: 200, body: {}.to_json, headers: json_headers)
+        stub_request(:get, %r{hetzner\.cloud/v1/volumes}).to_return(status: 200,
+                                                                    body: { volumes: [] }.to_json, headers: json_headers)
 
         Destroy.new(@ctx, logger: TestLogger.new).run
 
@@ -77,6 +79,9 @@ module RbrunCore
         )
         stub_request(:get, %r{hetzner\.cloud/v1/firewalls}).to_return(
           status: 200, body: { firewalls: [] }.to_json, headers: json_headers
+        )
+        stub_request(:get, %r{hetzner\.cloud/v1/volumes}).to_return(
+          status: 200, body: { volumes: [] }.to_json, headers: json_headers
         )
 
         Destroy.new(@ctx, logger: TestLogger.new).run

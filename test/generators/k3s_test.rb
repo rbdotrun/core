@@ -163,14 +163,24 @@ module RbrunCore
         assert_equal 3, web_deploy["spec"]["replicas"]
       end
 
-      def test_database_deployment_stays_at_one_replica
+      def test_database_statefulset_stays_at_one_replica
         @config.database(:postgres)
         gen = K3s.new(@config, prefix: "app", zone: "example.com", db_password: "pw")
         manifests = gen.generate
         parsed = YAML.load_stream(manifests).compact
-        pg_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "app-postgres" }
+        pg_sts = parsed.find { |r| r["kind"] == "StatefulSet" && r["metadata"]["name"] == "app-postgres" }
 
-        assert_equal 1, pg_deploy["spec"]["replicas"]
+        assert_equal 1, pg_sts["spec"]["replicas"]
+      end
+
+      def test_database_uses_headless_service
+        @config.database(:postgres)
+        gen = K3s.new(@config, prefix: "app", zone: "example.com", db_password: "pw")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        pg_svc = parsed.find { |r| r["kind"] == "Service" && r["metadata"]["name"] == "app-postgres" }
+
+        assert_equal "None", pg_svc["spec"]["clusterIP"]
       end
 
       def test_database_always_runs_on_master

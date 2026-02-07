@@ -20,6 +20,11 @@ module RbrunCore
           :id, :name, :ip_range, :subnets, :location, :created_at,
           keyword_init: true
         )
+
+        Volume = Struct.new(
+          :id, :name, :size, :server_id, :location, :labels, :created_at, :device_path, :status,
+          keyword_init: true
+        )
       end
     end
   end
