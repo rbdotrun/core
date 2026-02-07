@@ -2,12 +2,11 @@
 
 module RbrunCore
   class Configuration
-    attr_reader :compute_config, :cloudflare_config, :git_config, :claude_config, :database_configs, :service_configs,
+    attr_reader :compute_config, :cloudflare_config, :claude_config, :database_configs, :service_configs,
                 :app_config, :env_vars
-    attr_accessor :target
+    attr_accessor :target, :name
 
     def initialize
-      @git_config = Config::Git.new
       @claude_config = Config::Claude.new
       @database_configs = {}
       @service_configs = {}
@@ -34,13 +33,8 @@ module RbrunCore
     end
 
     # ─────────────────────────────────────────────────────────────
-    # Git & Claude DSL
+    # Claude DSL
     # ─────────────────────────────────────────────────────────────
-
-    def git
-      yield @git_config if block_given?
-      @git_config
-    end
 
     def claude
       yield @claude_config if block_given?
@@ -104,10 +98,11 @@ module RbrunCore
     def validate!
       raise Error::Configuration, "Compute provider not configured" unless @compute_config
       raise Error::Configuration, "target is required" unless @target
+      raise Error::Configuration, "name is required (e.g., name: myapp)" unless @name
+      raise Error::Configuration, "name must start with a lowercase letter (got: #{@name})" unless @name.match?(/\A[a-z]/)
 
       @compute_config.validate!
       @cloudflare_config&.validate!
-      @git_config.validate!
       validate_cloudflare_required!
       validate_replicas!
     end

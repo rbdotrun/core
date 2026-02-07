@@ -46,13 +46,10 @@ module RbrunCore
         def test_skips_when_cloudflare_not_configured
           config = RbrunCore::Configuration.new
           config.target = :production
+          config.name = "testapp"
           config.compute(:hetzner) do |c|
             c.api_key = "k"
             c.ssh_key_path = TEST_SSH_KEY_PATH
-          end
-          config.git do |g|
-            g.pat = "t"
-            g.repo = "o/r"
           end
           ctx = RbrunCore::Context.new(config:)
 

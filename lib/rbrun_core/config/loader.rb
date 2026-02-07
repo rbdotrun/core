@@ -33,6 +33,7 @@ module RbrunCore
             config = Configuration.new
             raise Error::Configuration, "target is required (e.g., target: production)" unless data["target"]
             config.target = data["target"].to_sym
+            config.name = data["name"]
 
             apply_compute!(config, data["compute"]) if data["compute"]
             apply_cloudflare!(config, data["cloudflare"]) if data["cloudflare"]
@@ -41,7 +42,6 @@ module RbrunCore
             apply_services!(config, data["services"]) if data["services"]
             apply_app!(config, data["app"]) if data["app"]
             apply_env!(config, data["env"]) if data["env"]
-            apply_git!(config)
             validate_runs_on!(config)
 
             config
@@ -157,15 +157,6 @@ module RbrunCore
 
           def apply_env!(config, env_data)
             config.env(env_data.transform_keys(&:to_sym))
-          end
-
-          def apply_git!(config)
-            config.git do |g|
-              g.repo = LocalGit.repo_from_remote
-              g.pat = LocalGit.gh_auth_token
-            end
-          rescue Error::Standard
-            # git info is optional at config load time — may not be in a repo
           end
 
           def validate_runs_on!(config)

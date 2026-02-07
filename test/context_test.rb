@@ -83,7 +83,7 @@ class ContextTest < Minitest::Test
   def test_prefix_for_production_target
     ctx = build_context(target: :production)
 
-    assert_equal "test-repo-production", ctx.prefix
+    assert_equal "testapp-production", ctx.prefix
   end
 
   def test_ssh_client_returns_client_when_configured

@@ -25,7 +25,7 @@ module RbrunCore
     def prefix
       case target
       when :sandbox then Naming.resource(slug)
-      else Naming.release_prefix(config.git_config.app_name, target)
+      else Naming.release_prefix(config.name, target)
       end
     end
 

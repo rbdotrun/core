@@ -461,6 +461,7 @@ module RbrunCore
           def build_multi_server_context
             config = RbrunCore::Configuration.new
             config.target = :production
+            config.name = "testapp"
             config.compute(:hetzner) do |c|
               c.api_key = "test-hetzner-key"
               c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -472,10 +473,6 @@ module RbrunCore
               cf.api_token = "test-cloudflare-key"
               cf.account_id = "test-account-id"
               cf.domain = "test.dev"
-            end
-            config.git do |g|
-              g.pat = "test-github-token"
-              g.repo = "owner/test-repo"
             end
 
             ctx = RbrunCore::Context.new(config:)
@@ -556,6 +553,7 @@ module RbrunCore
           def build_multi_server_context_with_count(app: 2, db: 0)
             config = RbrunCore::Configuration.new
             config.target = :production
+            config.name = "testapp"
             config.compute(:hetzner) do |c|
               c.api_key = "test-hetzner-key"
               c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -567,10 +565,6 @@ module RbrunCore
               cf.api_token = "test-cloudflare-key"
               cf.account_id = "test-account-id"
               cf.domain = "test.dev"
-            end
-            config.git do |g|
-              g.pat = "test-github-token"
-              g.repo = "owner/test-repo"
             end
 
             ctx = RbrunCore::Context.new(config:)

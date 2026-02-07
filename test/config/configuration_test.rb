@@ -227,26 +227,12 @@ class ConfigurationTest < Minitest::Test
     refute_predicate @config, :cloudflare_configured?
   end
 
-  # ── Git ──
+  # ── Name ──
 
-  def test_git_yields_and_stores_pat
-    @config.git do |g|
-      g.pat = "token"
-      g.repo = "owner/repo"
-    end
+  def test_name_accessor
+    @config.name = "myapp"
 
-    assert_equal "token", @config.git_config.pat
-    assert_equal "repo", @config.git_config.app_name
-  end
-
-  def test_git_defaults_for_username_and_email
-    @config.git do |g|
-      g.pat = "token"
-      g.repo = "owner/repo"
-    end
-
-    assert_equal "rbrun", @config.git_config.username
-    assert_equal "sandbox@rbrun.dev", @config.git_config.email
+    assert_equal "myapp", @config.name
   end
 
   # ── Claude ──
@@ -292,8 +278,32 @@ class ConfigurationTest < Minitest::Test
     assert_match(/target is required/, error.message)
   end
 
+  def test_validate_raises_when_name_not_set
+    @config.target = :production
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+
+    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
+    assert_match(/name is required/, error.message)
+  end
+
+  def test_validate_raises_when_name_starts_with_number
+    @config.target = :production
+    @config.name = "2025-app"
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+
+    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
+    assert_match(/name must start with a lowercase letter/, error.message)
+  end
+
   def test_validate_passes_with_minimal_config
     @config.target = :production
+    @config.name = "myapp"
     @config.compute(:hetzner) do |c|
       c.api_key = "k"
       c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -304,6 +314,7 @@ class ConfigurationTest < Minitest::Test
 
   def test_validate_raises_when_process_has_subdomain_without_cloudflare
     @config.target = :production
+    @config.name = "myapp"
     @config.compute(:hetzner) do |c|
       c.api_key = "k"
       c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -321,6 +332,7 @@ class ConfigurationTest < Minitest::Test
 
   def test_validate_raises_when_service_has_subdomain_without_cloudflare
     @config.target = :production
+    @config.name = "myapp"
     @config.compute(:hetzner) do |c|
       c.api_key = "k"
       c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -336,6 +348,7 @@ class ConfigurationTest < Minitest::Test
 
   def test_validate_passes_when_subdomain_with_cloudflare_configured
     @config.target = :production
+    @config.name = "myapp"
     @config.compute(:hetzner) do |c|
       c.api_key = "k"
       c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -357,6 +370,7 @@ class ConfigurationTest < Minitest::Test
 
   def test_validate_passes_when_no_subdomains_and_no_cloudflare
     @config.target = :production
+    @config.name = "myapp"
     @config.compute(:hetzner) do |c|
       c.api_key = "k"
       c.ssh_key_path = TEST_SSH_KEY_PATH

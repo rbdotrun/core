@@ -158,6 +158,7 @@ module RbrunCoreTestSetup
     def build_config(target: :production)
       config = RbrunCore::Configuration.new
       config.target = target
+      config.name = "testapp"
       config.compute(:hetzner) do |c|
         c.api_key = "test-hetzner-key"
         c.ssh_key_path = TEST_SSH_KEY_PATH
@@ -167,10 +168,6 @@ module RbrunCoreTestSetup
         cf.api_token = "test-cloudflare-key"
         cf.account_id = "test-account-id"
         cf.domain = "test.dev"
-      end
-      config.git do |g|
-        g.pat = "test-github-token"
-        g.repo = "owner/test-repo"
       end
       config
     end

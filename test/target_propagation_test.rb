@@ -60,21 +60,21 @@ class TargetPropagationTest < Minitest::Test
     config = build_config(target: :staging)
     ctx = RbrunCore::Context.new(config:)
 
-    assert_equal "test-repo-staging", ctx.prefix
+    assert_equal "testapp-staging", ctx.prefix
   end
 
   def test_prefix_for_production_target
     config = build_config(target: :production)
     ctx = RbrunCore::Context.new(config:)
 
-    assert_equal "test-repo-production", ctx.prefix
+    assert_equal "testapp-production", ctx.prefix
   end
 
   def test_prefix_for_custom_target
     config = build_config(target: :canary)
     ctx = RbrunCore::Context.new(config:)
 
-    assert_equal "test-repo-canary", ctx.prefix
+    assert_equal "testapp-canary", ctx.prefix
   end
 
   def test_prefix_for_sandbox_uses_slug
@@ -82,27 +82,6 @@ class TargetPropagationTest < Minitest::Test
     ctx = RbrunCore::Context.new(config:, slug: "abc123")
 
     assert_equal "rbrun-sandbox-abc123", ctx.prefix
-  end
-
-  # ─── App Name Lowercase ───
-
-  def test_app_name_is_lowercased
-    config = build_config
-    config.git do |g|
-      g.repo = "CPFF/2025-CRM-REGTECH"
-    end
-
-    assert_equal "2025-crm-regtech", config.git_config.app_name
-  end
-
-  def test_app_name_lowercase_propagates_to_prefix
-    config = build_config(target: :staging)
-    config.git do |g|
-      g.repo = "CPFF/MyApp-NAME"
-    end
-    ctx = RbrunCore::Context.new(config:)
-
-    assert_equal "myapp-name-staging", ctx.prefix
   end
 
   # ─── Naming Module ───

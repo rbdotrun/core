@@ -61,14 +61,14 @@ module RbrunCore
             end
           end
 
-          assert_equal "test-repo-staging-backups", captured_bucket, "Bucket should use staging target"
+          assert_equal "testapp-staging-backups", captured_bucket, "Bucket should use staging target"
         end
 
         def test_staging_target_produces_staging_prefix
           staging_ctx = build_context(target: :staging)
 
           assert_equal :staging, staging_ctx.target
-          assert_equal "test-repo-staging", staging_ctx.prefix
+          assert_equal "testapp-staging", staging_ctx.prefix
         end
 
         private

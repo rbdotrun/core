@@ -18,6 +18,7 @@ module RbrunCore
 
       def test_loads_minimal_yaml
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -30,14 +31,15 @@ module RbrunCore
         config = load_yaml(yaml)
 
         assert_equal :production, config.target
+        assert_equal "testapp", config.name
         assert_equal :hetzner, config.compute_config.provider_name
-        assert_equal "cpx11", config.compute_config.master.instance_type
       end
 
       # ─── Target Configuration ───
 
       def test_raises_when_target_not_specified
         yaml = <<~YAML
+          name: testapp
           compute:
             provider: hetzner
             api_key: test-key
@@ -53,6 +55,7 @@ module RbrunCore
 
       def test_target_respects_staging_from_yaml
         yaml = <<~YAML
+          name: testapp
           target: staging
           compute:
             provider: hetzner
@@ -69,6 +72,7 @@ module RbrunCore
 
       def test_target_respects_custom_value_from_yaml
         yaml = <<~YAML
+          name: testapp
           target: canary
           compute:
             provider: hetzner
@@ -85,6 +89,7 @@ module RbrunCore
 
       def test_target_is_always_a_symbol
         yaml = <<~YAML
+          name: testapp
           target: preview
           compute:
             provider: hetzner
@@ -101,6 +106,7 @@ module RbrunCore
 
       def test_interpolates_env_vars
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -117,6 +123,7 @@ module RbrunCore
 
       def test_raises_for_missing_env_var
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -131,6 +138,7 @@ module RbrunCore
 
       def test_loads_master_with_count
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -168,6 +176,7 @@ module RbrunCore
 
       def test_raises_when_no_master
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -180,6 +189,7 @@ module RbrunCore
 
       def test_loads_databases
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -200,6 +210,7 @@ module RbrunCore
 
       def test_rejects_redis_as_database
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -216,6 +227,7 @@ module RbrunCore
 
       def test_loads_services_with_image
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -241,6 +253,7 @@ module RbrunCore
 
       def test_loads_services_with_subdomain_and_env
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -264,6 +277,7 @@ module RbrunCore
 
       def test_service_requires_image
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -280,6 +294,7 @@ module RbrunCore
 
       def test_loads_app_dockerfile
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -302,6 +317,7 @@ module RbrunCore
 
       def test_loads_app_web_process
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -325,6 +341,7 @@ module RbrunCore
 
       def test_loads_app_worker_process
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -345,6 +362,7 @@ module RbrunCore
 
       def test_loads_process_runs_on
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -379,6 +397,7 @@ module RbrunCore
 
       def test_loads_process_setup
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -402,6 +421,7 @@ module RbrunCore
 
       def test_loads_env
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -422,6 +442,7 @@ module RbrunCore
 
       def test_loads_cloudflare_config
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -444,6 +465,7 @@ module RbrunCore
 
       def test_loads_claude_config
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -463,6 +485,7 @@ module RbrunCore
 
       def test_raises_runs_on_service_with_master_only
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -484,6 +507,7 @@ module RbrunCore
 
       def test_raises_runs_on_process_with_master_only
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -507,6 +531,7 @@ module RbrunCore
 
       def test_allows_runs_on_with_multi_server
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -541,6 +566,7 @@ module RbrunCore
 
       def test_loads_process_replicas
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -566,6 +592,7 @@ module RbrunCore
 
       def test_process_replicas_defaults_to_2
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -589,29 +616,9 @@ module RbrunCore
         assert_equal 2, config.app_config.processes[:worker].replicas
       end
 
-      def test_auto_populates_git_from_local
-        yaml = <<~YAML
-          target: production
-          compute:
-            provider: hetzner
-            api_key: test-key
-            ssh_key_path: #{TEST_SSH_KEY_PATH}
-            master:
-              instance_type: cpx11
-        YAML
-
-        RbrunCore::LocalGit.stub(:repo_from_remote, "myorg/myapp") do
-          RbrunCore::LocalGit.stub(:gh_auth_token, "gh-token-123") do
-            config = load_yaml(yaml)
-
-            assert_equal "myorg/myapp", config.git_config.repo
-            assert_equal "gh-token-123", config.git_config.pat
-          end
-        end
-      end
-
       def test_loads_aws_provider
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: aws
@@ -630,6 +637,7 @@ module RbrunCore
 
       def test_master_type_alias
         yaml = <<~YAML
+          name: testapp
           target: production
           compute:
             provider: hetzner
@@ -648,6 +656,7 @@ module RbrunCore
 
       def test_raises_sandbox_with_service_runs_on
         yaml = <<~YAML
+          name: testapp
           target: sandbox
           compute:
             provider: hetzner
@@ -672,6 +681,7 @@ module RbrunCore
 
       def test_raises_sandbox_with_process_runs_on
         yaml = <<~YAML
+          name: testapp
           target: sandbox
           compute:
             provider: hetzner

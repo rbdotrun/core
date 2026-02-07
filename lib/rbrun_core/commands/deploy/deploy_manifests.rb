@@ -41,7 +41,7 @@ module RbrunCore
             cf_config = @ctx.config.cloudflare_config
             r2 = Clients::CloudflareR2.new(api_token: cf_config.api_token, account_id: cf_config.account_id)
 
-            bucket_name = Naming.backup_bucket(@ctx.config.git_config.app_name, @ctx.target)
+            bucket_name = Naming.backup_bucket(@ctx.config.name, @ctx.target)
             r2.ensure_bucket(bucket_name)
 
             r2.credentials.merge(bucket: bucket_name)

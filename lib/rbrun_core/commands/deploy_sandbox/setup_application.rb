@@ -67,13 +67,11 @@ module RbrunCore
           end
 
           def setup_git_auth!
-            git_config = @ctx.config.git_config
-            pat = git_config.pat
-
+            pat = local_git_pat
             return unless pat && !pat.empty?
 
             log("gh_auth", "Configuring git auth")
-            ssh!("git config --global user.name '#{git_config.username}' && git config --global user.email '#{git_config.email}'")
+            ssh!("git config --global user.name 'rbrun' && git config --global user.email 'sandbox@rbrun.dev'")
             ssh!("echo #{Shellwords.escape(pat)} | gh auth login --with-token", raise_on_error: false)
           end
 
@@ -138,9 +136,23 @@ module RbrunCore
           end
 
           def git_clone_url
-            pat = @ctx.config.git_config.pat
-            repo = @ctx.config.git_config.repo
+            repo = local_git_repo
+            pat = local_git_pat
             pat && !pat.empty? ? "https://#{pat}@github.com/#{repo}.git" : "https://github.com/#{repo}.git"
+          end
+
+          def local_git_repo
+            @local_git_repo ||= begin
+              LocalGit.repo_from_remote
+            rescue Error::Standard
+              raise Error::Configuration, "sandbox mode requires running from a git repository"
+            end
+          end
+
+          def local_git_pat
+            @local_git_pat ||= LocalGit.gh_auth_token
+          rescue Error::Standard
+            nil
           end
 
           def docker_compose!(args, raise_on_error: true, timeout: 300)
