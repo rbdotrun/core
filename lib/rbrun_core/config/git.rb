@@ -15,8 +15,9 @@ module RbrunCore
       end
 
       # Derive app name from repo (e.g., "org/myapp" → "myapp")
+      # Lowercased for Docker compatibility
       def app_name
-        repo&.split("/")&.last
+        repo&.split("/")&.last&.downcase
       end
     end
   end
