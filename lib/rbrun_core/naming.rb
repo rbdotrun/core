@@ -124,9 +124,11 @@ module RbrunCore
         "#{app_name}-#{environment}-backups"
       end
 
-      # Manual job name from cronjob.
+      # Manual job name from cronjob (max 63 chars for k8s label).
       def manual_job(cronjob_name)
-        "#{cronjob_name}-manual-#{Time.now.to_i}"
+        suffix = Time.now.to_i.to_s[-6..]
+        base = cronjob_name.slice(0, 63 - 8) # leave room for "-m" + 6 digits
+        "#{base}-m#{suffix}"
       end
     end
   end
