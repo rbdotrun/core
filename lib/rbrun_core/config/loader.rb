@@ -31,7 +31,7 @@ module RbrunCore
 
           def build_configuration(data)
             config = Configuration.new
-            config.target = data["target"]&.to_sym
+            config.target = (data["target"] || "production").to_sym
 
             apply_compute!(config, data["compute"]) if data["compute"]
             apply_cloudflare!(config, data["cloudflare"]) if data["cloudflare"]

@@ -11,6 +11,7 @@ class TargetPropagationTest < Minitest::Test
   def test_config_loader_parses_target_from_yaml
     with_yaml_config(target: "staging") do |path|
       config = RbrunCore::Config::Loader.load(path)
+
       assert_equal :staging, config.target
     end
   end
@@ -18,14 +19,16 @@ class TargetPropagationTest < Minitest::Test
   def test_config_loader_parses_custom_target
     with_yaml_config(target: "canary") do |path|
       config = RbrunCore::Config::Loader.load(path)
+
       assert_equal :canary, config.target
     end
   end
 
-  def test_config_target_defaults_to_nil_when_not_specified
+  def test_config_target_defaults_to_production_when_not_specified
     with_yaml_config(target: nil) do |path|
       config = RbrunCore::Config::Loader.load(path)
-      assert_nil config.target
+
+      assert_equal :production, config.target
     end
   end
 
@@ -133,6 +136,22 @@ class TargetPropagationTest < Minitest::Test
     bucket = RbrunCore::Naming.backup_bucket("myapp", :staging)
 
     assert_equal "myapp-staging-backups", bucket
+  end
+
+  def test_backup_bucket_with_production_target
+    bucket = RbrunCore::Naming.backup_bucket("myapp", :production)
+
+    assert_equal "myapp-production-backups", bucket
+  end
+
+  def test_config_and_context_target_always_match_when_loaded_from_yaml
+    with_yaml_config(target: nil) do |path|
+      config = RbrunCore::Config::Loader.load(path)
+      ctx = RbrunCore::Context.new(config:)
+
+      assert_equal :production, config.target, "Config should default to :production"
+      assert_equal config.target, ctx.target, "Context target should match config target"
+    end
   end
 
   def test_database_volume_includes_prefix
