@@ -100,6 +100,22 @@ module RbrunCore
         job_name
       end
 
+      def wait_for_job(job_name, namespace: "default", timeout: 300)
+        run!("kubectl wait --for=condition=complete --timeout=#{timeout}s job/#{job_name} -n #{namespace}")
+        :complete
+      rescue Clients::Ssh::CommandError => e
+        if e.output.include?("timed out")
+          raise Error::Standard, "Job #{job_name} timed out after #{timeout}s"
+        end
+
+        result = run!("kubectl get job #{job_name} -n #{namespace} -o jsonpath='{.status.failed}'", raise_on_error: false)
+        if result[:output].strip.delete("'").to_i > 0
+          raise Error::Standard, "Job #{job_name} failed"
+        end
+
+        raise
+      end
+
       def drain(node_name, max_attempts: 12, interval: 5)
         run!("kubectl cordon #{node_name}")
         run!("kubectl drain #{node_name} --ignore-daemonsets --delete-emptydir-data --force --grace-period=30",
