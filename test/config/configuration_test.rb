@@ -42,7 +42,7 @@ class ConfigurationTest < Minitest::Test
     refute_predicate @config.compute_config, :multi_server?
   end
 
-  def test_compute_server_groups
+  def test_compute_server_groups_enables_multi_server
     @config.compute(:hetzner) do |c|
       c.api_key = "key"
       c.add_server_group(:web, type: "cpx21", count: 2)
@@ -51,8 +51,24 @@ class ConfigurationTest < Minitest::Test
 
     assert_predicate @config.compute_config, :multi_server?
     assert_equal 2, @config.compute_config.servers.size
+  end
+
+  def test_compute_server_groups_stores_web_config
+    @config.compute(:hetzner) do |c|
+      c.api_key = "key"
+      c.add_server_group(:web, type: "cpx21", count: 2)
+    end
+
     assert_equal "cpx21", @config.compute_config.servers[:web].type
     assert_equal 2, @config.compute_config.servers[:web].count
+  end
+
+  def test_compute_server_groups_stores_worker_config
+    @config.compute(:hetzner) do |c|
+      c.api_key = "key"
+      c.add_server_group(:worker, type: "cpx11", count: 1)
+    end
+
     assert_equal "cpx11", @config.compute_config.servers[:worker].type
   end
 

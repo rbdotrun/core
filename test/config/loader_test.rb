@@ -147,29 +147,22 @@ module RbrunCore
         assert_equal 3, config.compute_config.master.count
       end
 
-      def test_loads_multi_server_config_with_master_and_servers
-        yaml = <<~YAML
-          target: production
-          compute:
-            provider: hetzner
-            api_key: test-key
-            ssh_key_path: #{TEST_SSH_KEY_PATH}
-            master:
-              instance_type: cpx21
-            servers:
-              web:
-                type: cpx21
-                count: 2
-              worker:
-                type: cpx11
-                count: 1
-        YAML
-
-        config = load_yaml(yaml)
+      def test_loads_multi_server_config_enables_multi_server
+        config = load_yaml(multi_server_yaml)
 
         assert_predicate config.compute_config, :multi_server?
+      end
+
+      def test_loads_multi_server_config_web_group
+        config = load_yaml(multi_server_yaml)
+
         assert_equal 2, config.compute_config.servers[:web].count
         assert_equal "cpx21", config.compute_config.servers[:web].type
+      end
+
+      def test_loads_multi_server_config_worker_group
+        config = load_yaml(multi_server_yaml)
+
         assert_equal 1, config.compute_config.servers[:worker].count
       end
 
@@ -244,6 +237,27 @@ module RbrunCore
 
         assert config.service?(:redis)
         assert_equal "redis:7-alpine", config.service_configs[:redis].image
+      end
+
+      def test_loads_services_with_subdomain_and_env
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          services:
+            meilisearch:
+              image: getmeili/meilisearch:v1.6
+              subdomain: search
+              env:
+                MEILI_MASTER_KEY: secret
+        YAML
+
+        config = load_yaml(yaml)
+
         assert_equal "search", config.service_configs[:meilisearch].subdomain
         assert_equal({ MEILI_MASTER_KEY: "secret" }, config.service_configs[:meilisearch].env)
       end
@@ -264,7 +278,7 @@ module RbrunCore
         assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
       end
 
-      def test_loads_app_with_processes
+      def test_loads_app_dockerfile
         yaml = <<~YAML
           target: production
           compute:
@@ -277,19 +291,55 @@ module RbrunCore
             dockerfile: Dockerfile.prod
             processes:
               web:
-                command: bin/rails server
                 port: 3000
-                subdomain: www
-              worker:
-                command: bin/jobs
         YAML
 
         config = load_yaml(yaml)
 
         assert_predicate config, :app?
         assert_equal "Dockerfile.prod", config.app_config.dockerfile
+      end
+
+      def test_loads_app_web_process
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          app:
+            processes:
+              web:
+                command: bin/rails server
+                port: 3000
+                subdomain: www
+        YAML
+
+        config = load_yaml(yaml)
+
         assert_equal 3000, config.app_config.processes[:web].port
         assert_equal "www", config.app_config.processes[:web].subdomain
+      end
+
+      def test_loads_app_worker_process
+        yaml = <<~YAML
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          app:
+            processes:
+              worker:
+                command: bin/jobs
+        YAML
+
+        config = load_yaml(yaml)
+
         assert_equal "bin/jobs", config.app_config.processes[:worker].command
       end
 
@@ -652,6 +702,25 @@ module RbrunCore
           path = File.join(@tmpdir, "config.yml")
           File.write(path, yaml)
           Loader.load(path, env:)
+        end
+
+        def multi_server_yaml
+          <<~YAML
+            target: production
+            compute:
+              provider: hetzner
+              api_key: test-key
+              ssh_key_path: #{TEST_SSH_KEY_PATH}
+              master:
+                instance_type: cpx21
+              servers:
+                web:
+                  type: cpx21
+                  count: 2
+                worker:
+                  type: cpx11
+                  count: 1
+          YAML
         end
     end
   end

@@ -97,26 +97,26 @@ class KubectlTest < Minitest::Test
     assert(cmds.any? { |c| c.include?("kubectl delete node my-node --ignore-not-found") })
   end
 
-  def test_get_pods_returns_parsed_data
-    json = {
-      "items" => [ {
-        "metadata" => { "name" => "web-abc", "labels" => { "app.kubernetes.io/name" => "myapp" } },
-        "status" => { "phase" => "Running", "containerStatuses" => [ { "ready" => true } ] }
-      } ]
-    }.to_json
+  def test_get_pods_returns_correct_count
+    json = pods_json
 
     with_mocked_ssh(output: json) do
-      ctx = build_context
-      ctx.server_ip = "1.2.3.4"
-      ctx.ssh_private_key = TEST_SSH_KEY.private_key
+      assert_equal 1, build_kubectl.get_pods.size
+    end
+  end
 
-      kubectl = RbrunCore::Clients::Kubectl.new(ctx.ssh_client)
-      pods = kubectl.get_pods
+  def test_get_pods_parses_name_and_app
+    with_mocked_ssh(output: pods_json) do
+      pod = build_kubectl.get_pods.first
 
-      assert_equal 1, pods.size
-      assert_equal "web-abc", pods.first[:name]
-      assert_equal "myapp", pods.first[:app]
-      assert pods.first[:ready]
+      assert_equal "web-abc", pod[:name]
+      assert_equal "myapp", pod[:app]
+    end
+  end
+
+  def test_get_pods_parses_ready_status
+    with_mocked_ssh(output: pods_json) do
+      assert build_kubectl.get_pods.first[:ready]
     end
   end
 
@@ -143,4 +143,22 @@ class KubectlTest < Minitest::Test
       refute pods.first[:ready]
     end
   end
+
+  private
+
+    def build_kubectl
+      ctx = build_context
+      ctx.server_ip = "1.2.3.4"
+      ctx.ssh_private_key = TEST_SSH_KEY.private_key
+      RbrunCore::Clients::Kubectl.new(ctx.ssh_client)
+    end
+
+    def pods_json
+      {
+        "items" => [ {
+          "metadata" => { "name" => "web-abc", "labels" => { "app.kubernetes.io/name" => "myapp" } },
+          "status" => { "phase" => "Running", "containerStatuses" => [ { "ready" => true } ] }
+        } ]
+      }.to_json
+    end
 end
