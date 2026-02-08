@@ -4,6 +4,7 @@ require "sshkit"
 require "shellwords"
 require "base64"
 require "stringio"
+require "concurrent/atomic/count_down_latch"
 
 module RbrunCore
   module Clients
@@ -142,6 +143,34 @@ module RbrunCore
       # Write content to a remote file.
       def write_file(remote_path, content, append: false)
         upload_content(content, remote_path)
+      end
+
+      # Establish an SSH local port forward and yield while the tunnel is active.
+      # Follows Kamal's pattern for SSH tunneling.
+      def with_local_forward(local_port:, remote_host:, remote_port:)
+        ready = Concurrent::CountDownLatch.new(1)
+        @forward_done = false
+
+        thread = Thread.new do
+          Net::SSH.start(@host, @user, **ssh_options.merge(port: @port)) do |ssh|
+            ssh.forward.local(local_port, remote_host, remote_port)
+            ready.count_down
+
+            ssh.loop(0.1) { !@forward_done }
+          end
+        rescue
+          ready.count_down # unblock even on error
+          raise
+        end
+
+        raise ConnectionError, "SSH tunnel not ready after 30s" unless ready.wait(30)
+
+        begin
+          yield
+        ensure
+          @forward_done = true
+          thread.join(5)
+        end
       end
 
       private

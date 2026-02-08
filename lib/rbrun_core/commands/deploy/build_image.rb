@@ -1,18 +1,17 @@
 # frozen_string_literal: true
 
-require "open3"
-
 module RbrunCore
   module Commands
     class Deploy
-      # Builds Docker image locally and pushes to in-cluster registry.
+      # Builds Docker image locally and pushes to in-cluster registry via SSH tunnel.
       #
-      # Uses DOCKER_HOST=ssh:// to target remote Docker daemon:
-      # - Build context (local folder) is sent over SSH to remote daemon
-      # - Build executes on remote, image stored on remote
-      # - No local Docker daemon required
+      # Uses local Docker with SSH port forwarding:
+      # - Build executes locally using local CPU/RAM/cache
+      # - SSH tunnel forwards localhost:30500 to remote registry
+      # - Only image layers transferred over network
       #
       # Requires source_folder to be set on context.
+      # Requires local Docker to be running.
       class BuildImage
         REGISTRY_PORT = 30_500
 
@@ -24,12 +23,22 @@ module RbrunCore
         def run
           raise Error::Standard, "source_folder is required for build" unless @ctx.source_folder
 
-          ensure_host_key!
+          log("docker_build", "Building locally from #{@ctx.source_folder}")
 
-          log("docker_build", "Building from #{@ctx.source_folder}")
-          result = build_and_push!(@ctx.source_folder)
+          ssh_client = Clients::Ssh.new(
+            host: @ctx.server_ip,
+            private_key: @ctx.config.compute_config.ssh_private_key,
+            user: Naming.default_user
+          )
 
-          @ctx.registry_tag = result[:registry_tag]
+          ssh_client.with_local_forward(
+            local_port: REGISTRY_PORT,
+            remote_host: "localhost",
+            remote_port: REGISTRY_PORT
+          ) do
+            result = build_and_push!(@ctx.source_folder)
+            @ctx.registry_tag = result[:registry_tag]
+          end
         end
 
         private
@@ -37,39 +46,42 @@ module RbrunCore
           def build_and_push!(context_path)
             ts = Time.now.utc.strftime("%Y%m%d%H%M%S")
             prefix = @ctx.prefix
-            local = "#{prefix}:#{ts}"
-            registry = "localhost:#{REGISTRY_PORT}/#{prefix}:#{ts}"
+            local_tag = "#{prefix}:#{ts}"
+            registry_tag = "localhost:#{REGISTRY_PORT}/#{prefix}:#{ts}"
 
-            env = { "DOCKER_HOST" => docker_host }
             dockerfile = @ctx.config.app_config.dockerfile
             platform = @ctx.config.app_config.platform
 
-            run_docker!(env, "build", "--platform", platform, "--pull", "-f", dockerfile, "-t", local, ".",
-                        chdir: context_path)
-            run_docker!(env, "tag", local, registry)
-            run_docker!(env, "push", registry)
-            run_docker!(env, "tag", local, "#{prefix}:latest")
+            # Build and push via buildx (handles insecure registry)
+            run_docker!(
+              "buildx", "build",
+              "--platform", platform,
+              "--pull",
+              "-f", dockerfile,
+              "-t", registry_tag,
+              "--output=type=registry,registry.insecure=true",
+              ".",
+              chdir: context_path
+            )
 
-            { local_tag: local, registry_tag: registry, timestamp: ts }
+            # Also keep local copy
+            run_docker!(
+              "build",
+              "--platform", platform,
+              "-f", dockerfile,
+              "-t", local_tag,
+              "-t", "#{prefix}:latest",
+              ".",
+              chdir: context_path
+            )
+
+            { local_tag:, registry_tag:, timestamp: ts }
           end
 
-          def run_docker!(env, *args, chdir: nil)
+          def run_docker!(*args, chdir: nil)
             opts = chdir ? { chdir: } : {}
-            success = system(env, "docker", *args, **opts)
+            success = system("docker", *args, **opts)
             raise Error::Standard, "docker #{args.first} failed" unless success
-          end
-
-          def ensure_host_key!
-            # Net::SSH uses verify_host_key: :never, so the host key is never
-            # written to known_hosts. Docker's SSH transport uses the system ssh
-            # binary which requires it. Scan and append before docker commands.
-            known_hosts = File.expand_path("~/.ssh/known_hosts")
-            system("ssh-keyscan", "-H", @ctx.server_ip,
-                   out: File.open(known_hosts, "a"), err: File::NULL)
-          end
-
-          def docker_host
-            "ssh://#{Naming.default_user}@#{@ctx.server_ip}"
           end
 
           def log(category, message = nil)

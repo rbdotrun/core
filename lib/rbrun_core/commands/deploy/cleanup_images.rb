@@ -5,8 +5,8 @@ require "open3"
 module RbrunCore
   module Commands
     class Deploy
+      # Cleans up old local Docker images, keeping the N most recent.
       class CleanupImages
-        REGISTRY_PORT = 30_500
         KEEP_IMAGES = 3
 
         def initialize(ctx, logger: nil)
@@ -15,19 +15,20 @@ module RbrunCore
         end
 
         def run
-          log("cleanup_images", "Cleaning up old images")
-          env = { "DOCKER_HOST" => "ssh://#{Naming.default_user}@#{@ctx.server_ip}" }
+          log("cleanup_images", "Cleaning up old local images")
           prefix = @ctx.prefix
 
-          output, _status = Open3.capture2(env, "docker", "images", prefix, "--format", "{{.Tag}} {{.ID}}")
+          output, _status = Open3.capture2("docker", "images", prefix, "--format", "{{.Tag}}")
           return if output.nil? || output.empty?
 
-          output.each_line do |line|
-            tag, _id = line.strip.split
-            next if [ "latest", "<none>" ].include?(tag)
+          tags = output.each_line
+            .map(&:strip)
+            .reject { |t| ["latest", "<none>"].include?(t) }
+            .sort
+            .reverse
+            .drop(KEEP_IMAGES)
 
-            system(env, "docker", "rmi", "#{prefix}:#{tag}")
-          end
+          tags.each { |tag| system("docker", "rmi", "#{prefix}:#{tag}") }
         end
 
         private

@@ -187,6 +187,42 @@ module RbrunCore
         assert backoff_param, "execute_with_retry should accept a backoff parameter"
       end
 
+      def test_with_local_forward_yields_block
+        client = Ssh.new(host: @host, private_key: @private_key)
+        yielded = false
+
+        mock_ssh = Object.new
+        mock_forward = Object.new
+        mock_forward.define_singleton_method(:local) { |*_args| true }
+        mock_ssh.define_singleton_method(:forward) { mock_forward }
+        mock_ssh.define_singleton_method(:loop) { |_interval, &block| sleep(0.01) until !block.call }
+
+        Net::SSH.stub(:start, ->(host, user, **opts, &block) { block.call(mock_ssh) }) do
+          client.with_local_forward(local_port: 30_500, remote_host: "localhost", remote_port: 30_500) do
+            yielded = true
+          end
+        end
+
+        assert yielded
+      end
+
+      def test_with_local_forward_raises_on_timeout
+        client = Ssh.new(host: @host, private_key: @private_key)
+
+        # Create a latch that always times out
+        fake_latch = Object.new
+        fake_latch.define_singleton_method(:count_down) { }
+        fake_latch.define_singleton_method(:wait) { |_timeout| false }
+
+        Concurrent::CountDownLatch.stub(:new, fake_latch) do
+          Net::SSH.stub(:start, ->(*_args) { sleep(0.01) }) do
+            assert_raises(Ssh::ConnectionError) do
+              client.with_local_forward(local_port: 30_500, remote_host: "localhost", remote_port: 30_500) { }
+            end
+          end
+        end
+      end
+
       private
 
         # Mock SSHKit backend for testing

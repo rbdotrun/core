@@ -20,8 +20,11 @@ module RbrunCore
 
         def test_sets_registry_tag_on_context_after_build
           step = BuildImage.new(@ctx, logger: TestLogger.new)
-          step.stub(:system, true) do
-            step.run
+
+          with_fake_ssh_tunnel do
+            step.stub(:system, true) do
+              step.run
+            end
           end
 
           refute_nil @ctx.registry_tag
@@ -31,8 +34,11 @@ module RbrunCore
         def test_logs_source_folder_path
           logger = TestLogger.new
           step = BuildImage.new(@ctx, logger:)
-          step.stub(:system, true) do
-            step.run
+
+          with_fake_ssh_tunnel do
+            step.stub(:system, true) do
+              step.run
+            end
           end
 
           assert logger.logs.any? { |cat, msg| cat == "docker_build" && msg.include?("/tmp/my-app") }
@@ -44,6 +50,57 @@ module RbrunCore
           step = BuildImage.new(@ctx, logger: TestLogger.new)
           assert_raises(RbrunCore::Error::Standard) { step.run }
         end
+
+        def test_creates_ssh_client_with_correct_params
+          step = BuildImage.new(@ctx, logger: TestLogger.new)
+          captured_args = nil
+
+          fake_client = Object.new
+          fake_client.define_singleton_method(:with_local_forward) { |**_opts, &block| block.call }
+
+          Clients::Ssh.stub(:new, ->(host:, private_key:, user:) {
+            captured_args = { host:, private_key:, user: }
+            fake_client
+          }) do
+            step.stub(:system, true) do
+              step.run
+            end
+          end
+
+          assert_equal "1.2.3.4", captured_args[:host]
+          assert_equal Naming.default_user, captured_args[:user]
+          assert_equal TEST_SSH_KEY.private_key, captured_args[:private_key]
+        end
+
+        def test_uses_correct_tunnel_ports
+          step = BuildImage.new(@ctx, logger: TestLogger.new)
+          tunnel_opts = nil
+
+          fake_client = Object.new
+          fake_client.define_singleton_method(:with_local_forward) do |**opts, &block|
+            tunnel_opts = opts
+            block.call
+          end
+
+          Clients::Ssh.stub(:new, fake_client) do
+            step.stub(:system, true) do
+              step.run
+            end
+          end
+
+          assert_equal 30_500, tunnel_opts[:local_port]
+          assert_equal "localhost", tunnel_opts[:remote_host]
+          assert_equal 30_500, tunnel_opts[:remote_port]
+        end
+
+        private
+
+          def with_fake_ssh_tunnel(&block)
+            fake_client = Object.new
+            fake_client.define_singleton_method(:with_local_forward) { |**_opts, &blk| blk.call }
+
+            Clients::Ssh.stub(:new, fake_client, &block)
+          end
       end
     end
   end
