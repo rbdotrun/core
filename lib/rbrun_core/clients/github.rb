@@ -13,8 +13,16 @@ module RbrunCore
       end
 
       def list_repos(sort: "pushed", per_page: 100, page: 1)
-        get("/user/repos", sort:, per_page:, page:, visibility: "all",
-                           affiliation: "owner,collaborator,organization_member")
+        get(
+          "/user/repos",
+          {
+            sort:,
+            per_page:,
+            page:,
+            visibility: "all",
+            affiliation: "owner,collaborator,organization_member"
+          }
+        )
       end
 
       def search_repos(query:, per_page: 10)
@@ -39,7 +47,10 @@ module RbrunCore
       private
 
         def auth_headers
-          { "Authorization" => "Bearer #{@token}", "Accept" => "application/vnd.github.v3+json" }
+          {
+            "Authorization" => "Bearer #{@token}",
+            "Accept" => "application/vnd.github.v3+json"
+          }
         end
     end
   end
