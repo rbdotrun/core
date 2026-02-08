@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     module Shared
       class CreateInfrastructure
-        include Stepable
 
         def initialize(ctx, on_step: nil)
           @ctx = ctx
@@ -12,16 +11,16 @@ module RbrunCore
         end
 
         def run
-          report_step(Step::Id::CREATE_FIREWALL, Step::IN_PROGRESS)
+          @on_step&.call(Step::Id::CREATE_FIREWALL, Step::IN_PROGRESS)
           firewall = create_firewall!
-          report_step(Step::Id::CREATE_FIREWALL, Step::DONE)
+          @on_step&.call(Step::Id::CREATE_FIREWALL, Step::DONE)
 
-          report_step(Step::Id::CREATE_NETWORK, Step::IN_PROGRESS)
+          @on_step&.call(Step::Id::CREATE_NETWORK, Step::IN_PROGRESS)
           network = compute_client.find_or_create_network(
             @ctx.prefix,
             location:
           )
-          report_step(Step::Id::CREATE_NETWORK, Step::DONE)
+          @on_step&.call(Step::Id::CREATE_NETWORK, Step::DONE)
 
           create_all_servers!(firewall_id: firewall.id, network_id: network.id)
         end
@@ -57,7 +56,7 @@ module RbrunCore
               group = desired[key]
               server_name = "#{@ctx.prefix}-#{key}"
 
-              report_step(Step::Id::CREATE_SERVER, Step::IN_PROGRESS, message: server_name)
+              @on_step&.call(Step::Id::CREATE_SERVER, Step::IN_PROGRESS, message: server_name)
 
               server = create_server!(
                 name: server_name,
@@ -71,7 +70,7 @@ module RbrunCore
               }
               @ctx.new_servers.add(key)
 
-              report_step(Step::Id::CREATE_SERVER, Step::DONE, message: server_name)
+              @on_step&.call(Step::Id::CREATE_SERVER, Step::DONE, message: server_name)
             end
 
             @ctx.servers = servers
@@ -81,13 +80,13 @@ module RbrunCore
 
             # Wait for SSH only on new servers
             unless @ctx.new_servers.empty?
-              report_step(Step::Id::WAIT_SSH, Step::IN_PROGRESS)
+              @on_step&.call(Step::Id::WAIT_SSH, Step::IN_PROGRESS)
               @ctx.new_servers.each do |key|
                 srv = servers[key]
                 ssh = Clients::Ssh.new(host: srv[:ip], private_key: @ctx.ssh_private_key, user: Naming.default_user)
                 ssh.wait_until_ready(max_attempts: 36, interval: 5)
               end
-              report_step(Step::Id::WAIT_SSH, Step::DONE)
+              @on_step&.call(Step::Id::WAIT_SSH, Step::DONE)
             end
           end
 

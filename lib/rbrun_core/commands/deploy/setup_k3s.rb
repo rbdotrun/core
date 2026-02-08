@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     class Deploy
       class SetupK3s
-        include Stepable
 
         REGISTRY_PORT = 30_500
         CLUSTER_CIDR = "10.42.0.0/16"
@@ -33,16 +32,16 @@ module RbrunCore
           end
 
           def wait_for_cloud_init!
-            report_step(Step::Id::WAIT_CLOUD_INIT, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::WAIT_CLOUD_INIT, Step::IN_PROGRESS)
             Waiter.poll(max_attempts: CLOUD_INIT_TIMEOUT, interval: 5, message: "Cloud-init did not complete") do
               result = @ctx.ssh_client.execute("test -f /var/lib/cloud/instance/boot-finished && echo ready", raise_on_error: false)
               result[:output].include?("ready")
             end
-            report_step(Step::Id::WAIT_CLOUD_INIT, Step::DONE)
+            @on_step&.call(Step::Id::WAIT_CLOUD_INIT, Step::DONE)
           end
 
           def discover_network_info
-            report_step(Step::Id::DISCOVER_NETWORK, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::DISCOVER_NETWORK, Step::IN_PROGRESS)
             public_ip = @ctx.server_ip
 
             # Find private IP (RFC1918), excluding virtual interfaces
@@ -55,12 +54,12 @@ module RbrunCore
             interface = exec[:output].strip
             interface = "eth0" if interface.empty?
 
-            report_step(Step::Id::DISCOVER_NETWORK, Step::DONE)
+            @on_step&.call(Step::Id::DISCOVER_NETWORK, Step::DONE)
             { public_ip:, private_ip:, interface: }
           end
 
           def configure_k3s_registries!
-            report_step(Step::Id::CONFIGURE_REGISTRIES, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::CONFIGURE_REGISTRIES, Step::IN_PROGRESS)
             registries_yaml = <<~YAML
             mirrors:
               "localhost:#{REGISTRY_PORT}":
@@ -71,14 +70,14 @@ module RbrunCore
             @ctx.ssh_client.execute("sudo mkdir -p /etc/rancher/k3s")
             encoded = Base64.strict_encode64(registries_yaml)
             @ctx.ssh_client.execute("echo '#{encoded}' | base64 -d | sudo tee /etc/rancher/k3s/registries.yaml > /dev/null")
-            report_step(Step::Id::CONFIGURE_REGISTRIES, Step::DONE)
+            @on_step&.call(Step::Id::CONFIGURE_REGISTRIES, Step::DONE)
           end
 
           def install_k3s!(public_ip, private_ip, interface)
             check = @ctx.ssh_client.execute("command -v kubectl && kubectl get nodes 2>/dev/null | grep -q Ready", raise_on_error: false)
             return if check[:exit_code].zero?
 
-            report_step(Step::Id::INSTALL_K3S, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::INSTALL_K3S, Step::IN_PROGRESS)
             k3s_args = [
               "--disable=traefik",
               "--flannel-backend=wireguard-native",
@@ -96,11 +95,11 @@ module RbrunCore
               exec = @ctx.ssh_client.execute("sudo kubectl get nodes", raise_on_error: false)
               exec[:exit_code].zero? && exec[:output].include?("Ready")
             end
-            report_step(Step::Id::INSTALL_K3S, Step::DONE)
+            @on_step&.call(Step::Id::INSTALL_K3S, Step::DONE)
           end
 
           def setup_kubeconfig!(private_ip)
-            report_step(Step::Id::SETUP_KUBECONFIG, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::SETUP_KUBECONFIG, Step::IN_PROGRESS)
             user = Naming.default_user
             @ctx.ssh_client.execute(<<~BASH)
             mkdir -p /home/#{user}/.kube
@@ -109,11 +108,11 @@ module RbrunCore
             sudo chown -R #{user}:#{user} /home/#{user}/.kube
             chmod 600 /home/#{user}/.kube/config
           BASH
-            report_step(Step::Id::SETUP_KUBECONFIG, Step::DONE)
+            @on_step&.call(Step::Id::SETUP_KUBECONFIG, Step::DONE)
           end
 
           def deploy_ingress_controller!
-            report_step(Step::Id::DEPLOY_INGRESS, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::DEPLOY_INGRESS, Step::IN_PROGRESS)
             kubeconfig = "/home/#{Naming.default_user}/.kube/config"
             @ctx.ssh_client.execute("kubectl --kubeconfig=#{kubeconfig} apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.0/deploy/static/provider/baremetal/deploy.yaml")
 
@@ -128,13 +127,13 @@ module RbrunCore
             @ctx.ssh_client.execute(
               "kubectl --kubeconfig=#{kubeconfig} patch svc ingress-nginx-controller -n ingress-nginx --type='json' -p='#{patch_json}'", raise_on_error: false
             )
-            report_step(Step::Id::DEPLOY_INGRESS, Step::DONE)
+            @on_step&.call(Step::Id::DEPLOY_INGRESS, Step::DONE)
           end
 
           def label_all_nodes!
             return unless multi_server?
 
-            report_step(Step::Id::LABEL_NODES, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::LABEL_NODES, Step::IN_PROGRESS)
             kubeconfig = "/home/#{Naming.default_user}/.kube/config"
 
             @ctx.servers.each do |server_key, server_info|
@@ -143,14 +142,14 @@ module RbrunCore
               @ctx.ssh_client.execute("kubectl --kubeconfig=#{kubeconfig} label node #{node_name} #{Naming::LABEL_SERVER_GROUP}=#{group} --overwrite",
                    raise_on_error: false)
             end
-            report_step(Step::Id::LABEL_NODES, Step::DONE)
+            @on_step&.call(Step::Id::LABEL_NODES, Step::DONE)
           end
 
           def setup_worker_nodes!(master_private_ip)
-            report_step(Step::Id::RETRIEVE_TOKEN, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::RETRIEVE_TOKEN, Step::IN_PROGRESS)
             token_result = @ctx.ssh_client.execute("sudo cat /var/lib/rancher/k3s/server/node-token")
             cluster_token = token_result[:output].strip
-            report_step(Step::Id::RETRIEVE_TOKEN, Step::DONE)
+            @on_step&.call(Step::Id::RETRIEVE_TOKEN, Step::DONE)
 
             kubeconfig = "/home/#{Naming.default_user}/.kube/config"
 
@@ -162,12 +161,12 @@ module RbrunCore
             end
 
             if workers_to_setup.any?
-              report_step(Step::Id::SETUP_WORKERS, Step::IN_PROGRESS)
+              @on_step&.call(Step::Id::SETUP_WORKERS, Step::IN_PROGRESS)
               workers_to_setup.each do |server_key, server_info|
                 node_name = "#{@ctx.prefix}-#{server_key}"
                 worker_ip = server_info[:ip]
 
-                report_step(:"worker_#{server_key}", Step::IN_PROGRESS, parent: Step::Id::SETUP_WORKERS)
+                @on_step&.call(:"worker_#{server_key}", Step::IN_PROGRESS, parent: Step::Id::SETUP_WORKERS)
 
                 worker_ssh = Clients::Ssh.new(
                   host: worker_ip, private_key: @ctx.ssh_private_key, user: Naming.default_user
@@ -198,9 +197,9 @@ module RbrunCore
                 )
 
                 wait_for_node_ready!(node_name, kubeconfig:)
-                report_step(:"worker_#{server_key}", Step::DONE, parent: Step::Id::SETUP_WORKERS)
+                @on_step&.call(:"worker_#{server_key}", Step::DONE, parent: Step::Id::SETUP_WORKERS)
               end
-              report_step(Step::Id::SETUP_WORKERS, Step::DONE)
+              @on_step&.call(Step::Id::SETUP_WORKERS, Step::DONE)
             end
 
             # Always re-label all nodes (applies label changes on redeploy)

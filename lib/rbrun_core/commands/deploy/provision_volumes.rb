@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     class Deploy
       class ProvisionVolumes
-        include Stepable
 
         DEFAULT_VOLUME_SIZE = 10 # GB, not configurable yet
 
@@ -16,13 +15,13 @@ module RbrunCore
         def run
           return unless needs_volumes?
 
-          report_step(Step::Id::PROVISION_VOLUMES, Step::IN_PROGRESS)
+          @on_step&.call(Step::Id::PROVISION_VOLUMES, Step::IN_PROGRESS)
 
           @ctx.config.database_configs.each do |type, db_config|
             provision_database_volume(type, db_config)
           end
 
-          report_step(Step::Id::PROVISION_VOLUMES, Step::DONE)
+          @on_step&.call(Step::Id::PROVISION_VOLUMES, Step::DONE)
         end
 
         private

@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     class DeploySandbox
       class SetupApplication
-        include Stepable
 
         WORKSPACE = "/home/deploy/workspace"
         COMPOSE_FILE = "docker-compose.generated.yml"
@@ -26,14 +25,14 @@ module RbrunCore
         private
 
           def install_software!
-            report_step(Step::Id::INSTALL_PACKAGES, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::INSTALL_PACKAGES, Step::IN_PROGRESS)
             @ctx.ssh_client.execute("sudo apt-get update && sudo apt-get install -y curl git jq rsync docker.io docker-compose-v2 ca-certificates gnupg")
-            report_step(Step::Id::INSTALL_PACKAGES, Step::DONE)
+            @on_step&.call(Step::Id::INSTALL_PACKAGES, Step::DONE)
 
             unless command_exists?("docker")
-              report_step(Step::Id::INSTALL_DOCKER, Step::IN_PROGRESS)
+              @on_step&.call(Step::Id::INSTALL_DOCKER, Step::IN_PROGRESS)
               @ctx.ssh_client.execute("sudo systemctl enable docker && sudo systemctl start docker")
-              report_step(Step::Id::INSTALL_DOCKER, Step::DONE)
+              @on_step&.call(Step::Id::INSTALL_DOCKER, Step::DONE)
             end
 
             install_node!
@@ -45,42 +44,42 @@ module RbrunCore
           def install_node!
             return if command_exists?("node")
 
-            report_step(Step::Id::INSTALL_NODE, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::INSTALL_NODE, Step::IN_PROGRESS)
             @ctx.ssh_client.execute(<<~BASH)
             curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && \
             sudo apt-get install -y nodejs
           BASH
-            report_step(Step::Id::INSTALL_NODE, Step::DONE)
+            @on_step&.call(Step::Id::INSTALL_NODE, Step::DONE)
           end
 
           def install_claude_code!
             return if command_exists?("claude")
 
-            report_step(Step::Id::INSTALL_CLAUDE_CODE, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::INSTALL_CLAUDE_CODE, Step::IN_PROGRESS)
             @ctx.ssh_client.execute("sudo npm install -g @anthropic-ai/claude-code")
-            report_step(Step::Id::INSTALL_CLAUDE_CODE, Step::DONE)
+            @on_step&.call(Step::Id::INSTALL_CLAUDE_CODE, Step::DONE)
           end
 
           def install_gh_cli!
             return if command_exists?("gh")
 
-            report_step(Step::Id::INSTALL_GH_CLI, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::INSTALL_GH_CLI, Step::IN_PROGRESS)
             @ctx.ssh_client.execute(<<~BASH)
             curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
             sudo apt-get update && sudo apt-get install -y gh
           BASH
-            report_step(Step::Id::INSTALL_GH_CLI, Step::DONE)
+            @on_step&.call(Step::Id::INSTALL_GH_CLI, Step::DONE)
           end
 
           def setup_git_auth!
             pat = local_git_pat
             return unless pat && !pat.empty?
 
-            report_step(Step::Id::CONFIGURE_GIT_AUTH, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::CONFIGURE_GIT_AUTH, Step::IN_PROGRESS)
             @ctx.ssh_client.execute("git config --global user.name 'rbrun' && git config --global user.email 'sandbox@rbrun.dev'")
             @ctx.ssh_client.execute("echo #{Shellwords.escape(pat)} | gh auth login --with-token", raise_on_error: false)
-            report_step(Step::Id::CONFIGURE_GIT_AUTH, Step::DONE)
+            @on_step&.call(Step::Id::CONFIGURE_GIT_AUTH, Step::DONE)
           end
 
           def command_exists?(cmd)
@@ -88,47 +87,47 @@ module RbrunCore
           end
 
           def clone_repo!
-            report_step(Step::Id::CLONE_REPO, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::CLONE_REPO, Step::IN_PROGRESS)
             result = @ctx.ssh_client.execute("test -d #{WORKSPACE}/.git", raise_on_error: false, timeout: 10)
             if result[:exit_code].zero?
-              report_step(Step::Id::CLONE_REPO, Step::DONE)
+              @on_step&.call(Step::Id::CLONE_REPO, Step::DONE)
               return
             end
 
             clone_url = git_clone_url
             @ctx.ssh_client.execute("git clone #{Shellwords.escape(clone_url)} #{WORKSPACE}", timeout: 120)
-            report_step(Step::Id::CLONE_REPO, Step::DONE)
+            @on_step&.call(Step::Id::CLONE_REPO, Step::DONE)
           end
 
           def checkout_branch!
-            report_step(Step::Id::CHECKOUT_BRANCH, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::CHECKOUT_BRANCH, Step::IN_PROGRESS)
             @ctx.ssh_client.execute("cd #{WORKSPACE} && git checkout -B #{Shellwords.escape(Naming.branch(@ctx.slug))}")
-            report_step(Step::Id::CHECKOUT_BRANCH, Step::DONE)
+            @on_step&.call(Step::Id::CHECKOUT_BRANCH, Step::DONE)
           end
 
           def write_environment!
-            report_step(Step::Id::WRITE_ENV, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::WRITE_ENV, Step::IN_PROGRESS)
             env_content = build_env_content
             if env_content.empty?
-              report_step(Step::Id::WRITE_ENV, Step::DONE)
+              @on_step&.call(Step::Id::WRITE_ENV, Step::DONE)
               return
             end
 
             @ctx.ssh_client.execute("cat > #{WORKSPACE}/.env << 'ENVEOF'\n#{env_content}\nENVEOF")
             @ctx.ssh_client.execute("grep -qxF '.env' #{WORKSPACE}/.gitignore 2>/dev/null || echo '.env' >> #{WORKSPACE}/.gitignore")
-            report_step(Step::Id::WRITE_ENV, Step::DONE)
+            @on_step&.call(Step::Id::WRITE_ENV, Step::DONE)
           end
 
           def generate_compose!
-            report_step(Step::Id::GENERATE_COMPOSE, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::GENERATE_COMPOSE, Step::IN_PROGRESS)
             compose_content = Generators::Compose.new(@ctx.config).generate
             @ctx.ssh_client.execute("cat > #{WORKSPACE}/#{COMPOSE_FILE} << 'COMPOSEEOF'\n#{compose_content}\nCOMPOSEEOF")
             @ctx.ssh_client.execute("grep -qxF '#{COMPOSE_FILE}' #{WORKSPACE}/.gitignore 2>/dev/null || echo '#{COMPOSE_FILE}' >> #{WORKSPACE}/.gitignore")
-            report_step(Step::Id::GENERATE_COMPOSE, Step::DONE)
+            @on_step&.call(Step::Id::GENERATE_COMPOSE, Step::DONE)
           end
 
           def setup_docker_compose!
-            report_step(Step::Id::START_COMPOSE, Step::IN_PROGRESS)
+            @on_step&.call(Step::Id::START_COMPOSE, Step::IN_PROGRESS)
             config = @ctx.config
 
             docker_compose!("up -d postgres", raise_on_error: false) if config.database?(:postgres)
@@ -143,7 +142,7 @@ module RbrunCore
             end
 
             docker_compose!("up -d")
-            report_step(Step::Id::START_COMPOSE, Step::DONE)
+            @on_step&.call(Step::Id::START_COMPOSE, Step::DONE)
           end
 
           def build_env_content

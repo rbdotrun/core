@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     class Deploy
       class DeployManifests
-        include Stepable
 
         HTTP_NODE_PORT = 30_080
 
@@ -15,7 +14,7 @@ module RbrunCore
         end
 
         def run
-          report_step(Step::Id::DEPLOY_MANIFESTS, Step::IN_PROGRESS)
+          @on_step&.call(Step::Id::DEPLOY_MANIFESTS, Step::IN_PROGRESS)
 
           r2_credentials = setup_backend_bucket
           storage_credentials = setup_storage_buckets
@@ -32,11 +31,11 @@ module RbrunCore
           )
 
           kubectl.apply(generator.generate)
-          report_step(Step::Id::DEPLOY_MANIFESTS, Step::DONE)
+          @on_step&.call(Step::Id::DEPLOY_MANIFESTS, Step::DONE)
 
-          report_step(Step::Id::WAIT_ROLLOUT, Step::IN_PROGRESS)
+          @on_step&.call(Step::Id::WAIT_ROLLOUT, Step::IN_PROGRESS)
           wait_for_rollout!
-          report_step(Step::Id::WAIT_ROLLOUT, Step::DONE)
+          @on_step&.call(Step::Id::WAIT_ROLLOUT, Step::DONE)
         end
 
         private

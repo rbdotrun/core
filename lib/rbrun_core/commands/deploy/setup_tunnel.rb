@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     class Deploy
       class SetupTunnel
-        include Stepable
 
         HTTP_NODE_PORT = 30_080
 
@@ -16,7 +15,7 @@ module RbrunCore
         def run
           return unless @ctx.cloudflare_configured?
 
-          report_step(Step::Id::SETUP_TUNNEL, Step::IN_PROGRESS)
+          @on_step&.call(Step::Id::SETUP_TUNNEL, Step::IN_PROGRESS)
 
           cf_client = @ctx.cloudflare_client
           tunnel = cf_client.find_or_create_tunnel(@ctx.prefix)
@@ -28,7 +27,7 @@ module RbrunCore
 
           create_tunnel_dns_records!(tunnel[:id])
 
-          report_step(Step::Id::SETUP_TUNNEL, Step::DONE)
+          @on_step&.call(Step::Id::SETUP_TUNNEL, Step::DONE)
         end
 
         private

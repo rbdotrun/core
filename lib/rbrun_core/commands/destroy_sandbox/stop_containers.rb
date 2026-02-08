@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     class DestroySandbox
       class StopContainers
-        include Stepable
 
         WORKSPACE = "/home/deploy/workspace"
         COMPOSE_FILE = "docker-compose.generated.yml"
@@ -15,7 +14,7 @@ module RbrunCore
         end
 
         def run
-          report_step(Step::Id::STOP_CONTAINERS, Step::IN_PROGRESS)
+          @on_step&.call(Step::Id::STOP_CONTAINERS, Step::IN_PROGRESS)
           begin
             @ctx.ssh_client.execute(
               "cd #{WORKSPACE} && docker compose -f #{COMPOSE_FILE} down",
@@ -24,7 +23,7 @@ module RbrunCore
           rescue Clients::Ssh::Error
             # Server may already be gone
           end
-          report_step(Step::Id::STOP_CONTAINERS, Step::DONE)
+          @on_step&.call(Step::Id::STOP_CONTAINERS, Step::DONE)
         end
       end
     end

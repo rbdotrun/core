@@ -7,7 +7,6 @@ module RbrunCore
     class Deploy
       # Cleans up old local Docker images, keeping the N most recent.
       class CleanupImages
-        include Stepable
 
         KEEP_IMAGES = 3
 
@@ -17,7 +16,7 @@ module RbrunCore
         end
 
         def run
-          report_step(Step::Id::CLEANUP_IMAGES, Step::IN_PROGRESS)
+          @on_step&.call(Step::Id::CLEANUP_IMAGES, Step::IN_PROGRESS)
 
           prefix = @ctx.prefix
 
@@ -33,7 +32,7 @@ module RbrunCore
             tags.each { |tag| system("docker", "rmi", "#{prefix}:#{tag}") }
           end
 
-          report_step(Step::Id::CLEANUP_IMAGES, Step::DONE)
+          @on_step&.call(Step::Id::CLEANUP_IMAGES, Step::DONE)
         end
       end
     end

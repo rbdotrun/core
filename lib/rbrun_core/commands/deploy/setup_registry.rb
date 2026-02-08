@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     class Deploy
       class SetupRegistry
-        include Stepable
 
         REGISTRY_PORT = 30_500
         REGISTRY_TIMEOUT = 60
@@ -17,7 +16,7 @@ module RbrunCore
         def run
           return unless @ctx.config.cloudflare_configured?
 
-          report_step(Step::Id::SETUP_REGISTRY, Step::IN_PROGRESS)
+          @on_step&.call(Step::Id::SETUP_REGISTRY, Step::IN_PROGRESS)
 
           r2_credentials = setup_backend_bucket
           return unless r2_credentials
@@ -25,7 +24,7 @@ module RbrunCore
           deploy_registry_manifest!(r2_credentials)
           wait_for_registry!
 
-          report_step(Step::Id::SETUP_REGISTRY, Step::DONE)
+          @on_step&.call(Step::Id::SETUP_REGISTRY, Step::DONE)
         end
 
         private

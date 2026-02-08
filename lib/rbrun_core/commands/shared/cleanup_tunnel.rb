@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     module Shared
       class CleanupTunnel
-        include Stepable
 
         def initialize(ctx, on_step: nil)
           @ctx = ctx
@@ -12,7 +11,7 @@ module RbrunCore
         end
 
         def run
-          report_step(Step::Id::CLEANUP_TUNNEL, Step::IN_PROGRESS)
+          @on_step&.call(Step::Id::CLEANUP_TUNNEL, Step::IN_PROGRESS)
 
           cf_client = @ctx.cloudflare_client
 
@@ -27,7 +26,7 @@ module RbrunCore
           tunnel = cf_client.find_tunnel(@ctx.prefix)
           cf_client.delete_tunnel(tunnel[:id]) if tunnel
 
-          report_step(Step::Id::CLEANUP_TUNNEL, Step::DONE)
+          @on_step&.call(Step::Id::CLEANUP_TUNNEL, Step::DONE)
         end
 
         private

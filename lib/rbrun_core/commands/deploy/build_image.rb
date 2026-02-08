@@ -13,7 +13,6 @@ module RbrunCore
       # Requires source_folder to be set on context.
       # Requires local Docker to be running.
       class BuildImage
-        include Stepable
 
         REGISTRY_PORT = 30_500
 
@@ -25,7 +24,7 @@ module RbrunCore
         def run
           raise Error::Standard, "source_folder is required for build" unless @ctx.source_folder
 
-          report_step(Step::Id::BUILD_IMAGE, Step::IN_PROGRESS)
+          @on_step&.call(Step::Id::BUILD_IMAGE, Step::IN_PROGRESS)
 
           @timestamp = Time.now.utc.strftime("%Y%m%d%H%M%S")
 
@@ -44,7 +43,7 @@ module RbrunCore
             @ctx.registry_tag = result[:registry_tag]
           end
 
-          report_step(Step::Id::BUILD_IMAGE, Step::DONE)
+          @on_step&.call(Step::Id::BUILD_IMAGE, Step::DONE)
         end
 
         private
