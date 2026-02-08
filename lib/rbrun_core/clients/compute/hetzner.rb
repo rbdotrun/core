@@ -229,13 +229,13 @@ module RbrunCore
             "/volumes/#{volume_id.to_i}/actions/attach",
             { server: server_id.to_i, automount: }
           )
-          wait_for_action(response["action"]["id"]) if response["action"]
+          wait_for_action(response.dig("action", "id")) if response["action"]
           get_volume(volume_id)
         end
 
         def detach_volume(volume_id:)
           response = post("/volumes/#{volume_id.to_i}/actions/detach")
-          wait_for_action(response["action"]["id"]) if response["action"]
+          wait_for_action(response.dig("action", "id")) if response["action"]
         rescue Error::Api => e
           raise unless e.message.include?("not attached")
         end
@@ -250,7 +250,7 @@ module RbrunCore
 
         def resize_volume(id, size:)
           response = post("/volumes/#{id.to_i}/actions/resize", { size: })
-          wait_for_action(response["action"]["id"]) if response["action"]
+          wait_for_action(response.dig("action", "id")) if response["action"]
           get_volume(id)
         end
 

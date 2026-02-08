@@ -51,8 +51,8 @@ module RbrunCore
 
       def build_node_info(node)
         {
-          name: node["metadata"]["name"],
-          labels: node["metadata"]["labels"] || {},
+          name: node.dig("metadata", "name"),
+          labels: node.dig("metadata", "labels") || {},
           ready: node_ready?(node),
           roles: extract_roles(node)
         }
@@ -60,10 +60,10 @@ module RbrunCore
 
       def build_pod_info(pod)
         {
-          name: pod["metadata"]["name"],
-          node: pod["spec"]["nodeName"],
-          app: pod["metadata"]["labels"]&.dig(Naming::LABEL_APP),
-          phase: pod["status"]["phase"],
+          name: pod.dig("metadata", "name"),
+          node: pod.dig("spec", "nodeName"),
+          app: pod.dig("metadata", "labels", Naming::LABEL_APP),
+          phase: pod.dig("status", "phase"),
           ready: pod_ready?(pod)
         }
       end
@@ -74,7 +74,7 @@ module RbrunCore
       end
 
       def pod_ready?(pod)
-        return false unless pod["status"]["phase"] == "Running"
+        return false unless pod.dig("status", "phase") == "Running"
 
         container_statuses = pod.dig("status", "containerStatuses") || []
         container_statuses.all? { |c| c["ready"] }
