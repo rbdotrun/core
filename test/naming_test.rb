@@ -74,6 +74,19 @@ class NamingTest < Minitest::Test
     assert_equal "myapp-staging-assets", RbrunCore::Naming.storage_bucket("myapp", :staging, :assets)
   end
 
+  def test_backend_bucket_returns_app_environment_backend
+    assert_equal "myapp-production-backend", RbrunCore::Naming.backend_bucket("myapp", "production")
+    assert_equal "myapp-staging-backend", RbrunCore::Naming.backend_bucket("myapp", :staging)
+  end
+
+  def test_postgres_backups_prefix_constant
+    assert_equal "postgres-backups/", RbrunCore::Naming::POSTGRES_BACKUPS_PREFIX
+  end
+
+  def test_docker_registry_prefix_constant
+    assert_equal "docker-registry", RbrunCore::Naming::DOCKER_REGISTRY_PREFIX
+  end
+
   def test_hostname_returns_prefixed_hostname
     assert_equal "rbrun-sandbox-a1b2c3.rb.run", RbrunCore::Naming.hostname(VALID_SLUG, "rb.run")
   end

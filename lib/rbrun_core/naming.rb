@@ -12,6 +12,10 @@ module RbrunCore
     # Server group constants
     MASTER_GROUP = "master"
 
+    # Backend bucket prefixes
+    POSTGRES_BACKUPS_PREFIX = "postgres-backups/"
+    DOCKER_REGISTRY_PREFIX = "docker-registry"
+
     # Kubernetes label keys
     LABEL_APP = "app.kubernetes.io/name"
     LABEL_INSTANCE = "app.kubernetes.io/instance"

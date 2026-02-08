@@ -23,7 +23,8 @@ module RbrunCore
         def run
           raise Error::Standard, "source_folder is required for build" unless @ctx.source_folder
 
-          log("docker_build", "Building locally from #{@ctx.source_folder}")
+          @timestamp = Time.now.utc.strftime("%Y%m%d%H%M%S")
+          log("docker_build", "Building locally from #{@ctx.source_folder} (tag: #{@timestamp})")
 
           ssh_client = Clients::Ssh.new(
             host: @ctx.server_ip,
@@ -44,10 +45,9 @@ module RbrunCore
         private
 
           def build_and_push!(context_path)
-            ts = Time.now.utc.strftime("%Y%m%d%H%M%S")
             prefix = @ctx.prefix
-            local_tag = "#{prefix}:#{ts}"
-            registry_tag = "localhost:#{REGISTRY_PORT}/#{prefix}:#{ts}"
+            local_tag = "#{prefix}:#{@timestamp}"
+            registry_tag = "localhost:#{REGISTRY_PORT}/#{prefix}:#{@timestamp}"
 
             dockerfile = @ctx.config.app_config.dockerfile
             platform = @ctx.config.app_config.platform
@@ -75,7 +75,7 @@ module RbrunCore
               chdir: context_path
             )
 
-            { local_tag:, registry_tag:, timestamp: ts }
+            { local_tag:, registry_tag:, timestamp: @timestamp }
           end
 
           def run_docker!(*args, chdir: nil)

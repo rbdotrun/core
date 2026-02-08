@@ -4,7 +4,8 @@ require "sshkit"
 require "shellwords"
 require "base64"
 require "stringio"
-require "concurrent/atomic/count_down_latch"
+require "socket"
+require "tempfile"
 
 module RbrunCore
   module Clients
@@ -146,30 +147,28 @@ module RbrunCore
       end
 
       # Establish an SSH local port forward and yield while the tunnel is active.
-      # Follows Kamal's pattern for SSH tunneling.
       def with_local_forward(local_port:, remote_host:, remote_port:)
-        ready = Concurrent::CountDownLatch.new(1)
-        @forward_done = false
+        with_key_file do |key_path|
+          ssh_cmd = [
+            "ssh", "-N", "-n",
+            "-L", "#{local_port}:#{remote_host}:#{remote_port}",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "LogLevel=ERROR",
+            "-i", key_path,
+            "-p", @port.to_s,
+            "#{@user}@#{@host}"
+          ]
 
-        thread = Thread.new do
-          Net::SSH.start(@host, @user, **ssh_options.merge(port: @port)) do |ssh|
-            ssh.forward.local(local_port, remote_host, remote_port)
-            ready.count_down
+          pid = Process.spawn(*ssh_cmd, in: File::NULL, out: File::NULL, err: File::NULL, pgroup: true)
+          wait_for_port!(local_port)
 
-            ssh.loop(0.1) { !@forward_done }
+          begin
+            yield
+          ensure
+            Process.kill("TERM", -pid) rescue nil
+            Process.wait(pid) rescue nil
           end
-        rescue
-          ready.count_down # unblock even on error
-          raise
-        end
-
-        raise ConnectionError, "SSH tunnel not ready after 30s" unless ready.wait(30)
-
-        begin
-          yield
-        ensure
-          @forward_done = true
-          thread.join(5)
         end
       end
 
@@ -197,6 +196,27 @@ module RbrunCore
             verify_host_key: @strict_mode ? :accept_new : :never,
             logger: ::Logger.new(IO::NULL)
           }
+        end
+
+        def with_key_file
+          file = Tempfile.new("ssh_key", mode: 0o600)
+          file.write(@private_key)
+          file.close
+          yield file.path
+        ensure
+          file&.unlink
+        end
+
+        def wait_for_port!(port, timeout: 30)
+          Waiter.poll(max_attempts: timeout, interval: 1, message: "SSH tunnel not ready after #{timeout}s") do
+            port_open?(port)
+          end
+        end
+
+        def port_open?(port)
+          Socket.tcp("127.0.0.1", port, connect_timeout: 1) { true }
+        rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT
+          false
         end
 
         def with_backend(timeout: nil)

@@ -419,6 +419,7 @@ module RbrunCore
         end
 
         def backup_script
+          prefix = Naming::POSTGRES_BACKUPS_PREFIX
           <<~SH.strip
             if command -v apk >/dev/null; then
               apk add --no-cache aws-cli
@@ -428,12 +429,12 @@ module RbrunCore
             TIMESTAMP=$(date +%Y%m%d-%H%M%S) &&
             pg_dump -h $PGHOST -U $PGUSER -d $PGDATABASE --no-owner --no-acl |
             gzip |
-            aws s3 cp - s3://$BUCKET/postgres-backups/backup-$TIMESTAMP.sql.gz --endpoint-url $R2_ENDPOINT_URL &&
-            aws s3 ls s3://$BUCKET/postgres-backups/ --endpoint-url $R2_ENDPOINT_URL |
+            aws s3 cp - s3://$BUCKET/#{prefix}backup-$TIMESTAMP.sql.gz --endpoint-url $R2_ENDPOINT_URL &&
+            aws s3 ls s3://$BUCKET/#{prefix} --endpoint-url $R2_ENDPOINT_URL |
             sort -r |
             tail -n +8 |
             awk '{print $4}' |
-            xargs -I {} aws s3 rm s3://$BUCKET/postgres-backups/{} --endpoint-url $R2_ENDPOINT_URL
+            xargs -I {} aws s3 rm s3://$BUCKET/#{prefix}{} --endpoint-url $R2_ENDPOINT_URL
           SH
         end
 
@@ -451,7 +452,7 @@ module RbrunCore
             "REGISTRY_STORAGE_S3_REGION" => "auto",
             "REGISTRY_STORAGE_S3_BUCKET" => @r2_credentials[:bucket],
             "REGISTRY_STORAGE_S3_REGIONENDPOINT" => @r2_credentials[:endpoint],
-            "REGISTRY_STORAGE_S3_ROOTDIRECTORY" => "/docker-registry",
+            "REGISTRY_STORAGE_S3_ROOTDIRECTORY" => "/#{Naming::DOCKER_REGISTRY_PREFIX}",
             "REGISTRY_STORAGE_S3_FORCEPATHSTYLE" => "true",
             "REGISTRY_STORAGE_S3_CHUNKSIZE" => "33554432",
             "REGISTRY_HEALTH_STORAGEDRIVER_ENABLED" => "false",

@@ -28,7 +28,7 @@ module RbrunCore
           Clients::Ssh.stub :new, ->(host:, private_key:, user: "root") {
             ssh_user_used = user
             mock_ssh = Minitest::Mock.new
-            mock_ssh.expect :execute, { output: "not", exit_code: 0 }, [String], raise_on_error: false
+            mock_ssh.expect :execute, { output: "not", exit_code: 0 }, [ String ], raise_on_error: false
             mock_ssh
           } do
             # We can't easily test the full flow without complex mocking,

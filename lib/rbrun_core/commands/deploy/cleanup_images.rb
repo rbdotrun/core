@@ -23,7 +23,7 @@ module RbrunCore
 
           tags = output.each_line
             .map(&:strip)
-            .reject { |t| ["latest", "<none>"].include?(t) }
+            .reject { |t| [ "latest", "<none>" ].include?(t) }
             .sort
             .reverse
             .drop(KEEP_IMAGES)
