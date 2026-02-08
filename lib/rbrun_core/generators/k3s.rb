@@ -449,6 +449,7 @@ module RbrunCore
             "REGISTRY_STORAGE_S3_REGIONENDPOINT" => @r2_credentials[:endpoint],
             "REGISTRY_STORAGE_S3_ROOTDIRECTORY" => "/docker-registry",
             "REGISTRY_STORAGE_S3_FORCEPATHSTYLE" => "true",
+            "REGISTRY_STORAGE_S3_CHUNKSIZE" => "104857600",
             "REGISTRY_HEALTH_STORAGEDRIVER_ENABLED" => "false",
             "REGISTRY_STORAGE_DELETE_ENABLED" => "true"
           }
