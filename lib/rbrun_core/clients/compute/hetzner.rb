@@ -16,6 +16,10 @@ module RbrunCore
           "hil" => "us-west"
         }.freeze
 
+        VOLUME_LOCATIONS = %w[fsn1 nbg1 hel1 ash hil sin].freeze
+        DEFAULT_VOLUME_SIZE = 10 # GB
+        DEFAULT_VOLUME_FORMAT = "xfs"
+
         def initialize(api_key:)
           @api_key = api_key
           raise Error::Standard, "Hetzner API key not configured" if @api_key.nil? || @api_key.empty?
@@ -304,7 +308,7 @@ module RbrunCore
               private_ipv4: data["private_net"]&.first&.dig("ip"),
               instance_type: data.dig("server_type", "name"),
               image: data.dig("image", "name"),
-              location: data.dig("datacenter", "name"),
+              location: data.dig("datacenter", "location", "name"),
               labels: data["labels"] || {},
               created_at: data["created"]
             )

@@ -30,6 +30,15 @@ module RbrunCore
           assert_equal "1.2.3.4", server.public_ipv4
         end
 
+        def test_server_location_uses_location_name_not_datacenter
+          stub_request(:get, %r{api\.hetzner\.cloud/v1/servers}).to_return(
+            status: 200, body: { servers: [ hetzner_server_data ] }.to_json, headers: json_headers
+          )
+          server = @client.find_server("test-server")
+
+          assert_equal "ash", server.location
+        end
+
         def test_find_or_create_server_returns_existing
           stub_request(:get, %r{/servers}).to_return(
             status: 200, body: { servers: [ hetzner_server_data ] }.to_json, headers: json_headers
