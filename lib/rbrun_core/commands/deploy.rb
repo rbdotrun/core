@@ -3,10 +3,9 @@
 module RbrunCore
   module Commands
     class Deploy
-      def initialize(ctx, logger: nil, on_log: nil, on_state_change: nil, on_rollout_progress: nil)
+      def initialize(ctx, on_step: nil, on_state_change: nil, on_rollout_progress: nil)
         @ctx = ctx
-        @logger = logger
-        @on_log = on_log
+        @on_step = on_step
         @on_state_change = on_state_change
         @on_rollout_progress = on_rollout_progress
       end
@@ -14,16 +13,16 @@ module RbrunCore
       def run
         change_state(:provisioning)
 
-        Shared::CreateInfrastructure.new(@ctx, logger: @logger).run
-        SetupK3s.new(@ctx, logger: @logger).run
-        ProvisionVolumes.new(@ctx, logger: @logger).run if needs_volumes?
-        SetupTunnel.new(@ctx, logger: @logger).run if needs_tunnel?
-        SetupRegistry.new(@ctx, logger: @logger).run if needs_registry?
+        Shared::CreateInfrastructure.new(@ctx, on_step: @on_step).run
+        SetupK3s.new(@ctx, on_step: @on_step).run
+        ProvisionVolumes.new(@ctx, on_step: @on_step).run if needs_volumes?
+        SetupTunnel.new(@ctx, on_step: @on_step).run if needs_tunnel?
+        SetupRegistry.new(@ctx, on_step: @on_step).run if needs_registry?
         if has_app?
-          BuildImage.new(@ctx, logger: @logger).run
-          CleanupImages.new(@ctx, logger: @logger).run
+          BuildImage.new(@ctx, on_step: @on_step).run
+          CleanupImages.new(@ctx, on_step: @on_step).run
         end
-        DeployManifests.new(@ctx, logger: @logger, on_rollout_progress: @on_rollout_progress).run
+        DeployManifests.new(@ctx, on_step: @on_step, on_rollout_progress: @on_rollout_progress).run
         remove_excess_servers!
 
         change_state(:deployed)
@@ -38,13 +37,11 @@ module RbrunCore
           return if @ctx.servers_to_remove.empty?
 
           @ctx.servers_to_remove.each do |server_name|
-            @logger.log("scale_down", "Removing #{server_name}")
-
             begin
               kubectl = Clients::Kubectl.new(@ctx.ssh_client)
               kubectl.drain(server_name, max_attempts: 1, interval: 0)
-            rescue RbrunCore::Error => e
-              @logger.log("drain_warning", "Drain failed for #{server_name}: #{e.message}, continuing")
+            rescue RbrunCore::Error
+              # best effort
             end
 
             begin

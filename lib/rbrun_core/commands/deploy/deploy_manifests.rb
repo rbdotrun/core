@@ -4,16 +4,18 @@ module RbrunCore
   module Commands
     class Deploy
       class DeployManifests
+        include Stepable
+
         HTTP_NODE_PORT = 30_080
 
-        def initialize(ctx, logger: nil, on_rollout_progress: nil)
+        def initialize(ctx, on_step: nil, on_rollout_progress: nil)
           @ctx = ctx
-          @logger = logger
+          @on_step = on_step
           @on_rollout_progress = on_rollout_progress
         end
 
         def run
-          log("deploy_manifests", "Generating and applying K3s manifests")
+          report_step(Step::Id::DEPLOY_MANIFESTS, Step::IN_PROGRESS)
 
           r2_credentials = setup_backend_bucket
           storage_credentials = setup_storage_buckets
@@ -30,9 +32,11 @@ module RbrunCore
           )
 
           kubectl.apply(generator.generate)
+          report_step(Step::Id::DEPLOY_MANIFESTS, Step::DONE)
 
-          log("wait_rollout", "Waiting for rollout")
+          report_step(Step::Id::WAIT_ROLLOUT, Step::IN_PROGRESS)
           wait_for_rollout!
+          report_step(Step::Id::WAIT_ROLLOUT, Step::DONE)
         end
 
         private
@@ -145,14 +149,6 @@ module RbrunCore
 
           def kubectl
             @kubectl ||= Clients::Kubectl.new(@ctx.ssh_client)
-          end
-
-          def ssh_with_retry!(command, raise_on_error: true, timeout: 300)
-            @ctx.ssh_client.execute_with_retry(command, raise_on_error:, timeout:)
-          end
-
-          def log(category, message = nil)
-            @logger&.log(category, message)
           end
       end
     end

@@ -38,7 +38,7 @@ module RbrunCore
             status: 200, body: { success: true, result: { id: "dns-1" } }.to_json, headers: json_headers
           )
 
-          SetupTunnel.new(@ctx, logger: TestLogger.new).run
+          SetupTunnel.new(@ctx).run
 
           assert_equal "tun-new", @ctx.tunnel_id
         end
@@ -53,7 +53,7 @@ module RbrunCore
           end
           ctx = RbrunCore::Context.new(config:)
 
-          SetupTunnel.new(ctx, logger: TestLogger.new).run
+          SetupTunnel.new(ctx).run
 
           assert_nil ctx.tunnel_id
         end

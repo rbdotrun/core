@@ -41,7 +41,7 @@ module RbrunCore
           )
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(@ctx, logger: TestLogger.new).run
+            CreateInfrastructure.new(@ctx).run
           end
 
           assert_equal "123", @ctx.server_id
@@ -52,7 +52,7 @@ module RbrunCore
           stub_all_existing!
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(@ctx, logger: TestLogger.new).run
+            CreateInfrastructure.new(@ctx).run
           end
 
           assert_equal 1, @ctx.servers.size
@@ -75,25 +75,25 @@ module RbrunCore
           )
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(@ctx, logger: TestLogger.new).run
+            CreateInfrastructure.new(@ctx).run
           end
 
           assert_not_requested(:post, /firewalls/)
           assert_not_requested(:post, /networks/)
         end
 
-        def test_on_log_fires_for_infrastructure_steps
+        def test_on_step_fires_for_infrastructure_steps
           stub_all_existing!
-          logger = TestLogger.new
+          steps = TestStepCollector.new
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(@ctx, logger:).run
+            CreateInfrastructure.new(@ctx, on_step: steps).run
           end
 
-          assert_includes logger.categories, "firewall"
-          assert_includes logger.categories, "network"
+          assert_includes steps, Step::Id::CREATE_FIREWALL
+          assert_includes steps, Step::Id::CREATE_NETWORK
         end
 
-        def test_on_log_fires_for_server_steps_when_creating_new_server
+        def test_on_step_fires_for_server_steps_when_creating_new_server
           # Stub existing firewall and network, but no servers
           stub_request(:get, /firewalls/).to_return(status: 200,
                                                     body: { firewalls: [ { id: 1, name: @ctx.prefix } ] }.to_json, headers: json_headers)
@@ -106,13 +106,13 @@ module RbrunCore
             status: 201, body: { server: hetzner_master_server }.to_json, headers: json_headers
           )
 
-          logger = TestLogger.new
+          steps = TestStepCollector.new
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(@ctx, logger:).run
+            CreateInfrastructure.new(@ctx, on_step: steps).run
           end
 
-          assert_includes logger.categories, "server"
-          assert_includes logger.categories, "ssh_wait"
+          assert_includes steps, Step::Id::CREATE_SERVER
+          assert_includes steps, Step::Id::WAIT_SSH
         end
 
         # ── Firewall sandbox vs release ──
@@ -142,7 +142,7 @@ module RbrunCore
           )
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(sandbox_ctx, logger: TestLogger.new).run
+            CreateInfrastructure.new(sandbox_ctx).run
           end
 
           rules = captured_body["rules"]
@@ -172,7 +172,7 @@ module RbrunCore
           )
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(@ctx, logger: TestLogger.new).run
+            CreateInfrastructure.new(@ctx).run
           end
 
           rules = captured_body["rules"]
@@ -224,7 +224,7 @@ module RbrunCore
           })
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
+            CreateInfrastructure.new(ctx).run
           end
 
           # First server created becomes master
@@ -263,44 +263,27 @@ module RbrunCore
           })
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
+            CreateInfrastructure.new(ctx).run
           end
 
           # master: 1 + web: 2 + worker: 1 = 4 POST /servers calls
           assert_requested(:post, /servers/, times: 4)
         end
 
-        def test_multi_server_logs_correct_count
-          _, logger = run_multi_server_create_with_logger
+        def test_multi_server_reports_create_server_steps
+          _, steps = run_multi_server_create_with_steps
 
-          server_logs = logger.logs.select { |cat, _| cat == "server" }
+          # Should report CREATE_SERVER step (IN_PROGRESS + DONE for each = 8 total for 4 servers)
+          create_server_steps = steps.steps.select { |s| s[:id] == Step::Id::CREATE_SERVER }
 
-          assert_equal 4, server_logs.size
+          assert_operator create_server_steps.size, :>=, 4
         end
 
-        def test_multi_server_logs_master_creation
-          _, logger = run_multi_server_create_with_logger
+        def test_multi_server_reports_wait_ssh_steps
+          _, steps = run_multi_server_create_with_steps
 
-          server_logs = logger.logs.select { |cat, _| cat == "server" }
-
-          assert(server_logs.any? { |_, msg| msg.include?("master-1") })
-        end
-
-        def test_multi_server_logs_web_creation
-          _, logger = run_multi_server_create_with_logger
-
-          server_logs = logger.logs.select { |cat, _| cat == "server" }
-
-          assert(server_logs.any? { |_, msg| msg.include?("web-1") })
-          assert(server_logs.any? { |_, msg| msg.include?("web-2") })
-        end
-
-        def test_multi_server_logs_worker_creation
-          _, logger = run_multi_server_create_with_logger
-
-          server_logs = logger.logs.select { |cat, _| cat == "server" }
-
-          assert(server_logs.any? { |_, msg| msg.include?("worker-1") })
+          # Should report WAIT_SSH step
+          assert_includes steps, Step::Id::WAIT_SSH
         end
 
         # ── Reconciliation ──
@@ -317,7 +300,7 @@ module RbrunCore
           stub_reconciliation_servers!(ctx, existing_list)
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
+            CreateInfrastructure.new(ctx).run
           end
 
           # master-1 + app-1 + app-2 + app-3 + db-1 = 5
@@ -369,7 +352,7 @@ module RbrunCore
           stub_reconciliation_servers!(ctx, existing_list)
 
           with_mocked_ssh(output: "", exit_code: 0) do
-            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
+            CreateInfrastructure.new(ctx).run
           end
 
           # master-1 kept in servers, app-2 marked for removal
@@ -390,7 +373,7 @@ module RbrunCore
           stub_reconciliation_servers!(ctx, existing_list)
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
+            CreateInfrastructure.new(ctx).run
           end
 
           assert_empty ctx.servers_to_remove
@@ -409,7 +392,7 @@ module RbrunCore
           stub_reconciliation_servers!(ctx, existing_list)
 
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            CreateInfrastructure.new(ctx, logger: TestLogger.new).run
+            CreateInfrastructure.new(ctx).run
           end
 
           assert_equal 4, ctx.servers.size
@@ -587,15 +570,15 @@ module RbrunCore
             })
 
             with_mocked_ssh(output: "ok", exit_code: 0) do
-              CreateInfrastructure.new(ctx, logger: TestLogger.new).run
+              CreateInfrastructure.new(ctx).run
             end
 
             ctx
           end
 
-          def run_multi_server_create_with_logger
+          def run_multi_server_create_with_steps
             ctx = build_multi_server_context
-            logger = TestLogger.new
+            steps = TestStepCollector.new
 
             stub_all_existing_for!(ctx)
             stub_request(:get, /servers/).to_return(
@@ -606,10 +589,10 @@ module RbrunCore
             })
 
             with_mocked_ssh(output: "ok", exit_code: 0) do
-              CreateInfrastructure.new(ctx, logger:).run
+              CreateInfrastructure.new(ctx, on_step: steps).run
             end
 
-            [ ctx, logger ]
+            [ ctx, steps ]
           end
 
           def run_scale_down_scenario
@@ -626,7 +609,7 @@ module RbrunCore
             stub_reconciliation_servers!(ctx, existing_list)
 
             with_mocked_ssh(output: "", exit_code: 0) do
-              CreateInfrastructure.new(ctx, logger: TestLogger.new).run
+              CreateInfrastructure.new(ctx).run
             end
 
             ctx
@@ -645,7 +628,7 @@ module RbrunCore
             stub_reconciliation_servers!(ctx, existing_list)
 
             with_mocked_ssh(output: "ok", exit_code: 0) do
-              CreateInfrastructure.new(ctx, logger: TestLogger.new).run
+              CreateInfrastructure.new(ctx).run
             end
 
             ctx

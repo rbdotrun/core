@@ -43,7 +43,7 @@ module RbrunCore
 
       def test_execute_returns_hash
         client = Ssh.new(host: @host, private_key: @private_key)
-        result = with_sshkit_backend(output: "hello", exit_code: 0) { client.execute("echo hello") }
+        result = with_fake_ssh(output: "hello", exit_code: 0) { client.execute("echo hello") }
 
         assert_equal "hello", result[:output]
         assert_equal 0, result[:exit_code]
@@ -52,14 +52,14 @@ module RbrunCore
       def test_execute_raises_on_nonzero
         client = Ssh.new(host: @host, private_key: @private_key)
         error = assert_raises(Ssh::CommandError) do
-          with_sshkit_backend(output: "error", exit_code: 1) { client.execute("fail") }
+          with_fake_ssh(output: "error", exit_code: 1) { client.execute("fail") }
         end
         assert_equal 1, error.exit_code
       end
 
       def test_execute_with_raise_on_error_false
         client = Ssh.new(host: @host, private_key: @private_key)
-        result = with_sshkit_backend(output: "error", exit_code: 1) { client.execute("fail", raise_on_error: false) }
+        result = with_fake_ssh(output: "error", exit_code: 1) { client.execute("fail", raise_on_error: false) }
 
         assert_equal 1, result[:exit_code]
       end
@@ -67,51 +67,37 @@ module RbrunCore
       def test_execute_yields_lines
         client = Ssh.new(host: @host, private_key: @private_key)
         lines = []
-        with_sshkit_backend(output: "line1\nline2\nline3", exit_code: 0) do
+        with_fake_ssh(output: "line1\nline2\nline3", exit_code: 0) do
           client.execute("cmd") { |line| lines << line }
         end
 
         assert_equal %w[line1 line2 line3], lines
       end
 
-      def test_execute_ignore_errors_returns_result
-        client = Ssh.new(host: @host, private_key: @private_key)
-        result = with_sshkit_backend(output: "ok", exit_code: 0) { client.execute_ignore_errors("cmd") }
-
-        assert_equal "ok", result[:output]
-      end
-
-      def test_execute_ignore_errors_returns_nil_on_error
-        client = Ssh.new(host: @host, private_key: @private_key)
-        result = with_sshkit_error(Ssh::Error.new("fail")) { client.execute_ignore_errors("cmd") }
-
-        assert_nil result
-      end
-
       def test_available_returns_true
         client = Ssh.new(host: @host, private_key: @private_key)
-        result = with_sshkit_backend(output: "ok", exit_code: 0) { client.available? }
+        result = with_fake_ssh(output: "ok", exit_code: 0) { client.available? }
 
         assert result
       end
 
       def test_available_returns_false_on_error
         client = Ssh.new(host: @host, private_key: @private_key)
-        result = with_sshkit_error(Errno::ECONNREFUSED.new) { client.available? }
+        result = with_net_ssh_error(Errno::ECONNREFUSED.new) { client.available? }
 
         refute result
       end
 
       def test_read_file_returns_content
         client = Ssh.new(host: @host, private_key: @private_key)
-        content = with_sshkit_backend(output: "file content", exit_code: 0) { client.read_file("/etc/hosts") }
+        content = with_fake_ssh(output: "file content", exit_code: 0) { client.read_file("/etc/hosts") }
 
         assert_equal "file content", content
       end
 
       def test_read_file_returns_nil_on_failure
         client = Ssh.new(host: @host, private_key: @private_key)
-        content = with_sshkit_backend(output: "No such file", exit_code: 1) { client.read_file("/missing") }
+        content = with_fake_ssh(output: "No such file", exit_code: 1) { client.read_file("/missing") }
 
         assert_nil content
       end
@@ -119,28 +105,28 @@ module RbrunCore
       def test_raises_authentication_error
         client = Ssh.new(host: @host, private_key: @private_key)
         assert_raises(Ssh::AuthenticationError) do
-          with_sshkit_error(Net::SSH::AuthenticationFailed.new("auth")) { client.execute("cmd") }
+          with_net_ssh_error(Net::SSH::AuthenticationFailed.new("auth")) { client.execute("cmd") }
         end
       end
 
       def test_raises_connection_error_on_timeout
         client = Ssh.new(host: @host, private_key: @private_key)
         assert_raises(Ssh::ConnectionError) do
-          with_sshkit_error(Net::SSH::ConnectionTimeout.new) { client.execute("cmd") }
+          with_net_ssh_error(Net::SSH::ConnectionTimeout.new) { client.execute("cmd") }
         end
       end
 
       def test_raises_connection_error_on_refused
         client = Ssh.new(host: @host, private_key: @private_key)
         assert_raises(Ssh::ConnectionError) do
-          with_sshkit_error(Errno::ECONNREFUSED.new) { client.execute("cmd") }
+          with_net_ssh_error(Errno::ECONNREFUSED.new) { client.execute("cmd") }
         end
       end
 
       def test_raises_connection_error_on_unreachable
         client = Ssh.new(host: @host, private_key: @private_key)
         assert_raises(Ssh::ConnectionError) do
-          with_sshkit_error(Errno::EHOSTUNREACH.new) { client.execute("cmd") }
+          with_net_ssh_error(Errno::EHOSTUNREACH.new) { client.execute("cmd") }
         end
       end
 
@@ -148,14 +134,12 @@ module RbrunCore
         client = Ssh.new(host: @host, private_key: @private_key)
         call_count = 0
 
-        mock_backend = Object.new
-        mock_backend.define_singleton_method(:capture) { |*_args| "ok" }
-
-        SSHKit::Backend::Netssh.stub(:new, lambda { |_host|
+        Net::SSH.stub(:start, lambda { |*_args, **_opts, &blk|
           call_count += 1
           raise Errno::ECONNREFUSED, "refused" if call_count < 3
 
-          mock_backend
+          mock_ssh = FakeSsh.new("ok", 0)
+          blk.call(mock_ssh)
         }) do
           result = client.execute_with_retry("echo hello", retries: 3, backoff: 0)
 
@@ -168,7 +152,7 @@ module RbrunCore
         client = Ssh.new(host: @host, private_key: @private_key)
         call_count = 0
 
-        SSHKit::Backend::Netssh.stub(:new, lambda { |_host|
+        Net::SSH.stub(:start, lambda { |*_args, **_opts, &_block|
           call_count += 1
           raise Errno::ECONNREFUSED, "refused"
         }) do
@@ -191,61 +175,102 @@ module RbrunCore
         client = Ssh.new(host: @host, private_key: @private_key)
         yielded = false
 
-        Process.stub(:spawn, 12345) do
-          Process.stub(:kill, true) do
-            Process.stub(:wait, true) do
-              client.stub(:port_open?, true) do
-                client.with_local_forward(local_port: 30_500, remote_host: "localhost", remote_port: 30_500) do
-                  yielded = true
-                end
-              end
-            end
+        mock_ssh = Object.new
+        mock_ssh.define_singleton_method(:forward) do
+          fwd = Object.new
+          fwd.define_singleton_method(:local) { |*_args| }
+          fwd
+        end
+        mock_ssh.define_singleton_method(:loop) { |_| }
+
+        Net::SSH.stub(:start, ->(*, **, &block) { block.call(mock_ssh) }) do
+          client.with_local_forward(local_port: 30_500, remote_host: "localhost", remote_port: 30_500) do
+            yielded = true
           end
         end
 
         assert yielded
       end
 
-      def test_with_local_forward_raises_on_timeout
-        client = Ssh.new(host: @host, private_key: @private_key)
-
-        Process.stub(:spawn, 12345) do
-          Process.stub(:kill, true) do
-            Process.stub(:wait, true) do
-              client.stub(:port_open?, false) do
-                assert_raises(Waiter::TimeoutError) do
-                  client.with_local_forward(local_port: 30_500, remote_host: "localhost", remote_port: 30_500) { }
-                end
-              end
-            end
-          end
-        end
-      end
-
       private
 
-        # Mock SSHKit backend for testing
-        def with_sshkit_backend(output: "ok", exit_code: 0, &block)
-          mock_backend = Object.new
-          mock_backend.define_singleton_method(:capture) do |*_args|
-            if exit_code != 0
-              cmd = SSHKit::Command.new(:test)
-              cmd.instance_variable_set(:@exit_status, exit_code)
-              error = SSHKit::Command::Failed.new("Command failed")
-              error.define_singleton_method(:cause) { cmd }
-              raise error
-            end
-            output
-          end
-          mock_backend.define_singleton_method(:upload!) { |*_args| true }
-          mock_backend.define_singleton_method(:download!) { |*_args| true }
-          mock_backend.define_singleton_method(:execute) { |*_args| true }
+        # Mock Net::SSH for testing
+        def with_fake_ssh(output: "ok", exit_code: 0, &block)
+          mock_ssh = FakeSsh.new(output, exit_code)
 
-          SSHKit::Backend::Netssh.stub(:new, ->(_host) { mock_backend }, &block)
+          Net::SSH.stub(:start, ->(*, **, &blk) { blk.call(mock_ssh) }, &block)
         end
 
-        def with_sshkit_error(error, &block)
-          SSHKit::Backend::Netssh.stub(:new, ->(_host) { raise error }, &block)
+        def with_net_ssh_error(error, &block)
+          Net::SSH.stub(:start, ->(*_args, **_opts, &_blk) { raise error }, &block)
+        end
+
+        class FakeSsh
+          def initialize(output, exit_code)
+            @output = output
+            @exit_code = exit_code
+          end
+
+          def exec!(cmd)
+            @output
+          end
+
+          def open_channel
+            channel = FakeChannel.new(@output, @exit_code)
+            yield channel
+            channel
+          end
+
+          def scp
+            FakeScp.new
+          end
+        end
+
+        class FakeChannel
+          def initialize(output, exit_code)
+            @output = output
+            @exit_code = exit_code
+          end
+
+          def exec(cmd)
+            yield self, true
+          end
+
+          def on_data
+            yield self, @output
+          end
+
+          def on_extended_data
+            # no-op
+          end
+
+          def on_request(type)
+            yield self, FakeExitData.new(@exit_code)
+          end
+
+          def wait
+            # no-op
+          end
+        end
+
+        class FakeExitData
+          def initialize(code)
+            @code = code
+          end
+
+          def read_long
+            @code
+          end
+        end
+
+        class FakeScp
+          def upload!(*_args)
+            true
+          end
+
+          def download!(*_args)
+            true
+          end
         end
     end
   end

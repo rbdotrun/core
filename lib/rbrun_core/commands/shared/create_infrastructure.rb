@@ -4,20 +4,24 @@ module RbrunCore
   module Commands
     module Shared
       class CreateInfrastructure
-        def initialize(ctx, logger: nil)
+        include Stepable
+
+        def initialize(ctx, on_step: nil)
           @ctx = ctx
-          @logger = logger
+          @on_step = on_step
         end
 
         def run
-          log("firewall", "Finding or creating firewall")
+          report_step(Step::Id::CREATE_FIREWALL, Step::IN_PROGRESS)
           firewall = create_firewall!
+          report_step(Step::Id::CREATE_FIREWALL, Step::DONE)
 
-          log("network", "Finding or creating network")
+          report_step(Step::Id::CREATE_NETWORK, Step::IN_PROGRESS)
           network = compute_client.find_or_create_network(
             @ctx.prefix,
             location:
           )
+          report_step(Step::Id::CREATE_NETWORK, Step::DONE)
 
           create_all_servers!(firewall_id: firewall.id, network_id: network.id)
         end
@@ -52,7 +56,8 @@ module RbrunCore
             to_create.each do |key|
               group = desired[key]
               server_name = "#{@ctx.prefix}-#{key}"
-              log("server", "Creating server #{server_name}")
+
+              report_step(Step::Id::CREATE_SERVER, Step::IN_PROGRESS, message: server_name)
 
               server = create_server!(
                 name: server_name,
@@ -65,6 +70,8 @@ module RbrunCore
                 private_ip: nil, group: key.split("-").first
               }
               @ctx.new_servers.add(key)
+
+              report_step(Step::Id::CREATE_SERVER, Step::DONE, message: server_name)
             end
 
             @ctx.servers = servers
@@ -74,12 +81,13 @@ module RbrunCore
 
             # Wait for SSH only on new servers
             unless @ctx.new_servers.empty?
-              log("ssh_wait", "Waiting for SSH on new servers")
+              report_step(Step::Id::WAIT_SSH, Step::IN_PROGRESS)
               @ctx.new_servers.each do |key|
                 srv = servers[key]
                 ssh = Clients::Ssh.new(host: srv[:ip], private_key: @ctx.ssh_private_key, user: Naming.default_user)
                 ssh.wait_until_ready(max_attempts: 36, interval: 5)
               end
+              report_step(Step::Id::WAIT_SSH, Step::DONE)
             end
           end
 
@@ -158,20 +166,12 @@ module RbrunCore
             )
           end
 
-          def wait_for_ssh!(timeout: 180)
-            @ctx.ssh_client.wait_until_ready(max_attempts: timeout / 5, interval: 5)
-          end
-
           def compute_client
             @ctx.compute_client
           end
 
           def location
             @ctx.config.compute_config.location
-          end
-
-          def log(category, message = nil)
-            @logger&.log(category, message)
           end
       end
     end

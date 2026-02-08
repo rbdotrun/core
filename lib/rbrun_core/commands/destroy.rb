@@ -3,18 +3,17 @@
 module RbrunCore
   module Commands
     class Destroy
-      def initialize(ctx, logger: nil, on_log: nil, on_state_change: nil)
+      def initialize(ctx, on_step: nil, on_state_change: nil)
         @ctx = ctx
-        @logger = logger
-        @on_log = on_log
+        @on_step = on_step
         @on_state_change = on_state_change
       end
 
       def run
         change_state(:destroying)
 
-        Shared::CleanupTunnel.new(@ctx, logger: @logger).run if @ctx.cloudflare_configured?
-        Shared::DeleteInfrastructure.new(@ctx, logger: @logger).run
+        Shared::CleanupTunnel.new(@ctx, on_step: @on_step).run if @ctx.cloudflare_configured?
+        Shared::DeleteInfrastructure.new(@ctx, on_step: @on_step).run
 
         change_state(:destroyed)
       end

@@ -19,7 +19,7 @@ module RbrunCore
         end
 
         def test_sets_registry_tag_on_context_after_build
-          step = BuildImage.new(@ctx, logger: TestLogger.new)
+          step = BuildImage.new(@ctx)
 
           with_fake_ssh_tunnel do
             step.stub(:system, true) do
@@ -31,9 +31,9 @@ module RbrunCore
           assert_includes @ctx.registry_tag, "localhost"
         end
 
-        def test_logs_source_folder_path
-          logger = TestLogger.new
-          step = BuildImage.new(@ctx, logger:)
+        def test_reports_build_step
+          steps = TestStepCollector.new
+          step = BuildImage.new(@ctx, on_step: steps)
 
           with_fake_ssh_tunnel do
             step.stub(:system, true) do
@@ -41,18 +41,19 @@ module RbrunCore
             end
           end
 
-          assert logger.logs.any? { |cat, msg| cat == "docker_build" && msg.include?("/tmp/my-app") }
+          assert_includes steps, Step::Id::BUILD_IMAGE
+          assert_includes steps.done_steps, Step::Id::BUILD_IMAGE
         end
 
         def test_raises_when_no_source_folder
           @ctx.source_folder = nil
 
-          step = BuildImage.new(@ctx, logger: TestLogger.new)
+          step = BuildImage.new(@ctx)
           assert_raises(RbrunCore::Error::Standard) { step.run }
         end
 
         def test_creates_ssh_client_with_correct_params
-          step = BuildImage.new(@ctx, logger: TestLogger.new)
+          step = BuildImage.new(@ctx)
           captured_args = nil
 
           fake_client = Object.new
@@ -73,7 +74,7 @@ module RbrunCore
         end
 
         def test_uses_correct_tunnel_ports
-          step = BuildImage.new(@ctx, logger: TestLogger.new)
+          step = BuildImage.new(@ctx)
           tunnel_opts = nil
 
           fake_client = Object.new

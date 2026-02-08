@@ -4,12 +4,14 @@ module RbrunCore
   module Commands
     class DeploySandbox
       class SetupApplication
+        include Stepable
+
         WORKSPACE = "/home/deploy/workspace"
         COMPOSE_FILE = "docker-compose.generated.yml"
 
-        def initialize(ctx, logger: nil)
+        def initialize(ctx, on_step: nil)
           @ctx = ctx
-          @logger = logger
+          @on_step = on_step
         end
 
         def run
@@ -24,12 +26,14 @@ module RbrunCore
         private
 
           def install_software!
-            log("apt_packages", "Installing packages")
-            ssh!("sudo apt-get update && sudo apt-get install -y curl git jq rsync docker.io docker-compose-v2 ca-certificates gnupg")
+            report_step(Step::Id::INSTALL_PACKAGES, Step::IN_PROGRESS)
+            @ctx.ssh_client.execute("sudo apt-get update && sudo apt-get install -y curl git jq rsync docker.io docker-compose-v2 ca-certificates gnupg")
+            report_step(Step::Id::INSTALL_PACKAGES, Step::DONE)
 
             unless command_exists?("docker")
-              log("docker", "Starting Docker")
-              ssh!("sudo systemctl enable docker && sudo systemctl start docker")
+              report_step(Step::Id::INSTALL_DOCKER, Step::IN_PROGRESS)
+              @ctx.ssh_client.execute("sudo systemctl enable docker && sudo systemctl start docker")
+              report_step(Step::Id::INSTALL_DOCKER, Step::DONE)
             end
 
             install_node!
@@ -41,76 +45,90 @@ module RbrunCore
           def install_node!
             return if command_exists?("node")
 
-            log("node", "Installing Node.js 20.x")
-            ssh!(<<~BASH)
+            report_step(Step::Id::INSTALL_NODE, Step::IN_PROGRESS)
+            @ctx.ssh_client.execute(<<~BASH)
             curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && \
             sudo apt-get install -y nodejs
           BASH
+            report_step(Step::Id::INSTALL_NODE, Step::DONE)
           end
 
           def install_claude_code!
             return if command_exists?("claude")
 
-            log("claude_code", "Installing Claude Code")
-            ssh!("sudo npm install -g @anthropic-ai/claude-code")
+            report_step(Step::Id::INSTALL_CLAUDE_CODE, Step::IN_PROGRESS)
+            @ctx.ssh_client.execute("sudo npm install -g @anthropic-ai/claude-code")
+            report_step(Step::Id::INSTALL_CLAUDE_CODE, Step::DONE)
           end
 
           def install_gh_cli!
             return if command_exists?("gh")
 
-            log("gh_cli", "Installing GitHub CLI")
-            ssh!(<<~BASH)
+            report_step(Step::Id::INSTALL_GH_CLI, Step::IN_PROGRESS)
+            @ctx.ssh_client.execute(<<~BASH)
             curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
             sudo apt-get update && sudo apt-get install -y gh
           BASH
+            report_step(Step::Id::INSTALL_GH_CLI, Step::DONE)
           end
 
           def setup_git_auth!
             pat = local_git_pat
             return unless pat && !pat.empty?
 
-            log("gh_auth", "Configuring git auth")
-            ssh!("git config --global user.name 'rbrun' && git config --global user.email 'sandbox@rbrun.dev'")
-            ssh!("echo #{Shellwords.escape(pat)} | gh auth login --with-token", raise_on_error: false)
+            report_step(Step::Id::CONFIGURE_GIT_AUTH, Step::IN_PROGRESS)
+            @ctx.ssh_client.execute("git config --global user.name 'rbrun' && git config --global user.email 'sandbox@rbrun.dev'")
+            @ctx.ssh_client.execute("echo #{Shellwords.escape(pat)} | gh auth login --with-token", raise_on_error: false)
+            report_step(Step::Id::CONFIGURE_GIT_AUTH, Step::DONE)
           end
 
           def command_exists?(cmd)
-            ssh!("command -v #{cmd}", raise_on_error: false)[:exit_code].zero?
+            @ctx.ssh_client.execute("command -v #{cmd}", raise_on_error: false)[:exit_code].zero?
           end
 
           def clone_repo!
-            log("clone", "Cloning repository")
-            result = ssh!("test -d #{WORKSPACE}/.git", raise_on_error: false, timeout: 10)
-            return if result[:exit_code].zero?
+            report_step(Step::Id::CLONE_REPO, Step::IN_PROGRESS)
+            result = @ctx.ssh_client.execute("test -d #{WORKSPACE}/.git", raise_on_error: false, timeout: 10)
+            if result[:exit_code].zero?
+              report_step(Step::Id::CLONE_REPO, Step::DONE)
+              return
+            end
 
             clone_url = git_clone_url
-            ssh!("git clone #{Shellwords.escape(clone_url)} #{WORKSPACE}", timeout: 120)
+            @ctx.ssh_client.execute("git clone #{Shellwords.escape(clone_url)} #{WORKSPACE}", timeout: 120)
+            report_step(Step::Id::CLONE_REPO, Step::DONE)
           end
 
           def checkout_branch!
-            log("branch", "Checking out branch")
-            ssh!("cd #{WORKSPACE} && git checkout -B #{Shellwords.escape(Naming.branch(@ctx.slug))}")
+            report_step(Step::Id::CHECKOUT_BRANCH, Step::IN_PROGRESS)
+            @ctx.ssh_client.execute("cd #{WORKSPACE} && git checkout -B #{Shellwords.escape(Naming.branch(@ctx.slug))}")
+            report_step(Step::Id::CHECKOUT_BRANCH, Step::DONE)
           end
 
           def write_environment!
-            log("environment", "Writing environment file")
+            report_step(Step::Id::WRITE_ENV, Step::IN_PROGRESS)
             env_content = build_env_content
-            return if env_content.empty?
+            if env_content.empty?
+              report_step(Step::Id::WRITE_ENV, Step::DONE)
+              return
+            end
 
-            ssh!("cat > #{WORKSPACE}/.env << 'ENVEOF'\n#{env_content}\nENVEOF")
-            ssh!("grep -qxF '.env' #{WORKSPACE}/.gitignore 2>/dev/null || echo '.env' >> #{WORKSPACE}/.gitignore")
+            @ctx.ssh_client.execute("cat > #{WORKSPACE}/.env << 'ENVEOF'\n#{env_content}\nENVEOF")
+            @ctx.ssh_client.execute("grep -qxF '.env' #{WORKSPACE}/.gitignore 2>/dev/null || echo '.env' >> #{WORKSPACE}/.gitignore")
+            report_step(Step::Id::WRITE_ENV, Step::DONE)
           end
 
           def generate_compose!
-            log("compose_generate", "Generating docker-compose.yml")
+            report_step(Step::Id::GENERATE_COMPOSE, Step::IN_PROGRESS)
             compose_content = Generators::Compose.new(@ctx.config).generate
-            ssh!("cat > #{WORKSPACE}/#{COMPOSE_FILE} << 'COMPOSEEOF'\n#{compose_content}\nCOMPOSEEOF")
-            ssh!("grep -qxF '#{COMPOSE_FILE}' #{WORKSPACE}/.gitignore 2>/dev/null || echo '#{COMPOSE_FILE}' >> #{WORKSPACE}/.gitignore")
+            @ctx.ssh_client.execute("cat > #{WORKSPACE}/#{COMPOSE_FILE} << 'COMPOSEEOF'\n#{compose_content}\nCOMPOSEEOF")
+            @ctx.ssh_client.execute("grep -qxF '#{COMPOSE_FILE}' #{WORKSPACE}/.gitignore 2>/dev/null || echo '#{COMPOSE_FILE}' >> #{WORKSPACE}/.gitignore")
+            report_step(Step::Id::GENERATE_COMPOSE, Step::DONE)
           end
 
           def setup_docker_compose!
-            log("compose_setup", "Setting up Docker Compose")
+            report_step(Step::Id::START_COMPOSE, Step::IN_PROGRESS)
             config = @ctx.config
 
             docker_compose!("up -d postgres", raise_on_error: false) if config.database?(:postgres)
@@ -125,6 +143,7 @@ module RbrunCore
             end
 
             docker_compose!("up -d")
+            report_step(Step::Id::START_COMPOSE, Step::DONE)
           end
 
           def build_env_content
@@ -156,15 +175,7 @@ module RbrunCore
           end
 
           def docker_compose!(args, raise_on_error: true, timeout: 300)
-            ssh!("cd #{WORKSPACE} && docker compose -f #{COMPOSE_FILE} #{args}", raise_on_error:, timeout:)
-          end
-
-          def ssh!(command, **)
-            @ctx.ssh_client.execute(command, **)
-          end
-
-          def log(category, message = nil)
-            @logger&.log(category, message)
+            @ctx.ssh_client.execute("cd #{WORKSPACE} && docker compose -f #{COMPOSE_FILE} #{args}", raise_on_error:, timeout:)
           end
       end
     end

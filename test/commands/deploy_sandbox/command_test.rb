@@ -23,19 +23,19 @@ module RbrunCore
         assert_equal "rbrun-sandbox-a1b2c3", @ctx.prefix
       end
 
-      def test_run_logs_infrastructure_steps
-        logs = run_and_collect_logs
+      def test_run_reports_infrastructure_steps
+        steps = run_and_collect_steps
 
-        assert_includes logs, "firewall"
-        assert_includes logs, "server"
+        assert_includes steps, Step::Id::CREATE_FIREWALL
+        assert_includes steps, Step::Id::CREATE_SERVER
       end
 
-      def test_run_logs_application_steps
-        logs = run_and_collect_logs
+      def test_run_reports_application_steps
+        steps = run_and_collect_steps
 
-        assert_includes logs, "apt_packages"
-        assert_includes logs, "clone"
-        assert_includes logs, "compose_setup"
+        assert_includes steps, Step::Id::INSTALL_PACKAGES
+        assert_includes steps, Step::Id::CLONE_REPO
+        assert_includes steps, Step::Id::START_COMPOSE
       end
 
       def test_state_transitions
@@ -43,9 +43,7 @@ module RbrunCore
         states = []
 
         with_mocked_ssh(output: "ok", exit_code: 0) do
-          DeploySandbox.new(@ctx,
-                            logger: TestLogger.new,
-                            on_state_change: ->(state) { states << state }).run
+          DeploySandbox.new(@ctx, on_state_change: ->(state) { states << state }).run
         end
 
         assert_includes states, :provisioning
@@ -62,9 +60,7 @@ module RbrunCore
 
         Shared::CreateInfrastructure.stub(:new, boom) do
           assert_raises(RbrunCore::Error::Standard) do
-            DeploySandbox.new(@ctx,
-                              logger: TestLogger.new,
-                              on_state_change: ->(s) { states << s }).run
+            DeploySandbox.new(@ctx, on_state_change: ->(s) { states << s }).run
           end
         end
 
@@ -73,13 +69,13 @@ module RbrunCore
 
       private
 
-        def run_and_collect_logs
+        def run_and_collect_steps
           stub_hetzner_sandbox!
-          logger = TestLogger.new
+          steps = TestStepCollector.new
           with_mocked_ssh(output: "ok", exit_code: 0) do
-            DeploySandbox.new(@ctx, logger:).run
+            DeploySandbox.new(@ctx, on_step: steps).run
           end
-          logger.categories
+          steps
         end
 
         def stub_hetzner_sandbox!

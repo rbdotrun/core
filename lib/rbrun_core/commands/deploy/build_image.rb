@@ -13,18 +13,21 @@ module RbrunCore
       # Requires source_folder to be set on context.
       # Requires local Docker to be running.
       class BuildImage
+        include Stepable
+
         REGISTRY_PORT = 30_500
 
-        def initialize(ctx, logger: nil)
+        def initialize(ctx, on_step: nil)
           @ctx = ctx
-          @logger = logger
+          @on_step = on_step
         end
 
         def run
           raise Error::Standard, "source_folder is required for build" unless @ctx.source_folder
 
+          report_step(Step::Id::BUILD_IMAGE, Step::IN_PROGRESS)
+
           @timestamp = Time.now.utc.strftime("%Y%m%d%H%M%S")
-          log("docker_build", "Building locally from #{@ctx.source_folder} (tag: #{@timestamp})")
 
           ssh_client = Clients::Ssh.new(
             host: @ctx.server_ip,
@@ -40,6 +43,8 @@ module RbrunCore
             result = build_and_push!(@ctx.source_folder)
             @ctx.registry_tag = result[:registry_tag]
           end
+
+          report_step(Step::Id::BUILD_IMAGE, Step::DONE)
         end
 
         private
@@ -82,10 +87,6 @@ module RbrunCore
             opts = chdir ? { chdir: } : {}
             success = system("docker", *args, **opts)
             raise Error::Standard, "docker #{args.first} failed" unless success
-          end
-
-          def log(category, message = nil)
-            @logger&.log(category, message)
           end
       end
     end

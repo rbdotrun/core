@@ -4,13 +4,16 @@ module RbrunCore
   module Commands
     module Shared
       class CleanupTunnel
-        def initialize(ctx, logger: nil)
+        include Stepable
+
+        def initialize(ctx, on_step: nil)
           @ctx = ctx
-          @logger = logger
+          @on_step = on_step
         end
 
         def run
-          log("delete_tunnel", "Cleaning up tunnel")
+          report_step(Step::Id::CLEANUP_TUNNEL, Step::IN_PROGRESS)
+
           cf_client = @ctx.cloudflare_client
 
           zone_id = begin
@@ -23,6 +26,8 @@ module RbrunCore
 
           tunnel = cf_client.find_tunnel(@ctx.prefix)
           cf_client.delete_tunnel(tunnel[:id]) if tunnel
+
+          report_step(Step::Id::CLEANUP_TUNNEL, Step::DONE)
         end
 
         private
@@ -46,10 +51,6 @@ module RbrunCore
               record = cf_client.find_dns_record(zone_id, "#{svc_config.subdomain}.#{zone}")
               cf_client.delete_dns_record(zone_id, record["id"]) if record
             end
-          end
-
-          def log(category, message = nil)
-            @logger&.log(category, message)
           end
       end
     end

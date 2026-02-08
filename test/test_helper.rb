@@ -71,12 +71,6 @@ class MockSshClient
     execute(command, **)
   end
 
-  def execute_ignore_errors(command, cwd: nil)
-    execute(command, cwd:, raise_on_error: false)
-  rescue RbrunCore::Clients::Ssh::Error
-    nil
-  end
-
   def available?(timeout: 10)
     true
   end
@@ -104,14 +98,40 @@ class MockSshClient
     @commands << "cat #{Shellwords.escape(remote_path)}"
     @output
   end
+end
 
-  def write_file(remote_path, content, append: false)
-    @commands << "write_file:#{remote_path}"
-    true
+# Test step collector that captures on_step calls
+class TestStepCollector
+  attr_reader :steps
+
+  def initialize
+    @steps = []
+  end
+
+  def call(id, status, message: nil, parent: nil)
+    @steps << { id:, status:, message:, parent: }
+  end
+
+  def step_ids
+    @steps.map { |s| s[:id] }
+  end
+
+  def include?(step_id)
+    step_ids.include?(step_id)
+  end
+
+  def find(step_id)
+    @steps.find { |s| s[:id] == step_id }
+  end
+
+  def done_steps
+    @steps.select { |s| s[:status] == RbrunCore::Step::DONE }.map { |s| s[:id] }
   end
 end
 
-# Test logger that captures log calls
+# Legacy TestLogger for backward-compatible tests.
+# Maps old logger: interface to on_step: pattern.
+# Tests can pass logger: TestLogger.new and the helper converts it.
 class TestLogger
   attr_reader :logs
 
@@ -119,20 +139,19 @@ class TestLogger
     @logs = []
   end
 
-  def log(category, message)
+  def log(category, message = nil)
     @logs << [ category, message ]
   end
 
   def categories
-    @logs.map(&:first)
+    @logs.map(&:first).uniq
   end
 
-  def include?(category)
-    categories.include?(category)
-  end
-
-  def find(category)
-    @logs.find { |cat, _| cat == category }
+  # Convert to on_step callback for the new pattern
+  def to_on_step
+    ->(id, status, message: nil, parent: nil) {
+      log(id.to_s, message)
+    }
   end
 end
 

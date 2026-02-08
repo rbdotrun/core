@@ -3,18 +3,17 @@
 module RbrunCore
   module Commands
     class DeploySandbox
-      def initialize(ctx, logger: nil, on_log: nil, on_state_change: nil)
+      def initialize(ctx, on_step: nil, on_state_change: nil)
         @ctx = ctx
-        @logger = logger
-        @on_log = on_log
+        @on_step = on_step
         @on_state_change = on_state_change
       end
 
       def run
         change_state(:provisioning)
 
-        Shared::CreateInfrastructure.new(@ctx, logger: @logger).run
-        SetupApplication.new(@ctx, logger: @logger).run
+        Shared::CreateInfrastructure.new(@ctx, on_step: @on_step).run
+        SetupApplication.new(@ctx, on_step: @on_step).run
 
         change_state(:running)
       rescue StandardError

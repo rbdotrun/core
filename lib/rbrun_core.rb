@@ -21,12 +21,7 @@ require "logger"
 # External dependencies (gems)
 require "faraday"
 require "faraday/net_http"
-require "sshkit"
-require "sshkit/dsl"
 
 # Setup and eager load
 RbrunCore.loader.setup
 RbrunCore.loader.eager_load
-
-# Configure SSHKit after autoload
-RbrunCore::SshkitExt.configure

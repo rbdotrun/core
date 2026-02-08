@@ -4,23 +4,25 @@ module RbrunCore
   module Commands
     class Deploy
       class ProvisionVolumes
+        include Stepable
+
         DEFAULT_VOLUME_SIZE = 10 # GB, not configurable yet
 
-        def initialize(ctx, logger: nil)
+        def initialize(ctx, on_step: nil)
           @ctx = ctx
-          @logger = logger
+          @on_step = on_step
         end
 
         def run
           return unless needs_volumes?
 
-          log("provision_volumes", "Provisioning database volumes")
+          report_step(Step::Id::PROVISION_VOLUMES, Step::IN_PROGRESS)
 
           @ctx.config.database_configs.each do |type, db_config|
             provision_database_volume(type, db_config)
           end
 
-          log("provision_volumes", "All volumes provisioned")
+          report_step(Step::Id::PROVISION_VOLUMES, Step::DONE)
         end
 
         private
@@ -33,8 +35,6 @@ module RbrunCore
             volume_name = Naming.database_volume(@ctx.prefix, type)
             server = find_target_server(db_config)
 
-            log("provision_volumes", "Provisioning volume #{volume_name} for #{type}")
-
             # Create volume if not exists
             volume = compute_client.find_or_create_volume(
               name: volume_name,
@@ -45,14 +45,11 @@ module RbrunCore
 
             # Attach to server if not attached
             if volume.server_id.nil? || volume.server_id.to_s != server.id.to_s
-              log("provision_volumes", "Attaching volume to #{server.name}")
               volume = compute_client.attach_volume(volume_id: volume.id, server_id: server.id)
             end
 
             # Mount volume on server
             mount_volume(server, volume, type)
-
-            log("provision_volumes", "Volume #{volume_name} ready at #{mount_path(type)}")
           end
 
           def find_target_server(db_config)
@@ -80,10 +77,7 @@ module RbrunCore
 
             # Check if already mounted
             result = ssh.execute("mountpoint -q #{path} && echo 'mounted' || echo 'not'", raise_on_error: false)
-            if result[:output].strip == "mounted"
-              log("provision_volumes", "Volume already mounted at #{path}")
-              return
-            end
+            return if result[:output].strip == "mounted"
 
             # Wait for device to be available
             wait_for_device(ssh, device_path)
@@ -94,7 +88,6 @@ module RbrunCore
             # Check if device has filesystem
             result = ssh.execute("sudo blkid #{device_path} || true", raise_on_error: false)
             if result[:output].empty? || !result[:output].include?("TYPE=")
-              log("provision_volumes", "Formatting volume with XFS")
               ssh.execute("sudo mkfs.xfs #{device_path}")
             end
 
@@ -128,10 +121,6 @@ module RbrunCore
 
           def compute_client
             @ctx.compute_client
-          end
-
-          def log(category, message)
-            @logger&.log(category, message)
           end
       end
     end

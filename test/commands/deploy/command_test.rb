@@ -19,9 +19,9 @@ module RbrunCore
         assert_kind_of Deploy, cmd
       end
 
-      def test_accepts_on_log_callback
-        logger = TestLogger.new
-        cmd = Deploy.new(@ctx, logger:)
+      def test_accepts_on_step_callback
+        steps = TestStepCollector.new
+        cmd = Deploy.new(@ctx, on_step: steps)
 
         assert_kind_of Deploy, cmd
       end
@@ -32,7 +32,7 @@ module RbrunCore
 
         with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady", exit_code: 0) do
           Clients::CloudflareR2.stub(:new, mock_r2_client) do
-            cmd = Deploy.new(@ctx, logger: TestLogger.new)
+            cmd = Deploy.new(@ctx)
             cmd.run
           end
         end
@@ -42,19 +42,19 @@ module RbrunCore
         refute_nil @ctx.server_ip
       end
 
-      def test_on_log_callback_fires
+      def test_on_step_callback_fires
         stub_hetzner_infrastructure!
         stub_cloudflare!
-        logger = TestLogger.new
+        steps = TestStepCollector.new
 
         with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady", exit_code: 0) do
           Clients::CloudflareR2.stub(:new, mock_r2_client) do
-            Deploy.new(@ctx, logger:).run
+            Deploy.new(@ctx, on_step: steps).run
           end
         end
 
-        assert_includes logger.categories, "firewall"
-        assert_includes logger.categories, "network"
+        assert_includes steps, Step::Id::CREATE_FIREWALL
+        assert_includes steps, Step::Id::CREATE_NETWORK
       end
 
       def test_cleanup_images_runs_when_app_configured
@@ -69,11 +69,10 @@ module RbrunCore
         cleanup_ran = false
 
         noop_build = ->(*) { Object.new.tap { |o| o.define_singleton_method(:run) { } } }
-        noop_cleanup = lambda { |_ctx, logger: nil|
+        noop_cleanup = lambda { |_ctx, on_step: nil|
           Object.new.tap do |o|
             o.define_singleton_method(:run) do
               cleanup_ran = true
-              logger&.log("cleanup_images", "Cleaning up")
             end
           end
         }
@@ -82,7 +81,7 @@ module RbrunCore
           Deploy::CleanupImages.stub(:new, noop_cleanup) do
             Clients::CloudflareR2.stub(:new, mock_r2_client) do
               with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady", exit_code: 0) do
-                Deploy.new(@ctx, logger: TestLogger.new).run
+                Deploy.new(@ctx).run
               end
             end
           end
@@ -101,9 +100,7 @@ module RbrunCore
 
         Shared::CreateInfrastructure.stub(:new, boom) do
           assert_raises(RbrunCore::Error::Standard) do
-            Deploy.new(@ctx,
-                       logger: TestLogger.new,
-                       on_state_change: ->(s) { states << s }).run
+            Deploy.new(@ctx, on_state_change: ->(s) { states << s }).run
           end
         end
 

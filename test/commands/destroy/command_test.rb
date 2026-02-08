@@ -50,7 +50,7 @@ module RbrunCore
         stub_request(:get, %r{hetzner\.cloud/v1/volumes}).to_return(status: 200,
                                                                     body: { volumes: [] }.to_json, headers: json_headers)
 
-        Destroy.new(@ctx, logger: TestLogger.new).run
+        Destroy.new(@ctx).run
 
         assert_requested(:delete, %r{servers/1})
         assert_requested(:delete, %r{networks/2})
@@ -84,7 +84,7 @@ module RbrunCore
           status: 200, body: { volumes: [] }.to_json, headers: json_headers
         )
 
-        Destroy.new(@ctx, logger: TestLogger.new).run
+        Destroy.new(@ctx).run
 
         assert_requested(:delete, %r{cfd_tunnel/tun-1$})
       end

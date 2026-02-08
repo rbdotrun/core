@@ -4,24 +4,28 @@ module RbrunCore
   module Commands
     class Deploy
       class SetupRegistry
+        include Stepable
+
         REGISTRY_PORT = 30_500
         REGISTRY_TIMEOUT = 60
 
-        def initialize(ctx, logger: nil)
+        def initialize(ctx, on_step: nil)
           @ctx = ctx
-          @logger = logger
+          @on_step = on_step
         end
 
         def run
           return unless @ctx.config.cloudflare_configured?
 
-          log("setup_registry", "Setting up S3-backed registry")
+          report_step(Step::Id::SETUP_REGISTRY, Step::IN_PROGRESS)
 
           r2_credentials = setup_backend_bucket
           return unless r2_credentials
 
           deploy_registry_manifest!(r2_credentials)
           wait_for_registry!
+
+          report_step(Step::Id::SETUP_REGISTRY, Step::DONE)
         end
 
         private
@@ -49,7 +53,6 @@ module RbrunCore
           end
 
           def wait_for_registry!
-            log("wait_registry", "Waiting for registry")
             Waiter.poll(max_attempts: REGISTRY_TIMEOUT, interval: 2, message: "Registry did not become ready") do
               exec = @ctx.ssh_client.execute(
                 "curl -sf http://localhost:#{REGISTRY_PORT}/v2/ && echo ok",
@@ -61,10 +64,6 @@ module RbrunCore
 
           def kubectl
             @kubectl ||= Clients::Kubectl.new(@ctx.ssh_client)
-          end
-
-          def log(category, message = nil)
-            @logger&.log(category, message)
           end
       end
     end

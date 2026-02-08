@@ -17,7 +17,7 @@ module RbrunCore
 
         def test_runs_k3s_install_commands_via_ssh
           cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady") do
-            SetupK3s.new(@ctx, logger: TestLogger.new).run
+            SetupK3s.new(@ctx).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("k3s") || cmd.include?("curl") })
@@ -25,7 +25,7 @@ module RbrunCore
 
         def test_configures_k3s_registry_mirrors
           cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady") do
-            SetupK3s.new(@ctx, logger: TestLogger.new).run
+            SetupK3s.new(@ctx).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("registries.yaml") })
@@ -33,7 +33,7 @@ module RbrunCore
 
         def test_is_idempotent_checks_if_already_installed
           cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady") do
-            SetupK3s.new(@ctx, logger: TestLogger.new).run
+            SetupK3s.new(@ctx).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("command -v") || cmd.include?("test") })
@@ -41,7 +41,7 @@ module RbrunCore
 
         def test_single_server_does_not_label_or_join_workers
           cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady") do
-            SetupK3s.new(@ctx, logger: TestLogger.new).run
+            SetupK3s.new(@ctx).run
           end
 
           refute(cmds.any? { |cmd| cmd.include?(RbrunCore::Naming::LABEL_SERVER_GROUP) })
@@ -55,7 +55,7 @@ module RbrunCore
           @ctx.new_servers = Set["worker-1"]
 
           cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\nTrue\ntoken123") do
-            SetupK3s.new(@ctx, logger: TestLogger.new).run
+            SetupK3s.new(@ctx).run
           end
 
           label_cmds = cmds.select { |cmd| cmd.include?(RbrunCore::Naming::LABEL_SERVER_GROUP) }
@@ -68,38 +68,36 @@ module RbrunCore
           @ctx.new_servers = Set["worker-1"]
 
           cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\nTrue\ntoken123") do
-            SetupK3s.new(@ctx, logger: TestLogger.new).run
+            SetupK3s.new(@ctx).run
           end
 
           assert(cmds.any? { |cmd| cmd.include?("node-token") })
         end
 
-        def test_multi_server_logs_worker_setup
+        def test_multi_server_reports_worker_steps
           setup_multi_server_ctx!
-          # Mark all as new so they get joined
           @ctx.new_servers = Set["web-1", "worker-1"]
-          logger = TestLogger.new
+          steps = TestStepCollector.new
 
           with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\nTrue\ntoken123") do
-            SetupK3s.new(@ctx, logger:).run
+            SetupK3s.new(@ctx, on_step: steps).run
           end
 
-          assert(logger.logs.any? { |cat, _| cat == "setup_worker" })
-          assert(logger.logs.any? { |cat, _| cat == "cluster_token" })
+          assert_includes steps, Step::Id::SETUP_WORKERS
+          assert_includes steps, Step::Id::RETRIEVE_TOKEN
         end
 
         def test_skips_existing_workers
           setup_multi_server_ctx!
-          # worker-1 is NOT in new_servers → should be skipped
           @ctx.new_servers = Set.new
-          logger = TestLogger.new
+          steps = TestStepCollector.new
 
           with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\ntoken123") do
-            SetupK3s.new(@ctx, logger:).run
+            SetupK3s.new(@ctx, on_step: steps).run
           end
 
-          assert(logger.logs.any? { |cat, msg| cat == "skip_worker" && msg.include?("worker-1") })
-          refute(logger.logs.any? { |cat, _| cat == "setup_worker" })
+          # SETUP_WORKERS should not fire when no new workers
+          refute_includes steps, Step::Id::SETUP_WORKERS
         end
 
         def test_joins_only_new_workers
@@ -108,16 +106,16 @@ module RbrunCore
             "worker-1" => { id: "srv-2", ip: "5.6.7.8", private_ip: nil, group: "worker" },
             "worker-2" => { id: "srv-3", ip: "9.10.11.12", private_ip: nil, group: "worker" }
           }
-          # Only worker-2 is new
           @ctx.new_servers = Set["worker-2"]
-          logger = TestLogger.new
 
-          with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\nTrue\ntoken123") do
-            SetupK3s.new(@ctx, logger:).run
+          cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\nTrue\ntoken123") do
+            SetupK3s.new(@ctx).run
           end
 
-          assert(logger.logs.any? { |cat, msg| cat == "skip_worker" && msg.include?("worker-1") })
-          assert(logger.logs.any? { |cat, msg| cat == "setup_worker" && msg.include?("worker-2") })
+          # Only worker-2 should get k3s agent install
+          join_cmds = cmds.select { |cmd| cmd.include?("K3S_URL") }
+
+          assert_equal 1, join_cmds.size
         end
 
         private

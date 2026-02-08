@@ -35,7 +35,7 @@ module RbrunCore
         stub_request(:get, /volumes/).to_return(status: 200, body: { volumes: [] }.to_json, headers: json_headers)
         stub_cloudflare_tunnel!
 
-        with_mocked_ssh { DestroySandbox.new(@ctx, logger: TestLogger.new).run }
+        with_mocked_ssh { DestroySandbox.new(@ctx).run }
 
         assert_requested(:delete, %r{servers/1})
       end
@@ -49,7 +49,7 @@ module RbrunCore
         stub_request(:get, /volumes/).to_return(status: 200, body: { volumes: [] }.to_json, headers: json_headers)
         stub_cloudflare_tunnel!
 
-        cmds = with_capturing_ssh { DestroySandbox.new(@ctx, logger: TestLogger.new).run }
+        cmds = with_capturing_ssh { DestroySandbox.new(@ctx).run }
 
         assert(cmds.any? { |cmd| cmd.include?("docker compose") && cmd.include?("down") })
       end
@@ -84,7 +84,7 @@ module RbrunCore
           status: 200, body: { success: true, result: {} }.to_json, headers: json_headers
         )
 
-        with_mocked_ssh { DestroySandbox.new(@ctx, logger: TestLogger.new).run }
+        with_mocked_ssh { DestroySandbox.new(@ctx).run }
 
         assert_requested(:delete, %r{cfd_tunnel/tun-1$})
         assert_requested(:delete, %r{dns_records/dns-1})
@@ -94,7 +94,7 @@ module RbrunCore
         stub_hetzner_empty!
         @ctx.config.instance_variable_set(:@cloudflare_config, nil)
 
-        with_mocked_ssh { DestroySandbox.new(@ctx, logger: TestLogger.new).run }
+        with_mocked_ssh { DestroySandbox.new(@ctx).run }
 
         assert_not_requested(:get, /cfd_tunnel/)
       end

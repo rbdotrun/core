@@ -4,17 +4,19 @@ module RbrunCore
   module Commands
     class Deploy
       class SetupTunnel
+        include Stepable
+
         HTTP_NODE_PORT = 30_080
 
-        def initialize(ctx, logger: nil)
+        def initialize(ctx, on_step: nil)
           @ctx = ctx
-          @logger = logger
+          @on_step = on_step
         end
 
         def run
           return unless @ctx.cloudflare_configured?
 
-          log("tunnel_setup", "Setting up Cloudflare tunnel")
+          report_step(Step::Id::SETUP_TUNNEL, Step::IN_PROGRESS)
 
           cf_client = @ctx.cloudflare_client
           tunnel = cf_client.find_or_create_tunnel(@ctx.prefix)
@@ -25,6 +27,8 @@ module RbrunCore
           cf_client.configure_tunnel_ingress(tunnel[:id], ingress_rules)
 
           create_tunnel_dns_records!(tunnel[:id])
+
+          report_step(Step::Id::SETUP_TUNNEL, Step::DONE)
         end
 
         private
@@ -84,10 +88,6 @@ module RbrunCore
 
               cf_client.ensure_dns_record(zone_id, "#{subdomain}.#{@ctx.zone}", tunnel_id)
             end
-          end
-
-          def log(category, message = nil)
-            @logger&.log(category, message)
           end
       end
     end

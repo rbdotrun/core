@@ -19,7 +19,7 @@ module RbrunCore
 
           cmds = with_capturing_ssh do
             Clients::CloudflareR2.stub(:new, mock_r2_client) do
-              DeployManifests.new(@ctx, logger: TestLogger.new).run
+              DeployManifests.new(@ctx).run
             end
           end
 
@@ -34,7 +34,7 @@ module RbrunCore
 
           cmds = with_capturing_ssh do
             Clients::CloudflareR2.stub(:new, mock_r2_client) do
-              DeployManifests.new(@ctx, logger: TestLogger.new).run
+              DeployManifests.new(@ctx).run
             end
           end
 
@@ -61,7 +61,7 @@ module RbrunCore
           stub_cloudflare_token_verify
           with_capturing_ssh do
             Clients::CloudflareR2.stub(:new, mock_client) do
-              DeployManifests.new(staging_ctx, logger: TestLogger.new).run
+              DeployManifests.new(staging_ctx).run
             end
           end
 

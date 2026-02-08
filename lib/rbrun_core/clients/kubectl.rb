@@ -30,8 +30,10 @@ module RbrunCore
         JSON.parse(result[:output])
       end
 
-      def logs(deployment, tail: 100, namespace: "default")
-        run!("kubectl logs deployment/#{deployment} -n #{namespace} --tail=#{tail}")
+      def logs(deployment, tail: 100, namespace: "default", follow: false, &block)
+        cmd = "kubectl logs deployment/#{deployment} -n #{namespace} --tail=#{tail}"
+        cmd += " -f --all-containers" if follow
+        run!(cmd, &block)
       end
 
       def scale(deployment, replicas:, namespace: "default")
@@ -74,11 +76,11 @@ module RbrunCore
         }
       end
 
-      def exec(deployment, command, namespace: "default")
+      def exec(deployment, command, namespace: "default", &block)
         pod = get_pod_name(deployment, namespace:)
         raise Error::Standard, "No running pod found for #{deployment}" unless pod
 
-        run!("kubectl exec #{pod} -n #{namespace} -- #{command}")
+        run!("kubectl exec #{pod} -n #{namespace} -- #{command}", &block)
       end
 
       def get_pod_name(deployment, namespace: "default")
@@ -142,8 +144,8 @@ module RbrunCore
 
       private
 
-        def run!(command, raise_on_error: true, timeout: 300)
-          ssh_client.execute(command, raise_on_error:, timeout:)
+        def run!(command, raise_on_error: true, timeout: 300, &block)
+          ssh_client.execute(command, raise_on_error:, timeout:, &block)
         end
     end
   end

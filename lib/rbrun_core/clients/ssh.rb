@@ -1,16 +1,15 @@
 # frozen_string_literal: true
 
-require "sshkit"
+require "net/ssh"
+require "net/scp"
 require "shellwords"
-require "base64"
 require "stringio"
-require "socket"
-require "tempfile"
+require "concurrent/atomic/count_down_latch"
 
 module RbrunCore
   module Clients
     # SSH utility for remote command execution and file transfers.
-    # Wraps SSHKit while maintaining the original API.
+    # Uses Net::SSH directly for streaming support.
     class Ssh
       class Error < StandardError; end
       class AuthenticationError < Error; end
@@ -34,43 +33,50 @@ module RbrunCore
         @user = user
         @port = port
         @strict_mode = strict_host_key_checking
-
-        @sshkit_host = SSHKit::Host.new("#{@user}@#{@host}:#{@port}").tap do |h|
-          h.ssh_options = ssh_options
-        end
       end
 
       # Execute a command on the remote server.
-      def execute(command, cwd: nil, timeout: nil, raise_on_error: true, &block)
+      def execute(command, cwd: nil, timeout: nil, raise_on_error: true)
         full_command = build_command(command, cwd:)
         output = String.new
         exit_code = nil
+        line_buffer = String.new
 
-        with_backend(timeout:) do |backend|
-          # Use capture to get output, but we need to handle exit codes
-          begin
-            result = backend.capture(full_command, verbosity: :debug, strip: false)
-            output = result.to_s
-            exit_code = 0
+        with_connection(timeout:) do |ssh|
+          channel = ssh.open_channel do |ch|
+            ch.exec(full_command) do |_, success|
+              raise ConnectionError, "Failed to execute command" unless success
 
-            yield_lines(output, &block) if block_given?
-          rescue SSHKit::Command::Failed => e
-            # SSHKit wraps the command, extract exit code from it
-            exit_code = e.cause.is_a?(SSHKit::Command) ? e.cause.exit_status : 1
-            output = e.message
-            yield_lines(output, &block) if block_given?
+              handle_data = ->(data) do
+                if block_given?
+                  line_buffer << data
+                  while (idx = line_buffer.index("\n"))
+                    yield line_buffer.slice!(0..idx).chomp
+                  end
+                else
+                  output << data
+                end
+              end
 
-            if raise_on_error
-              raise CommandError.new(
-                "Command failed (exit code: #{exit_code}): #{command}",
-                exit_code:,
-                output: output.strip
-              )
+              ch.on_data { |_, data| handle_data.call(data) }
+              ch.on_extended_data { |_, _, data| handle_data.call(data) }
+              ch.on_request("exit-status") { |_, data| exit_code = data.read_long }
             end
           end
+          channel.wait
+          yield line_buffer.chomp if block_given? && !line_buffer.empty?
         end
 
-        { output: output.strip, exit_code: exit_code || 0 }
+        exit_code ||= 0
+        if raise_on_error && exit_code != 0
+          raise CommandError.new(
+            "Command failed (exit code: #{exit_code}): #{command}",
+            exit_code:,
+            output: output.strip
+          )
+        end
+
+        { output: output.strip, exit_code: }
       end
 
       # Execute a command with retry on ConnectionError.
@@ -80,18 +86,11 @@ module RbrunCore
         end
       end
 
-      # Execute a command, ignoring errors.
-      def execute_ignore_errors(command, cwd: nil)
-        execute(command, cwd:, raise_on_error: false)
-      rescue Error
-        nil
-      end
-
       # Check if SSH connection is available.
       def available?(timeout: 10)
-        with_backend(timeout:) do |backend|
-          result = backend.capture("echo ok", verbosity: :debug)
-          result.strip == "ok"
+        with_connection(timeout:) do |ssh|
+          result = ssh.exec!("echo ok")
+          result.to_s.strip == "ok"
         end
       rescue Error, Errno::ECONNREFUSED, Errno::EHOSTUNREACH, SocketError
         false
@@ -107,30 +106,22 @@ module RbrunCore
 
       # Upload a file to the remote server.
       def upload(local_path, remote_path)
-        with_backend do |backend|
-          backend.upload!(local_path, remote_path)
-        end
-        true
-      end
-
-      # Upload content directly to a remote file.
-      def upload_content(content, remote_path, mode: "0644")
-        with_backend do |backend|
-          dir = File.dirname(remote_path)
-          backend.execute(:mkdir, "-p", dir)
-
-          # Upload via StringIO
-          io = StringIO.new(content)
-          backend.upload!(io, remote_path)
-          backend.execute(:chmod, mode, remote_path)
-        end
+        with_connection { |ssh| ssh.scp.upload!(local_path, remote_path) }
         true
       end
 
       # Download a file from the remote server.
       def download(remote_path, local_path)
-        with_backend do |backend|
-          backend.download!(remote_path, local_path)
+        with_connection { |ssh| ssh.scp.download!(remote_path, local_path) }
+        true
+      end
+
+      # Upload content directly to a remote file.
+      def upload_content(content, remote_path, mode: "0644")
+        with_connection do |ssh|
+          ssh.exec!("mkdir -p #{Shellwords.escape(File.dirname(remote_path))}")
+          ssh.scp.upload!(StringIO.new(content), remote_path)
+          ssh.exec!("chmod #{mode} #{Shellwords.escape(remote_path)}")
         end
         true
       end
@@ -141,34 +132,31 @@ module RbrunCore
         result[:exit_code].zero? ? result[:output] : nil
       end
 
-      # Write content to a remote file.
-      def write_file(remote_path, content, append: false)
-        upload_content(content, remote_path)
-      end
-
       # Establish an SSH local port forward and yield while the tunnel is active.
+      # Follows Kamal's pattern for SSH tunneling.
       def with_local_forward(local_port:, remote_host:, remote_port:)
-        with_key_file do |key_path|
-          ssh_cmd = [
-            "ssh", "-N", "-n",
-            "-L", "#{local_port}:#{remote_host}:#{remote_port}",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "LogLevel=ERROR",
-            "-i", key_path,
-            "-p", @port.to_s,
-            "#{@user}@#{@host}"
-          ]
+        ready = Concurrent::CountDownLatch.new(1)
+        @forward_done = false
 
-          pid = Process.spawn(*ssh_cmd, in: File::NULL, out: File::NULL, err: File::NULL, pgroup: true)
-          wait_for_port!(local_port)
+        thread = Thread.new do
+          Net::SSH.start(@host, @user, **ssh_options.merge(port: @port)) do |ssh|
+            ssh.forward.local(local_port, remote_host, remote_port)
+            ready.count_down
 
-          begin
-            yield
-          ensure
-            Process.kill("TERM", -pid) rescue nil
-            Process.wait(pid) rescue nil
+            ssh.loop(0.1) { !@forward_done }
           end
+        rescue
+          ready.count_down # unblock even on error
+          raise
+        end
+
+        raise ConnectionError, "SSH tunnel not ready after 30s" unless ready.wait(30)
+
+        begin
+          yield
+        ensure
+          @forward_done = true
+          thread.join(5)
         end
       end
 
@@ -182,12 +170,6 @@ module RbrunCore
           end
         end
 
-        def yield_lines(data)
-          data.to_s.each_line do |line|
-            yield line.chomp
-          end
-        end
-
         def ssh_options
           {
             keys_only: true,
@@ -198,49 +180,15 @@ module RbrunCore
           }
         end
 
-        def with_key_file
-          file = Tempfile.new("ssh_key", mode: 0o600)
-          file.write(@private_key)
-          file.close
-          yield file.path
-        ensure
-          file&.unlink
-        end
-
-        def wait_for_port!(port, timeout: 30)
-          Waiter.poll(max_attempts: timeout, interval: 1, message: "SSH tunnel not ready after #{timeout}s") do
-            port_open?(port)
-          end
-        end
-
-        def port_open?(port)
-          Socket.tcp("127.0.0.1", port, connect_timeout: 1) { true }
-        rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT
-          false
-        end
-
-        def with_backend(timeout: nil)
-          # Create a backend with custom timeout if specified
-          backend = SSHKit::Backend::Netssh.new(@sshkit_host)
-
-          if timeout
-            original_options = @sshkit_host.ssh_options.dup
-            @sshkit_host.ssh_options = original_options.merge(timeout:)
-          end
-
-          yield backend
+        def with_connection(timeout: nil)
+          options = ssh_options.merge(port: @port)
+          options[:timeout] = timeout if timeout
+          Net::SSH.start(@host, @user, **options) { |ssh| yield ssh }
         rescue Net::SSH::AuthenticationFailed => e
-          raise AuthenticationError, "SSH authentication failed for #{@user}@#{@host}: #{e.message}"
-        rescue Net::SSH::ConnectionTimeout => e
-          raise ConnectionError, "SSH connection timeout to #{@host}: #{e.message}"
-        rescue Errno::ECONNREFUSED => e
-          raise ConnectionError, "SSH connection refused by #{@host}: #{e.message}"
-        rescue Errno::EHOSTUNREACH => e
-          raise ConnectionError, "Host unreachable: #{@host}: #{e.message}"
-        rescue SocketError => e
-          raise ConnectionError, "Socket error connecting to #{@host}: #{e.message}"
-        ensure
-          @sshkit_host.ssh_options = original_options if timeout && original_options
+          raise AuthenticationError, "SSH auth failed: #{e.message}"
+        rescue Net::SSH::ConnectionTimeout, Net::SSH::Disconnect,
+               Errno::ECONNREFUSED, Errno::EHOSTUNREACH, SocketError, IOError => e
+          raise ConnectionError, "SSH connection failed: #{e.message}"
         end
     end
   end

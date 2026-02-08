@@ -7,35 +7,34 @@ module RbrunCore
     class Deploy
       # Cleans up old local Docker images, keeping the N most recent.
       class CleanupImages
+        include Stepable
+
         KEEP_IMAGES = 3
 
-        def initialize(ctx, logger: nil)
+        def initialize(ctx, on_step: nil)
           @ctx = ctx
-          @logger = logger
+          @on_step = on_step
         end
 
         def run
-          log("cleanup_images", "Cleaning up old local images")
+          report_step(Step::Id::CLEANUP_IMAGES, Step::IN_PROGRESS)
+
           prefix = @ctx.prefix
 
           output, _status = Open3.capture2("docker", "images", prefix, "--format", "{{.Tag}}")
-          return if output.nil? || output.empty?
+          if output && !output.empty?
+            tags = output.each_line
+              .map(&:strip)
+              .reject { |t| [ "latest", "<none>" ].include?(t) }
+              .sort
+              .reverse
+              .drop(KEEP_IMAGES)
 
-          tags = output.each_line
-            .map(&:strip)
-            .reject { |t| [ "latest", "<none>" ].include?(t) }
-            .sort
-            .reverse
-            .drop(KEEP_IMAGES)
-
-          tags.each { |tag| system("docker", "rmi", "#{prefix}:#{tag}") }
-        end
-
-        private
-
-          def log(category, message = nil)
-            @logger&.log(category, message)
+            tags.each { |tag| system("docker", "rmi", "#{prefix}:#{tag}") }
           end
+
+          report_step(Step::Id::CLEANUP_IMAGES, Step::DONE)
+        end
       end
     end
   end
