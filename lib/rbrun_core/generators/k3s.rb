@@ -438,10 +438,9 @@ module RbrunCore
         end
 
         # Registry with S3 storage driver for R2.
-        # CHUNKSIZE set to 32MB to fix R2 multipart upload error:
+        # Uses registry:3.0 which fixes R2 multipart upload error:
         # "InvalidPart: All non-trailing parts must have the same length"
-        # R2 requires consistent part sizes; default variable chunking fails.
-        # 32MB balances R2 compatibility with memory usage (512Mi limit).
+        # See: https://github.com/distribution/distribution/pull/3940
         def registry_manifest
           return nil unless @r2_credentials
 
@@ -473,7 +472,7 @@ module RbrunCore
                     nodeSelector: { Naming::LABEL_SERVER_GROUP => Naming::MASTER_GROUP },
                     containers: [ {
                       name: "registry",
-                      image: "registry:2",
+                      image: "registry:3.0",
                       ports: [ { containerPort: 5000 } ],
                       envFrom: [ { secretRef: { name: "registry-s3-secret" } } ],
                       resources: {
