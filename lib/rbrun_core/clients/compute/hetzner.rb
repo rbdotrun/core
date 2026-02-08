@@ -256,8 +256,8 @@ module RbrunCore
 
         def wait_for_device_path(volume_id, _ssh_client)
           Waiter.poll(max_attempts: 30, interval: 2, message: "Volume device path not available") do
-            volume = get("/volumes/#{volume_id.to_i}")["volume"]
-            device = volume&.dig("linux_device")
+            response = get("/volumes/#{volume_id.to_i}")
+            device = response.dig("volume", "linux_device")
             device unless device.nil? || device.empty?
           end
         end
@@ -331,7 +331,8 @@ module RbrunCore
           end
 
           def fetch_server_for_deletion(server_id)
-            get("/servers/#{server_id}")["server"]
+            response = get("/servers/#{server_id}")
+            response["server"]
           rescue Error::Api => e
             raise unless e.not_found?
 
@@ -339,13 +340,16 @@ module RbrunCore
           end
 
           def detach_server_from_firewalls(server_id)
-            get("/firewalls")["firewalls"].each do |fw|
-              detach_firewall_if_applied(fw, server_id)
-            end
+            response = get("/firewalls")
+            firewalls = response["firewalls"]
+            firewalls.each { |fw| detach_firewall_if_applied(fw, server_id) }
           end
 
           def detach_firewall_if_applied(firewall, server_id)
-            firewall["applied_to"]&.each do |applied|
+            applied_to = firewall["applied_to"]
+            return unless applied_to
+
+            applied_to.each do |applied|
               next unless applied["type"] == "server" && applied.dig("server", "id") == server_id
 
               response = remove_firewall_from_server(firewall["id"], server_id)
@@ -356,9 +360,10 @@ module RbrunCore
           end
 
           def detach_server_from_networks(server, server_id)
-            server["private_net"]&.each do |pn|
-              detach_from_network_safely(server_id, pn["network"])
-            end
+            private_nets = server["private_net"]
+            return unless private_nets
+
+            private_nets.each { |pn| detach_from_network_safely(server_id, pn["network"]) }
           end
 
           def detach_from_network_safely(server_id, network_id)

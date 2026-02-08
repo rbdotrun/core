@@ -81,15 +81,25 @@ module RbrunCore
             domain = @ctx.config.cloudflare_config.domain
             origins = []
 
-            @ctx.config.app_config&.processes&.each do |_name, process|
+            collect_process_origins(origins, domain)
+            collect_service_origins(origins, domain)
+
+            origins.uniq
+          end
+
+          def collect_process_origins(origins, domain)
+            processes = @ctx.config.app_config&.processes
+            return unless processes
+
+            processes.each do |_name, process|
               origins << "https://#{process.subdomain}.#{domain}" if process.subdomain
             end
+          end
 
+          def collect_service_origins(origins, domain)
             @ctx.config.service_configs.each do |_name, service|
               origins << "https://#{service.subdomain}.#{domain}" if service.subdomain
             end
-
-            origins.uniq
           end
 
           def resolve_db_password

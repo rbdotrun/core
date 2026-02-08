@@ -124,7 +124,8 @@ module RbrunCore
         end
 
         def list_private_nics(server_id)
-          get(instance_path("/servers/#{server_id}/private_nics"))["private_nics"] || []
+          response = get(instance_path("/servers/#{server_id}/private_nics"))
+          response["private_nics"] || []
         end
 
         def delete_private_nic(server_id, nic_id)
@@ -160,11 +161,7 @@ module RbrunCore
           sg = to_firewall(response["security_group"])
 
           add_ssh_rule(sg.id)
-
-          rules&.each do |rule|
-            add_security_group_rule(sg.id, rule)
-          end
-
+          rules.each { |rule| add_security_group_rule(sg.id, rule) } if rules
           sg
         end
 
@@ -253,7 +250,8 @@ module RbrunCore
         end
 
         def attach_volume(volume_id:, server_id:)
-          server = get(instance_path("/servers/#{server_id}"))["server"]
+          response = get(instance_path("/servers/#{server_id}"))
+          server = response["server"]
           raise Error::Standard, "Server not found: #{server_id}" unless server
 
           wait_for_volume_available(volume_id)
@@ -270,14 +268,16 @@ module RbrunCore
 
         def detach_volume(volume_id:)
           response = get(instance_path("/servers"), project: @project_id)
-          response["servers"]&.each do |server|
+          servers = response["servers"]
+          return unless servers
+
+          servers.each do |server|
             volumes = server["volumes"] || {}
             volumes.each do |idx, vol|
               next unless vol["id"] == volume_id
 
               new_volumes = volumes.reject { |k, _| k == idx }
               patch(instance_path("/servers/#{server["id"]}"), { volumes: new_volumes })
-              # Wait for volume to be detached
               wait_for_volume_available(volume_id)
               return
             end

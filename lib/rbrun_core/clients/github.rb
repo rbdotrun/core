@@ -16,9 +16,7 @@ module RbrunCore
         get(
           "/user/repos",
           {
-            sort:,
-            per_page:,
-            page:,
+            sort:, per_page:, page:,
             visibility: "all",
             affiliation: "owner,collaborator,organization_member"
           }
@@ -31,7 +29,10 @@ module RbrunCore
       end
 
       def username
-        @username ||= get("/user")["login"]
+        @username ||= begin
+          response = get("/user")
+          response["login"]
+        end
       end
 
       def get_repo(owner:, repo:)

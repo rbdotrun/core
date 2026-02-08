@@ -18,20 +18,25 @@ module RbrunCore
 
         def generate_services
           services = {}
-
-          @config.app_config&.processes&.each do |name, process|
-            services[name.to_s] = app_service(name, process)
-          end
-
-          @config.database_configs.each do |type, db_config|
-            services[type.to_s] = database_service(type, db_config)
-          end
-
-          @config.service_configs.each do |name, service_config|
-            services[name.to_s] = service_service(name, service_config)
-          end
-
+          add_app_services(services)
+          add_database_services(services)
+          add_service_services(services)
           services
+        end
+
+        def add_app_services(services)
+          processes = @config.app_config&.processes
+          return unless processes
+
+          processes.each { |name, process| services[name.to_s] = app_service(name, process) }
+        end
+
+        def add_database_services(services)
+          @config.database_configs.each { |type, db_config| services[type.to_s] = database_service(type, db_config) }
+        end
+
+        def add_service_services(services)
+          @config.service_configs.each { |name, svc_config| services[name.to_s] = service_service(name, svc_config) }
         end
 
         def app_service(_name, process)

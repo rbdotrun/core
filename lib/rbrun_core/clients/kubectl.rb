@@ -58,7 +58,8 @@ module RbrunCore
         result = run!(cmd.join(" "), raise_on_error: false)
         return [] unless result[:exit_code].zero?
 
-        items = JSON.parse(result[:output])["items"] || []
+        data = JSON.parse(result[:output])
+        items = data["items"] || []
         items.map { |pod| parse_pod(pod) }
       end
 

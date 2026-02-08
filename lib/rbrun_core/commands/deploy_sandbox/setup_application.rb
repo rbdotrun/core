@@ -138,7 +138,10 @@ module RbrunCore
           end
 
           def run_setup_commands!
-            @ctx.config.app_config&.processes&.each do |name, process|
+            processes = @ctx.config.app_config&.processes
+            return unless processes
+
+            processes.each do |name, process|
               process.setup.each do |cmd|
                 next if cmd.nil? || cmd.empty?
 

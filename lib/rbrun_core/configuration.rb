@@ -119,6 +119,7 @@ module RbrunCore
       @cloudflare_config&.validate!
       validate_cloudflare_required!
       validate_replicas!
+      nil
     end
 
     def validate_sandbox_mode!
@@ -130,7 +131,9 @@ module RbrunCore
         end
       end
 
-      @app_config&.processes&.each do |name, proc|
+      return unless @app_config&.processes
+
+      @app_config.processes.each do |name, proc|
         if proc.runs_on
           raise Error::Configuration, "runs_on is not supported in sandbox mode (process: #{name})"
         end
@@ -148,15 +151,18 @@ module RbrunCore
     private
 
       def validate_replicas!
-        @app_config&.processes&.each do |name, p|
+        return unless @app_config&.processes
+
+        @app_config.processes.each do |name, p|
           next unless p.subdomain && !p.subdomain.empty?
 
           if p.replicas < 2
-            raise Error::Configuration,
-                  "Process #{name} has a subdomain and requires at least 2 replicas for zero-downtime deploys"
+            raise(
+              Error::Configuration,
+              "Process #{name} has a subdomain and requires at least 2 replicas for zero-downtime deploys"
+            )
           end
         end
-        nil
       end
 
       def validate_cloudflare_required!
@@ -167,8 +173,10 @@ module RbrunCore
         return unless has_subdomain
 
         unless cloudflare_configured?
-          raise Error::Configuration,
-                "Cloudflare configuration required when processes or services have subdomains"
+          raise(
+            Error::Configuration,
+            "Cloudflare configuration required when processes or services have subdomains"
+          )
         end
       end
   end

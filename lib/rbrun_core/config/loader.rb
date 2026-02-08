@@ -169,19 +169,22 @@ module RbrunCore
           def apply_app!(config, app_data)
             config.app do |a|
               a.dockerfile = app_data["dockerfile"] if app_data["dockerfile"]
+              apply_processes!(a, app_data["processes"])
+            end
+          end
 
-              app_data["processes"]&.each do |name_str, proc_data|
-                a.process(name_str) do |p|
-                  p.command = proc_data["command"] if proc_data["command"]
-                  p.port = proc_data["port"] if proc_data["port"]
-                  p.subdomain = proc_data["subdomain"] if proc_data["subdomain"]
-                  p.replicas = proc_data["replicas"] if proc_data["replicas"]
-                  p.env = proc_data["env"] if proc_data["env"]
-                  p.setup = proc_data["setup"] || []
-                  if proc_data["runs_on"]
-                    p.runs_on = Array(proc_data["runs_on"]).map(&:to_sym)
-                  end
-                end
+          def apply_processes!(app, processes_data)
+            return unless processes_data
+
+            processes_data.each do |name_str, proc_data|
+              app.process(name_str) do |p|
+                p.command = proc_data["command"] if proc_data["command"]
+                p.port = proc_data["port"] if proc_data["port"]
+                p.subdomain = proc_data["subdomain"] if proc_data["subdomain"]
+                p.replicas = proc_data["replicas"] if proc_data["replicas"]
+                p.env = proc_data["env"] if proc_data["env"]
+                p.setup = proc_data["setup"] || []
+                p.runs_on = Array(proc_data["runs_on"]).map(&:to_sym) if proc_data["runs_on"]
               end
             end
           end
@@ -191,35 +194,26 @@ module RbrunCore
           end
 
           def validate_runs_on!(config)
-            # Sandbox mode cannot use runs_on - sandboxes are single-server by design
             if config.target == :sandbox
-              config.service_configs.each do |name, svc|
-                if svc.runs_on
-                  raise Error::Configuration, "runs_on is not supported in sandbox mode (service: #{name})"
-                end
-              end
-
-              config.app_config&.processes&.each do |name, proc|
-                if proc.runs_on
-                  raise Error::Configuration, "runs_on is not supported in sandbox mode (process: #{name})"
-                end
-              end
+              validate_no_runs_on!(config, "runs_on is not supported in sandbox mode")
               return
             end
 
-            # runs_on is only valid with additional server groups
             return if config.compute_config&.respond_to?(:multi_server?) && config.compute_config.multi_server?
 
+            validate_no_runs_on!(config, "runs_on is only valid with multi-server mode")
+          end
+
+          def validate_no_runs_on!(config, message_prefix)
             config.service_configs.each do |name, svc|
-              if svc.runs_on
-                raise Error::Configuration, "runs_on is only valid with multi-server mode (service: #{name})"
-              end
+              raise Error::Configuration, "#{message_prefix} (service: #{name})" if svc.runs_on
             end
 
-            config.app_config&.processes&.each do |name, proc|
-              if proc.runs_on
-                raise Error::Configuration, "runs_on is only valid with multi-server mode (process: #{name})"
-              end
+            processes = config.app_config&.processes
+            return unless processes
+
+            processes.each do |name, proc|
+              raise Error::Configuration, "#{message_prefix} (process: #{name})" if proc.runs_on
             end
           end
       end
