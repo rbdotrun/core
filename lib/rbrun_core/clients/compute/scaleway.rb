@@ -153,24 +153,13 @@ module RbrunCore
           existing = find_firewall(name)
           return existing if existing
 
-          response = post(instance_path("/security_groups"), {
-                            name:,
-                            project: @project_id,
-                            stateful: true,
-                            inbound_default_policy: "drop",
-                            outbound_default_policy: "accept"
-                          })
+          response = post(
+            instance_path("/security_groups"),
+            { name:, project: @project_id, stateful: true, inbound_default_policy: "drop", outbound_default_policy: "accept" }
+          )
           sg = to_firewall(response["security_group"])
 
-          # Add SSH rule
-          post(instance_path("/security_groups/#{sg.id}/rules"), {
-                 protocol: "TCP",
-                 direction: "inbound",
-                 action: "accept",
-                 ip_range: "0.0.0.0/0",
-                 dest_port_from: 22,
-                 dest_port_to: 22
-               })
+          add_ssh_rule(sg.id)
 
           rules&.each do |rule|
             add_security_group_rule(sg.id, rule)
@@ -203,10 +192,10 @@ module RbrunCore
           existing = find_network(name)
           return existing if existing
 
-          response = post(vpc_path("/private-networks"), {
-                            name:,
-                            project_id: @project_id
-                          })
+          response = post(
+            vpc_path("/private-networks"),
+            { name:, project_id: @project_id }
+          )
           to_network(response)
         end
 
@@ -238,12 +227,10 @@ module RbrunCore
         end
 
         def create_volume(name:, size:, labels: {})
-          response = post(block_path("/volumes"), {
-                            name:,
-                            perf_iops: 5000,
-                            from_empty: { size: size * 1_000_000_000 },
-                            project_id: @project_id
-                          })
+          response = post(
+            block_path("/volumes"),
+            { name:, perf_iops: 5000, from_empty: { size: size * 1_000_000_000 }, project_id: @project_id }
+          )
           to_volume(response)
         end
 
@@ -384,6 +371,13 @@ module RbrunCore
             labels.map { |k, v| "#{k}=#{v}" }
           end
 
+          def add_ssh_rule(sg_id)
+            post(
+              instance_path("/security_groups/#{sg_id}/rules"),
+              { protocol: "TCP", direction: "inbound", action: "accept", ip_range: "0.0.0.0/0", dest_port_from: 22, dest_port_to: 22 }
+            )
+          end
+
           def add_security_group_rule(sg_id, rule)
             direction = rule[:direction] == "in" ? "inbound" : "outbound"
             protocol = rule[:protocol]&.upcase || "TCP"
@@ -392,10 +386,10 @@ module RbrunCore
             raise Error::Standard, "source_ips required for firewall rule" if source_ips.nil? || source_ips.empty?
 
             source_ips.each do |ip_range|
-              post(instance_path("/security_groups/#{sg_id}/rules"), {
-                     direction:, protocol:, dest_port_from: port.to_i, dest_port_to: port.to_i,
-                     action: "accept", ip_range:
-                   })
+              post(
+                instance_path("/security_groups/#{sg_id}/rules"),
+                { direction:, protocol:, dest_port_from: port.to_i, dest_port_to: port.to_i, action: "accept", ip_range: }
+              )
             end
           end
 

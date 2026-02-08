@@ -133,9 +133,14 @@ module RbrunCore
         "#{app_name}-#{environment}-#{bucket_name}"
       end
 
-      # Database volume name.
+      # Database volume name for K8s.
       def database_volume(prefix, type)
         "#{prefix}-#{type}-data"
+      end
+
+      # Docker Compose volume name (local development).
+      def compose_volume(name)
+        "#{name}_data"
       end
 
       # Manual job name from cronjob (max 63 chars for k8s label).

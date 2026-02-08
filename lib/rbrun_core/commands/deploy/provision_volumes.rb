@@ -65,52 +65,79 @@ module RbrunCore
           end
 
           def mount_volume(server, volume, type)
-            ssh = Clients::Ssh.new(host: server.public_ipv4, private_key: @ctx.ssh_private_key,
-                                   user: Naming.default_user)
+            ssh = Clients::Ssh.new(
+              host: server.public_ipv4,
+              private_key: @ctx.ssh_private_key,
+              user: Naming.default_user
+            )
             device_path = compute_client.wait_for_device_path(volume.id, ssh)
 
             raise Error::Standard, "Volume #{volume.id} has no device path after attachment" unless device_path
 
             path = mount_path(type)
+            return if already_mounted?(ssh, path)
 
-            # Check if already mounted
-            result = ssh.execute("mountpoint -q #{path} && echo 'mounted' || echo 'not'", raise_on_error: false)
-            return if result[:output].strip == "mounted"
-
-            # Wait for device to be available
             wait_for_device(ssh, device_path)
+            create_mount_point(ssh, path)
+            format_device_if_needed(ssh, device_path)
+            mount_device(ssh, device_path, path)
+            add_to_fstab(ssh, device_path, path)
+            verify_mount(ssh, path)
+          end
 
-            # Create mount point
-            ssh.execute("sudo mkdir -p #{path}")
-
-            # Check if device has filesystem
-            result = ssh.execute("sudo blkid #{device_path} || true", raise_on_error: false)
-            if result[:output].empty? || !result[:output].include?("TYPE=")
-              ssh.execute("sudo mkfs.xfs #{device_path}")
-            end
-
-            # Mount
-            ssh.execute("sudo mount #{device_path} #{path}")
-
-            # Add to fstab for persistence
-            result = ssh.execute("grep '#{path}' /etc/fstab || true", raise_on_error: false)
-            if result[:output].empty?
-              ssh.execute(
-                "UUID=$(sudo blkid -s UUID -o value #{device_path}) && " \
-                "echo \"UUID=$UUID #{path} xfs defaults,nofail 0 2\" | sudo tee -a /etc/fstab"
-              )
-            end
-
-            # Verify mount
-            result = ssh.execute("mountpoint -q #{path} && echo 'mounted' || echo 'not'", raise_on_error: false)
-            raise Error::Standard, "Volume not mounted at #{path}" unless result[:output].strip == "mounted"
+          def already_mounted?(ssh, path)
+            cmd = [ "mountpoint", "-q", path, "&&", "echo", "'mounted'", "||", "echo", "'not'" ].join(" ")
+            result = ssh.execute(cmd, raise_on_error: false)
+            result[:output].strip == "mounted"
           end
 
           def wait_for_device(ssh, device_path)
             Waiter.poll(max_attempts: 30, interval: 2, message: "Device #{device_path} not available") do
-              result = ssh.execute("test -b #{device_path} && echo 'ready' || true", raise_on_error: false)
+              cmd = [ "test", "-b", device_path, "&&", "echo", "'ready'", "||", "true" ].join(" ")
+              result = ssh.execute(cmd, raise_on_error: false)
               result[:output].strip == "ready"
             end
+          end
+
+          def create_mount_point(ssh, path)
+            cmd = [ "sudo", "mkdir", "-p", path ].join(" ")
+            ssh.execute(cmd)
+          end
+
+          def format_device_if_needed(ssh, device_path)
+            cmd = [ "sudo", "blkid", device_path, "||", "true" ].join(" ")
+            result = ssh.execute(cmd, raise_on_error: false)
+
+            return if result[:output].include?("TYPE=")
+
+            format_cmd = [ "sudo", "mkfs.xfs", device_path ].join(" ")
+            ssh.execute(format_cmd)
+          end
+
+          def mount_device(ssh, device_path, path)
+            cmd = [ "sudo", "mount", device_path, path ].join(" ")
+            ssh.execute(cmd)
+          end
+
+          def add_to_fstab(ssh, device_path, path)
+            check_cmd = [ "grep", "'#{path}'", "/etc/fstab", "||", "true" ].join(" ")
+            result = ssh.execute(check_cmd, raise_on_error: false)
+            return unless result[:output].empty?
+
+            fstab_cmd = [
+              "UUID=$(sudo blkid -s UUID -o value #{device_path})",
+              "&&",
+              "echo \"UUID=$UUID #{path} xfs defaults,nofail 0 2\"",
+              "|",
+              "sudo tee -a /etc/fstab"
+            ].join(" ")
+            ssh.execute(fstab_cmd)
+          end
+
+          def verify_mount(ssh, path)
+            cmd = [ "mountpoint", "-q", path, "&&", "echo", "'mounted'", "||", "echo", "'not'" ].join(" ")
+            result = ssh.execute(cmd, raise_on_error: false)
+            raise Error::Standard, "Volume not mounted at #{path}" unless result[:output].strip == "mounted"
           end
 
           def mount_path(type)

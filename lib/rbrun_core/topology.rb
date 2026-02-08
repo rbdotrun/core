@@ -11,29 +11,14 @@ module RbrunCore
       data = @kubectl.get("nodes")
       return [] unless data
 
-      data["items"].map do |node|
-        {
-          name: node["metadata"]["name"],
-          labels: node["metadata"]["labels"] || {},
-          ready: node_ready?(node),
-          roles: extract_roles(node)
-        }
-      end
+      data["items"].map { |node| build_node_info(node) }
     end
 
     def pods(namespace: "default")
       data = @kubectl.get("pods", namespace:)
       return [] unless data
 
-      data["items"].map do |pod|
-        {
-          name: pod["metadata"]["name"],
-          node: pod["spec"]["nodeName"],
-          app: pod["metadata"]["labels"]&.dig(Naming::LABEL_APP),
-          phase: pod["status"]["phase"],
-          ready: pod_ready?(pod)
-        }
-      end
+      data["items"].map { |pod| build_pod_info(pod) }
     end
 
     def topology_hash(namespace: "default")
@@ -48,64 +33,57 @@ module RbrunCore
       JSON.pretty_generate(topology_hash(namespace:))
     end
 
-    # Validates expected placement
-    # expected: { "web" => ["app"], "worker" => ["worker"], "postgres" => ["db"] }
     def validate_placement!(expected, namespace: "default")
       current_pods = pods(namespace:)
-      errors = []
-
-      expected.each do |app_suffix, allowed_groups|
-        app_pods = current_pods.select { |p| p[:app]&.end_with?("-#{app_suffix}") }
-
-        app_pods.each do |pod|
-          node_name = pod[:node]
-          next unless node_name
-
-          # Extract group from node name (e.g., "prefix-app-1" => "app")
-          group = node_name.match(/-(\w+)-\d+$/)&.[](1)
-
-          unless allowed_groups.include?(group)
-            errors << "Pod #{pod[:name]} on node #{node_name} (group: #{group}), expected: #{allowed_groups.join(', ')}"
-          end
-        end
-      end
+      errors = collect_placement_errors(expected, current_pods)
 
       raise Error, "Placement validation failed:\n#{errors.join("\n")}" unless errors.empty?
     end
 
-    # Validates replica counts
-    # expected: { "web" => 2, "worker" => 2, "postgres" => 1 }
     def validate_replicas!(expected, namespace: "default")
       current_pods = pods(namespace:)
-      errors = []
-
-      expected.each do |app_suffix, count|
-        matching = current_pods.count { |p| p[:app]&.end_with?("-#{app_suffix}") && p[:ready] }
-
-        if matching != count
-          errors << "#{app_suffix}: expected #{count} ready pods, got #{matching}"
-        end
-      end
+      errors = collect_replica_errors(expected, current_pods)
 
       raise Error, "Replica validation failed:\n#{errors.join("\n")}" unless errors.empty?
     end
 
     private
 
+      def build_node_info(node)
+        {
+          name: node["metadata"]["name"],
+          labels: node["metadata"]["labels"] || {},
+          ready: node_ready?(node),
+          roles: extract_roles(node)
+        }
+      end
+
+      def build_pod_info(pod)
+        {
+          name: pod["metadata"]["name"],
+          node: pod["spec"]["nodeName"],
+          app: pod["metadata"]["labels"]&.dig(Naming::LABEL_APP),
+          phase: pod["status"]["phase"],
+          ready: pod_ready?(pod)
+        }
+      end
+
       def node_ready?(node)
-        node.dig("status", "conditions")&.any? { |c| c["type"] == "Ready" && c["status"] == "True" }
+        conditions = node.dig("status", "conditions") || []
+        conditions.any? { |c| c["type"] == "Ready" && c["status"] == "True" }
       end
 
       def pod_ready?(pod)
-        pod["status"]["phase"] == "Running" &&
-          pod.dig("status", "containerStatuses")&.all? { |c| c["ready"] }
+        return false unless pod["status"]["phase"] == "Running"
+
+        container_statuses = pod.dig("status", "containerStatuses") || []
+        container_statuses.all? { |c| c["ready"] }
       end
 
       def extract_roles(node)
-        (node.dig("metadata", "labels") || {})
-          .select { |k, _| k.start_with?("node-role.kubernetes.io/") }
-          .keys
-          .map { |k| k.sub("node-role.kubernetes.io/", "") }
+        labels = node.dig("metadata", "labels") || {}
+        role_labels = labels.keys.select { |k| k.start_with?("node-role.kubernetes.io/") }
+        role_labels.map { |k| k.delete_prefix("node-role.kubernetes.io/") }
       end
 
       def build_placement(namespace:)
@@ -113,10 +91,63 @@ module RbrunCore
         nodes_list = nodes
 
         nodes_list.each_with_object({}) do |node, hash|
-          hash[node[:name]] = pods_list
-            .select { |p| p[:node] == node[:name] }
-            .map { |p| { name: p[:name], app: p[:app], ready: p[:ready] } }
+          hash[node[:name]] = pods_on_node(pods_list, node[:name])
         end
+      end
+
+      def pods_on_node(pods_list, node_name)
+        pods_list
+          .select { |p| p[:node] == node_name }
+          .map { |p| { name: p[:name], app: p[:app], ready: p[:ready] } }
+      end
+
+      def collect_placement_errors(expected, current_pods)
+        errors = []
+
+        expected.each do |app_suffix, allowed_groups|
+          app_pods = pods_for_app(current_pods, app_suffix)
+          errors.concat(placement_errors_for_pods(app_pods, allowed_groups))
+        end
+
+        errors
+      end
+
+      def pods_for_app(pods_list, app_suffix)
+        pods_list.select { |p| p[:app]&.end_with?("-#{app_suffix}") }
+      end
+
+      def placement_errors_for_pods(app_pods, allowed_groups)
+        app_pods.filter_map do |pod|
+          placement_error_for_pod(pod, allowed_groups)
+        end
+      end
+
+      def placement_error_for_pod(pod, allowed_groups)
+        node_name = pod[:node]
+        return nil unless node_name
+
+        group = extract_node_group(node_name)
+        return nil if allowed_groups.include?(group)
+
+        "Pod #{pod[:name]} on node #{node_name} (group: #{group}), expected: #{allowed_groups.join(', ')}"
+      end
+
+      def extract_node_group(node_name)
+        match = node_name.match(/-(\w+)-\d+$/)
+        match&.[](1)
+      end
+
+      def collect_replica_errors(expected, current_pods)
+        expected.filter_map do |app_suffix, count|
+          replica_error_for_app(current_pods, app_suffix, count)
+        end
+      end
+
+      def replica_error_for_app(pods_list, app_suffix, expected_count)
+        actual_count = pods_list.count { |p| p[:app]&.end_with?("-#{app_suffix}") && p[:ready] }
+        return nil if actual_count == expected_count
+
+        "#{app_suffix}: expected #{expected_count} ready pods, got #{actual_count}"
       end
   end
 end

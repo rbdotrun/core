@@ -102,10 +102,13 @@ module RbrunCore
           def existing_db_password
             return nil unless @ctx.server_ip && @ctx.ssh_private_key
 
-            result = @ctx.ssh_client.execute(
-              "kubectl get secret #{@ctx.prefix}-postgres-secret -o jsonpath='{.data.DB_PASSWORD}' 2>/dev/null | base64 -d",
-              raise_on_error: false
-            )
+            cmd = [
+              "kubectl", "get", "secret", "#{@ctx.prefix}-postgres-secret",
+              "-o", "jsonpath='{.data.DB_PASSWORD}'",
+              "2>/dev/null", "|", "base64", "-d"
+            ].join(" ")
+
+            result = @ctx.ssh_client.execute(cmd, raise_on_error: false)
             pw = result[:output].strip
             pw.empty? ? nil : pw
           rescue Clients::Ssh::Error

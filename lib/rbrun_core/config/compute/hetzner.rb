@@ -29,16 +29,13 @@ module RbrunCore
         end
 
         def ssh_keys_configured?
-          @ssh_key_path && !@ssh_key_path.empty? && File.exist?(File.expand_path(@ssh_key_path))
+          ssh_key_path_present? && private_key_exists?
         end
 
         def read_ssh_keys
           return nil unless ssh_keys_configured?
 
-          private_key_path = File.expand_path(@ssh_key_path)
-          public_key_path = "#{private_key_path}.pub"
-
-          raise Error::Configuration, "SSH public key not found: #{public_key_path}" unless File.exist?(public_key_path)
+          validate_public_key_exists!
 
           {
             private_key: File.read(private_key_path),
@@ -55,33 +52,76 @@ module RbrunCore
         end
 
         def validate!
-          if @root_volume_size_set
-            raise Error::Configuration, "root_volume_size is not supported for Hetzner"
-          end
-          raise Error::Configuration, "compute.api_key is required for Hetzner" if api_key.nil? || api_key.empty?
-          raise Error::Configuration, "compute.ssh_key_path is required" if ssh_key_path.nil? || ssh_key_path.empty?
-
-          unless File.exist?(File.expand_path(ssh_key_path))
-            raise Error::Configuration,
-                  "SSH private key not found: #{ssh_key_path}"
-          end
-          return if File.exist?(File.expand_path("#{ssh_key_path}.pub"))
-
-          raise Error::Configuration,
-                "SSH public key not found: #{ssh_key_path}.pub"
+          validate_no_root_volume_size!
+          validate_api_key!
+          validate_ssh_key_path!
+          validate_private_key_exists!
+          validate_public_key_exists!
         end
 
         def ssh_private_key
-          File.read(File.expand_path(ssh_key_path))
+          File.read(private_key_path)
         end
 
         def ssh_public_key
-          File.read(File.expand_path("#{ssh_key_path}.pub")).strip
+          File.read(public_key_path).strip
         end
 
         def client
           @client ||= Clients::Compute::Hetzner.new(api_key: @api_key)
         end
+
+        private
+
+          def validate_no_root_volume_size!
+            return unless @root_volume_size_set
+
+            raise Error::Configuration, "root_volume_size is not supported for Hetzner"
+          end
+
+          def validate_api_key!
+            return if api_key && !api_key.empty?
+
+            raise Error::Configuration, "compute.api_key is required for Hetzner"
+          end
+
+          def validate_ssh_key_path!
+            return if ssh_key_path_present?
+
+            raise Error::Configuration, "compute.ssh_key_path is required"
+          end
+
+          def validate_private_key_exists!
+            return if private_key_exists?
+
+            raise Error::Configuration, "SSH private key not found: #{ssh_key_path}"
+          end
+
+          def validate_public_key_exists!
+            return if public_key_exists?
+
+            raise Error::Configuration, "SSH public key not found: #{ssh_key_path}.pub"
+          end
+
+          def ssh_key_path_present?
+            ssh_key_path && !ssh_key_path.empty?
+          end
+
+          def private_key_exists?
+            File.exist?(private_key_path)
+          end
+
+          def public_key_exists?
+            File.exist?(public_key_path)
+          end
+
+          def private_key_path
+            File.expand_path(ssh_key_path)
+          end
+
+          def public_key_path
+            "#{private_key_path}.pub"
+          end
       end
     end
   end

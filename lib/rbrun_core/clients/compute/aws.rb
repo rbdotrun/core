@@ -70,13 +70,7 @@ module RbrunCore
         end
 
         def find_server(name)
-          response = @ec2.describe_instances(
-            filters: [
-              { name: "tag:Name", values: [ name ] },
-              { name: "instance-state-name", values: %w[pending running stopping stopped] }
-            ]
-          )
-
+          response = @ec2.describe_instances(filters: server_name_filter(name))
           instance = response.reservations.flat_map(&:instances).first
           instance ? to_server(instance) : nil
         end
@@ -90,13 +84,7 @@ module RbrunCore
         end
 
         def list_servers(label_selector: nil)
-          filters = [ { name: "instance-state-name", values: %w[pending running stopping stopped] } ]
-
-          if label_selector
-            key, value = label_selector.split("=")
-            filters << { name: "tag:#{key}", values: [ value ] }
-          end
-
+          filters = build_server_list_filters(label_selector)
           response = @ec2.describe_instances(filters:)
           response.reservations.flat_map(&:instances).map { |i| to_server(i) }
         end
@@ -124,41 +112,18 @@ module RbrunCore
 
         # Firewall methods (Security Groups)
         def find_or_create_firewall(name, rules: nil)
-          # Ensure VPC exists with same name - AWS security groups are VPC-bound
           vpc = find_or_create_network(name, location: @region)
-
           existing = find_firewall(name, vpc_id: vpc.id)
           return existing if existing
 
-          response = @ec2.create_security_group(
-            group_name: name,
-            description: "Security group for #{name}",
-            vpc_id: vpc.id
-          )
-          sg_id = response.group_id
-
-          rules ||= [
-            { direction: "in", protocol: "tcp", port: "22", source_ips: [ "0.0.0.0/0" ] }
-          ]
-
-          rules.each do |rule|
-            add_ingress_rule(sg_id, rule)
-          end
-
-          find_firewall_by_id(sg_id)
+          create_security_group(name, vpc.id, rules || default_firewall_rules)
         end
 
         def find_firewall(name, vpc_id: nil)
           vpc_id ||= find_network(name)&.id
           return nil unless vpc_id
 
-          response = @ec2.describe_security_groups(
-            filters: [
-              { name: "group-name", values: [ name ] },
-              { name: "vpc-id", values: [ vpc_id ] }
-            ]
-          )
-
+          response = @ec2.describe_security_groups(filters: firewall_filters(name, vpc_id))
           sg = response.security_groups.first
           sg ? to_firewall(sg) : nil
         end
@@ -182,73 +147,24 @@ module RbrunCore
           existing = find_network(name)
           return existing if existing
 
-          vpc = @ec2.create_vpc(cidr_block: VPC_CIDR)
-          vpc_id = vpc.vpc.vpc_id
-          tag_resource(vpc_id, name)
-
-          @ec2.modify_vpc_attribute(vpc_id:, enable_dns_hostnames: { value: true })
-          @ec2.modify_vpc_attribute(vpc_id:, enable_dns_support: { value: true })
-
-          az = "#{@region}a"
-          subnet = @ec2.create_subnet(vpc_id:, cidr_block: SUBNET_CIDR, availability_zone: az)
-          subnet_id = subnet.subnet.subnet_id
-          tag_resource(subnet_id, "#{name}-subnet")
-
-          @ec2.modify_subnet_attribute(subnet_id:, map_public_ip_on_launch: { value: true })
-
-          igw = @ec2.create_internet_gateway
-          igw_id = igw.internet_gateway.internet_gateway_id
-          tag_resource(igw_id, "#{name}-igw")
-          @ec2.attach_internet_gateway(internet_gateway_id: igw_id, vpc_id:)
-
-          route_tables = @ec2.describe_route_tables(filters: [ { name: "vpc-id", values: [ vpc_id ] } ])
-          rtb_id = route_tables.route_tables.first.route_table_id
-          tag_resource(rtb_id, "#{name}-rtb")
-
-          @ec2.create_route(route_table_id: rtb_id, destination_cidr_block: "0.0.0.0/0", gateway_id: igw_id)
-          @ec2.associate_route_table(route_table_id: rtb_id, subnet_id:)
+          vpc_id = create_vpc(name)
+          subnet_id = create_subnet(vpc_id, name)
+          igw_id = create_internet_gateway(vpc_id, name)
+          setup_route_table(vpc_id, subnet_id, igw_id, name)
 
           find_network(name)
         end
 
         def find_network(name)
-          response = @ec2.describe_vpcs(
-            filters: [ { name: "tag:Name", values: [ name ] } ]
-          )
-
+          response = @ec2.describe_vpcs(filters: [ { name: "tag:Name", values: [ name ] } ])
           vpc = response.vpcs.first
           vpc ? to_network(vpc, name) : nil
         end
 
         def delete_network(id)
-          subnets = @ec2.describe_subnets(filters: [ { name: "vpc-id", values: [ id ] } ])
-          subnets.subnets.each do |subnet|
-            @ec2.delete_subnet(subnet_id: subnet.subnet_id)
-          rescue ::Aws::EC2::Errors::ServiceError
-          end
-
-          igws = @ec2.describe_internet_gateways(
-            filters: [ { name: "attachment.vpc-id", values: [ id ] } ]
-          )
-          igws.internet_gateways.each do |igw|
-            @ec2.detach_internet_gateway(internet_gateway_id: igw.internet_gateway_id, vpc_id: id)
-            @ec2.delete_internet_gateway(internet_gateway_id: igw.internet_gateway_id)
-          rescue ::Aws::EC2::Errors::ServiceError
-          end
-
-          route_tables = @ec2.describe_route_tables(filters: [ { name: "vpc-id", values: [ id ] } ])
-          route_tables.route_tables.each do |rtb|
-            next if rtb.associations.any?(&:main)
-
-            rtb.associations.each do |assoc|
-              @ec2.disassociate_route_table(association_id: assoc.route_table_association_id)
-            rescue ::Aws::EC2::Errors::ServiceError
-            end
-
-            @ec2.delete_route_table(route_table_id: rtb.route_table_id)
-          rescue ::Aws::EC2::Errors::ServiceError
-          end
-
+          delete_subnets(id)
+          delete_internet_gateways(id)
+          delete_route_tables(id)
           @ec2.delete_vpc(vpc_id: id)
         rescue ::Aws::EC2::Errors::InvalidVpcIDNotFound
           nil
@@ -274,9 +190,7 @@ module RbrunCore
           vpc = find_vpc_by_name_tag
           return [] unless vpc
 
-          response = @ec2.describe_security_groups(
-            filters: [ { name: "vpc-id", values: [ vpc.id ] } ]
-          )
+          response = @ec2.describe_security_groups(filters: [ { name: "vpc-id", values: [ vpc.id ] } ])
           response.security_groups.map { |sg| to_firewall(sg) }
         end
 
@@ -290,24 +204,158 @@ module RbrunCore
 
         private
 
+          # Server helpers
+          def server_name_filter(name)
+            [
+              { name: "tag:Name", values: [ name ] },
+              { name: "instance-state-name", values: %w[pending running stopping stopped] }
+            ]
+          end
+
+          def build_server_list_filters(label_selector)
+            filters = [ { name: "instance-state-name", values: %w[pending running stopping stopped] } ]
+            return filters unless label_selector
+
+            key, value = label_selector.split("=")
+            filters << { name: "tag:#{key}", values: [ value ] }
+            filters
+          end
+
+          # Firewall helpers
+          def create_security_group(name, vpc_id, rules)
+            response = @ec2.create_security_group(
+              group_name: name,
+              description: "Security group for #{name}",
+              vpc_id:
+            )
+            sg_id = response.group_id
+
+            rules.each { |rule| add_ingress_rule(sg_id, rule) }
+
+            find_firewall_by_id(sg_id)
+          end
+
+          def default_firewall_rules
+            [ { direction: "in", protocol: "tcp", port: "22", source_ips: [ "0.0.0.0/0" ] } ]
+          end
+
+          def firewall_filters(name, vpc_id)
+            [
+              { name: "group-name", values: [ name ] },
+              { name: "vpc-id", values: [ vpc_id ] }
+            ]
+          end
+
+          def add_ingress_rule(sg_id, rule)
+            ip_permissions = build_ip_permissions(rule)
+            return if ip_permissions.empty?
+
+            @ec2.authorize_security_group_ingress(group_id: sg_id, ip_permissions:)
+          rescue ::Aws::EC2::Errors::InvalidPermissionDuplicate
+            # Rule already exists
+          end
+
+          def build_ip_permissions(rule)
+            port = rule[:port].to_i
+            protocol = rule[:protocol] || "tcp"
+            source_ips = rule[:source_ips] || [ "0.0.0.0/0" ]
+
+            source_ips.reject { |ip| ip.include?(":") }.map do |cidr|
+              {
+                ip_protocol: protocol,
+                from_port: port,
+                to_port: port,
+                ip_ranges: [ { cidr_ip: cidr } ]
+              }
+            end
+          end
+
+          # Network helpers
+          def create_vpc(name)
+            vpc = @ec2.create_vpc(cidr_block: VPC_CIDR)
+            vpc_id = vpc.vpc.vpc_id
+            tag_resource(vpc_id, name)
+
+            @ec2.modify_vpc_attribute(vpc_id:, enable_dns_hostnames: { value: true })
+            @ec2.modify_vpc_attribute(vpc_id:, enable_dns_support: { value: true })
+
+            vpc_id
+          end
+
+          def create_subnet(vpc_id, name)
+            az = "#{@region}a"
+            subnet = @ec2.create_subnet(vpc_id:, cidr_block: SUBNET_CIDR, availability_zone: az)
+            subnet_id = subnet.subnet.subnet_id
+            tag_resource(subnet_id, "#{name}-subnet")
+
+            @ec2.modify_subnet_attribute(subnet_id:, map_public_ip_on_launch: { value: true })
+
+            subnet_id
+          end
+
+          def create_internet_gateway(vpc_id, name)
+            igw = @ec2.create_internet_gateway
+            igw_id = igw.internet_gateway.internet_gateway_id
+            tag_resource(igw_id, "#{name}-igw")
+            @ec2.attach_internet_gateway(internet_gateway_id: igw_id, vpc_id:)
+
+            igw_id
+          end
+
+          def setup_route_table(vpc_id, subnet_id, igw_id, name)
+            route_tables = @ec2.describe_route_tables(filters: [ { name: "vpc-id", values: [ vpc_id ] } ])
+            rtb_id = route_tables.route_tables.first.route_table_id
+            tag_resource(rtb_id, "#{name}-rtb")
+
+            @ec2.create_route(route_table_id: rtb_id, destination_cidr_block: "0.0.0.0/0", gateway_id: igw_id)
+            @ec2.associate_route_table(route_table_id: rtb_id, subnet_id:)
+          end
+
+          def delete_subnets(vpc_id)
+            subnets = @ec2.describe_subnets(filters: [ { name: "vpc-id", values: [ vpc_id ] } ])
+            subnets.subnets.each do |subnet|
+              @ec2.delete_subnet(subnet_id: subnet.subnet_id)
+            rescue ::Aws::EC2::Errors::ServiceError
+              # Best effort
+            end
+          end
+
+          def delete_internet_gateways(vpc_id)
+            igws = @ec2.describe_internet_gateways(filters: [ { name: "attachment.vpc-id", values: [ vpc_id ] } ])
+            igws.internet_gateways.each do |igw|
+              @ec2.detach_internet_gateway(internet_gateway_id: igw.internet_gateway_id, vpc_id:)
+              @ec2.delete_internet_gateway(internet_gateway_id: igw.internet_gateway_id)
+            rescue ::Aws::EC2::Errors::ServiceError
+              # Best effort
+            end
+          end
+
+          def delete_route_tables(vpc_id)
+            route_tables = @ec2.describe_route_tables(filters: [ { name: "vpc-id", values: [ vpc_id ] } ])
+            route_tables.route_tables.each do |rtb|
+              next if rtb.associations.any?(&:main)
+
+              disassociate_route_table(rtb)
+              @ec2.delete_route_table(route_table_id: rtb.route_table_id)
+            rescue ::Aws::EC2::Errors::ServiceError
+              # Best effort
+            end
+          end
+
+          def disassociate_route_table(rtb)
+            rtb.associations.each do |assoc|
+              @ec2.disassociate_route_table(association_id: assoc.route_table_association_id)
+            rescue ::Aws::EC2::Errors::ServiceError
+              # Best effort
+            end
+          end
+
+          # AMI helpers
           def resolve_ubuntu_ami(image_hint)
             return image_hint if image_hint.start_with?("ami-")
 
-            version = case image_hint
-            when /22\.04/, /jammy/i then "22.04"
-            when /20\.04/, /focal/i then "20.04"
-            when /24\.04/, /noble/i then "24.04"
-            else "22.04"
-            end
-
-            response = @ec2.describe_images(
-              owners: [ CANONICAL_OWNER_ID ],
-              filters: [
-                { name: "name", values: [ "ubuntu/images/hvm-ssd/ubuntu-*-#{version}-amd64-server-*" ] },
-                { name: "state", values: [ "available" ] },
-                { name: "architecture", values: [ "x86_64" ] }
-              ]
-            )
+            version = ubuntu_version(image_hint)
+            response = @ec2.describe_images(owners: [ CANONICAL_OWNER_ID ], filters: ubuntu_ami_filters(version))
 
             images = response.images.sort_by(&:creation_date).reverse
             raise Error::Standard, "No Ubuntu AMI found for #{image_hint}" if images.empty?
@@ -315,6 +363,24 @@ module RbrunCore
             images.first.image_id
           end
 
+          def ubuntu_version(image_hint)
+            case image_hint
+            when /22\.04/, /jammy/i then "22.04"
+            when /20\.04/, /focal/i then "20.04"
+            when /24\.04/, /noble/i then "24.04"
+            else "22.04"
+            end
+          end
+
+          def ubuntu_ami_filters(version)
+            [
+              { name: "name", values: [ "ubuntu/images/hvm-ssd/ubuntu-*-#{version}-amd64-server-*" ] },
+              { name: "state", values: [ "available" ] },
+              { name: "architecture", values: [ "x86_64" ] }
+            ]
+          end
+
+          # VPC helpers
           def find_or_ensure_vpc
             existing = find_vpc_by_name_tag
             return existing if existing
@@ -323,14 +389,9 @@ module RbrunCore
           end
 
           def find_vpc_by_name_tag
-            response = @ec2.describe_vpcs(
-              filters: [ { name: "tag:Name", values: [ "*" ] } ]
-            )
+            response = @ec2.describe_vpcs(filters: [ { name: "tag:Name", values: [ "*" ] } ])
 
-            vpc = response.vpcs.find do |v|
-              v.tags&.any? { |t| t.key == "Name" }
-            end
-
+            vpc = response.vpcs.find { |v| v.tags&.any? { |t| t.key == "Name" } }
             return nil unless vpc
 
             name_tag = vpc.tags.find { |t| t.key == "Name" }&.value
@@ -338,45 +399,18 @@ module RbrunCore
           end
 
           def find_subnet_for_network(vpc_id)
-            response = @ec2.describe_subnets(
-              filters: [ { name: "vpc-id", values: [ vpc_id ] } ]
-            )
+            response = @ec2.describe_subnets(filters: [ { name: "vpc-id", values: [ vpc_id ] } ])
             response.subnets.first&.subnet_id
           end
 
           def tag_resource(resource_id, name)
-            @ec2.create_tags(
-              resources: [ resource_id ],
-              tags: [ { key: "Name", value: name } ]
-            )
+            @ec2.create_tags(resources: [ resource_id ], tags: [ { key: "Name", value: name } ])
           end
 
-          def add_ingress_rule(sg_id, rule)
-            port = rule[:port].to_i
-            protocol = rule[:protocol] || "tcp"
-            source_ips = rule[:source_ips] || [ "0.0.0.0/0" ]
-
-            ip_permissions = source_ips.reject { |ip| ip.include?(":") }.map do |cidr|
-              {
-                ip_protocol: protocol,
-                from_port: port,
-                to_port: port,
-                ip_ranges: [ { cidr_ip: cidr } ]
-              }
-            end
-
-            return if ip_permissions.empty?
-
-            @ec2.authorize_security_group_ingress(
-              group_id: sg_id,
-              ip_permissions:
-            )
-          rescue ::Aws::EC2::Errors::InvalidPermissionDuplicate
-          end
-
+          # Type converters
           def to_server(instance)
             name_tag = instance.tags&.find { |t| t.key == "Name" }&.value
-            labels = instance.tags&.reject { |t| t.key == "Name" }&.to_h { |t| [ t.key, t.value ] } || {}
+            labels = extract_instance_labels(instance)
 
             Types::Server.new(
               id: instance.instance_id,
@@ -392,6 +426,10 @@ module RbrunCore
             )
           end
 
+          def extract_instance_labels(instance)
+            instance.tags&.reject { |t| t.key == "Name" }&.to_h { |t| [ t.key, t.value ] } || {}
+          end
+
           def to_firewall(sg)
             rules = sg.ip_permissions.flat_map do |perm|
               perm.ip_ranges.map do |range|
@@ -404,12 +442,7 @@ module RbrunCore
               end
             end
 
-            Types::Firewall.new(
-              id: sg.group_id,
-              name: sg.group_name,
-              rules:,
-              created_at: nil
-            )
+            Types::Firewall.new(id: sg.group_id, name: sg.group_name, rules:, created_at: nil)
           end
 
           def to_network(vpc, name)

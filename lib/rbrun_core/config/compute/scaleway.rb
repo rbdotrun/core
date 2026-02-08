@@ -35,16 +35,13 @@ module RbrunCore
         end
 
         def ssh_keys_configured?
-          @ssh_key_path && !@ssh_key_path.empty? && File.exist?(File.expand_path(@ssh_key_path))
+          ssh_key_path_present? && private_key_exists?
         end
 
         def read_ssh_keys
           return nil unless ssh_keys_configured?
 
-          private_key_path = File.expand_path(@ssh_key_path)
-          public_key_path = "#{private_key_path}.pub"
-
-          raise Error::Configuration, "SSH public key not found: #{public_key_path}" unless File.exist?(public_key_path)
+          validate_public_key_exists!
 
           {
             private_key: File.read(private_key_path),
@@ -53,11 +50,11 @@ module RbrunCore
         end
 
         def ssh_private_key
-          File.read(File.expand_path(ssh_key_path))
+          File.read(private_key_path)
         end
 
         def ssh_public_key
-          File.read(File.expand_path("#{ssh_key_path}.pub")).strip
+          File.read(public_key_path).strip
         end
 
         def provider_name
@@ -69,29 +66,73 @@ module RbrunCore
         end
 
         def validate!
-          raise Error::Configuration, "compute.api_key is required for Scaleway" if api_key.nil? || api_key.empty?
-
-          if project_id.nil? || project_id.empty?
-            raise Error::Configuration, "compute.project_id is required for Scaleway"
-          end
-
-          raise Error::Configuration, "compute.ssh_key_path is required" if ssh_key_path.nil? || ssh_key_path.empty?
-
-          unless File.exist?(File.expand_path(ssh_key_path))
-            raise Error::Configuration, "SSH private key not found: #{ssh_key_path}"
-          end
-
-          return if File.exist?(File.expand_path("#{ssh_key_path}.pub"))
-
-          raise Error::Configuration, "SSH public key not found: #{ssh_key_path}.pub"
+          validate_api_key!
+          validate_project_id!
+          validate_ssh_key_path!
+          validate_private_key_exists!
+          validate_public_key_exists!
         end
 
         def client
           @client ||= Clients::Compute::Scaleway.new(
-            api_key: @api_key, project_id: @project_id, zone: @zone,
+            api_key: @api_key,
+            project_id: @project_id,
+            zone: @zone,
             root_volume_size: @root_volume_size
           )
         end
+
+        private
+
+          def validate_api_key!
+            return if api_key && !api_key.empty?
+
+            raise Error::Configuration, "compute.api_key is required for Scaleway"
+          end
+
+          def validate_project_id!
+            return if project_id && !project_id.empty?
+
+            raise Error::Configuration, "compute.project_id is required for Scaleway"
+          end
+
+          def validate_ssh_key_path!
+            return if ssh_key_path_present?
+
+            raise Error::Configuration, "compute.ssh_key_path is required"
+          end
+
+          def validate_private_key_exists!
+            return if private_key_exists?
+
+            raise Error::Configuration, "SSH private key not found: #{ssh_key_path}"
+          end
+
+          def validate_public_key_exists!
+            return if public_key_exists?
+
+            raise Error::Configuration, "SSH public key not found: #{ssh_key_path}.pub"
+          end
+
+          def ssh_key_path_present?
+            ssh_key_path && !ssh_key_path.empty?
+          end
+
+          def private_key_exists?
+            File.exist?(private_key_path)
+          end
+
+          def public_key_exists?
+            File.exist?(public_key_path)
+          end
+
+          def private_key_path
+            File.expand_path(ssh_key_path)
+          end
+
+          def public_key_path
+            "#{private_key_path}.pub"
+          end
       end
     end
   end

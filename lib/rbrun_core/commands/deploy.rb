@@ -18,10 +18,7 @@ module RbrunCore
         ProvisionVolumes.new(@ctx, on_step: @on_step).run if needs_volumes?
         SetupTunnel.new(@ctx, on_step: @on_step).run if needs_tunnel?
         SetupRegistry.new(@ctx, on_step: @on_step).run if needs_registry?
-        if has_app?
-          BuildImage.new(@ctx, on_step: @on_step).run
-          CleanupImages.new(@ctx, on_step: @on_step).run
-        end
+        deploy_app! if has_app?
         DeployManifests.new(@ctx, on_step: @on_step, on_rollout_progress: @on_rollout_progress).run
         remove_excess_servers!
 
@@ -33,26 +30,33 @@ module RbrunCore
 
       private
 
+        def deploy_app!
+          BuildImage.new(@ctx, on_step: @on_step).run
+          CleanupImages.new(@ctx, on_step: @on_step).run
+        end
+
         def remove_excess_servers!
-          return if @ctx.servers_to_remove.empty?
+          @ctx.servers_to_remove.each { |server_name| remove_server!(server_name) }
+        end
 
-          @ctx.servers_to_remove.each do |server_name|
-            begin
-              kubectl = Clients::Kubectl.new(@ctx.ssh_client)
-              kubectl.drain(server_name, max_attempts: 1, interval: 0)
-            rescue RbrunCore::Error
-              # best effort
-            end
+        def remove_server!(server_name)
+          drain_node(server_name)
+          delete_node(server_name)
+          @ctx.compute_client.delete_server_by_name(server_name)
+        end
 
-            begin
-              kubectl = Clients::Kubectl.new(@ctx.ssh_client)
-              kubectl.delete_node(server_name, max_attempts: 1, interval: 0)
-            rescue RbrunCore::Error
-              # best effort
-            end
+        def drain_node(server_name)
+          kubectl = Clients::Kubectl.new(@ctx.ssh_client)
+          kubectl.drain(server_name, max_attempts: 1, interval: 0)
+        rescue RbrunCore::Error
+          # best effort
+        end
 
-            @ctx.compute_client.delete_server_by_name(server_name)
-          end
+        def delete_node(server_name)
+          kubectl = Clients::Kubectl.new(@ctx.ssh_client)
+          kubectl.delete_node(server_name, max_attempts: 1, interval: 0)
+        rescue RbrunCore::Error
+          # best effort
         end
 
         def needs_tunnel?

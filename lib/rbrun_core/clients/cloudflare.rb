@@ -46,9 +46,10 @@ module RbrunCore
         return existing if existing
 
         secret = SecureRandom.base64(32)
-        response = post("/accounts/#{@account_id}/cfd_tunnel", {
-                          name:, tunnel_secret: secret, config_src: "cloudflare"
-                        })
+        response = post(
+          "/accounts/#{@account_id}/cfd_tunnel",
+          { name:, tunnel_secret: secret, config_src: "cloudflare" }
+        )
         result = response["result"]
         { id: result["id"], name: result["name"], token: result["token"] }
       end
@@ -84,9 +85,10 @@ module RbrunCore
       end
 
       def configure_tunnel_ingress(tunnel_id, rules)
-        put("/accounts/#{@account_id}/cfd_tunnel/#{tunnel_id}/configurations", {
-              config: { ingress: rules }
-            })
+        put(
+          "/accounts/#{@account_id}/cfd_tunnel/#{tunnel_id}/configurations",
+          { config: { ingress: rules } }
+        )
       end
 
       def get_tunnel_configuration(tunnel_id)
@@ -95,11 +97,10 @@ module RbrunCore
       end
 
       def delete_tunnel(tunnel_id)
-        begin
-          delete("/accounts/#{@account_id}/cfd_tunnel/#{tunnel_id}/connections")
-        rescue StandardError
-          nil
-        end
+        delete("/accounts/#{@account_id}/cfd_tunnel/#{tunnel_id}/connections")
+      rescue StandardError
+        nil
+      ensure
         delete("/accounts/#{@account_id}/cfd_tunnel/#{tunnel_id}")
       end
 
@@ -134,10 +135,11 @@ module RbrunCore
       # High-Level Setup
       def setup_tunnel(tunnel_name:, hostname:, service_url:, zone_domain:)
         tunnel = find_or_create_tunnel(tunnel_name)
-        configure_tunnel_ingress(tunnel[:id], [
-                                   { hostname:, service: service_url },
-                                   { service: "http_status:404" }
-                                 ])
+        rules = [
+          { hostname:, service: service_url },
+          { service: "http_status:404" }
+        ]
+        configure_tunnel_ingress(tunnel[:id], rules)
 
         zone_id = get_zone_id(zone_domain)
         ensure_dns_record(zone_id, hostname, tunnel[:id])
@@ -150,17 +152,15 @@ module RbrunCore
         tunnel = find_tunnel(tunnel_name)
         return unless tunnel
 
-        zone_id = begin
-          get_zone_id(zone_domain)
-        rescue StandardError
-          nil
-        end
+        zone_id = get_zone_id(zone_domain)
         if zone_id
           record = find_dns_record(zone_id, hostname)
           delete_dns_record(zone_id, record["id"]) if record
         end
 
         delete_tunnel(tunnel[:id])
+      rescue StandardError
+        nil
       end
 
       # Workers
@@ -213,18 +213,7 @@ module RbrunCore
         result = { tunnels:, zones: [] }
 
         if domain
-          zone = find_zone(domain)
-          if zone
-            dns_records = list_dns_records(zone["id"])
-            # Filter DNS to only CNAME records pointing to our tunnels
-            if prefix
-              dns_records = dns_records.select do |r|
-                r[:type] == "CNAME" && r[:content]&.end_with?(".cfargotunnel.com") &&
-                  tunnel_ids.include?(r[:content].split(".").first)
-              end
-            end
-            result[:zones] << { name: zone["name"], status: zone["status"], dns_records: }
-          end
+          add_zone_to_inventory(result, domain, tunnel_ids, prefix)
         else
           list_zones.each do |zone|
             result[:zones] << { name: zone[:name], status: zone[:status], dns_records: list_dns_records(zone[:id]) }
@@ -246,6 +235,23 @@ module RbrunCore
 
       private
 
+        def add_zone_to_inventory(result, domain, tunnel_ids, prefix)
+          zone = find_zone(domain)
+          return unless zone
+
+          dns_records = list_dns_records(zone["id"])
+          dns_records = filter_tunnel_dns_records(dns_records, tunnel_ids) if prefix
+          result[:zones] << { name: zone["name"], status: zone["status"], dns_records: }
+        end
+
+        def filter_tunnel_dns_records(dns_records, tunnel_ids)
+          dns_records.select do |r|
+            r[:type] == "CNAME" &&
+              r[:content]&.end_with?(".cfargotunnel.com") &&
+              tunnel_ids.include?(r[:content].split(".").first)
+          end
+        end
+
         def find_phase_ruleset(zone_id, phase)
           response = get("/zones/#{zone_id}/rulesets")
           rulesets = response["result"] || []
@@ -257,29 +263,24 @@ module RbrunCore
         end
 
         def create_dns_record(zone_id, hostname, content)
-          response = post("/zones/#{zone_id}/dns_records", {
-                            type: "CNAME", name: hostname, content:, proxied: true, ttl: 1
-                          })
+          response = post(
+            "/zones/#{zone_id}/dns_records",
+            { type: "CNAME", name: hostname, content:, proxied: true, ttl: 1 }
+          )
           response["result"]
         end
 
         def update_dns_record(zone_id, record_id, hostname, content)
-          response = put("/zones/#{zone_id}/dns_records/#{record_id}", {
-                           type: "CNAME", name: hostname, content:, proxied: true, ttl: 1
-                         })
+          response = put(
+            "/zones/#{zone_id}/dns_records/#{record_id}",
+            { type: "CNAME", name: hostname, content:, proxied: true, ttl: 1 }
+          )
           response["result"]
         end
 
         def put_multipart(path, body, boundary)
           normalized_path = path.sub(%r{^/}, "")
-          conn = Faraday.new(url: BASE_URL, ssl: { verify: false }) do |f|
-            f.headers["Authorization"] = "Bearer #{@api_token}"
-            f.headers["Content-Type"] = "multipart/form-data; boundary=#{boundary}"
-            f.options.timeout = @timeout
-            f.options.open_timeout = @open_timeout
-            f.adapter Faraday.default_adapter
-          end
-
+          conn = build_multipart_connection(boundary)
           response = conn.put(normalized_path, body)
           result = JSON.parse(response.body)
 
@@ -289,6 +290,16 @@ module RbrunCore
           end
 
           result
+        end
+
+        def build_multipart_connection(boundary)
+          Faraday.new(url: BASE_URL, ssl: { verify: false }) do |f|
+            f.headers["Authorization"] = "Bearer #{@api_token}"
+            f.headers["Content-Type"] = "multipart/form-data; boundary=#{boundary}"
+            f.options.timeout = @timeout
+            f.options.open_timeout = @open_timeout
+            f.adapter Faraday.default_adapter
+          end
         end
     end
   end

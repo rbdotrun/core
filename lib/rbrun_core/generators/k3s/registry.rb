@@ -13,7 +13,23 @@ module RbrunCore
           def registry_manifest
             return nil unless @r2_credentials
 
-            secret_data = {
+            [
+              registry_secret,
+              registry_deployment,
+              registry_service
+            ]
+          end
+
+          def registry_secret
+            secret(name: registry_secret_name, data: registry_secret_data)
+          end
+
+          def registry_secret_name
+            "registry-s3-secret"
+          end
+
+          def registry_secret_data
+            {
               "REGISTRY_STORAGE" => "s3",
               "REGISTRY_STORAGE_S3_ACCESSKEY" => @r2_credentials[:access_key_id],
               "REGISTRY_STORAGE_S3_SECRETKEY" => @r2_credentials[:secret_access_key],
@@ -26,43 +42,63 @@ module RbrunCore
               "REGISTRY_HEALTH_STORAGEDRIVER_ENABLED" => "false",
               "REGISTRY_STORAGE_DELETE_ENABLED" => "true"
             }
+          end
 
-            [
-              secret(name: "registry-s3-secret", data: secret_data),
-              {
-                apiVersion: "apps/v1", kind: "Deployment",
-                metadata: { name: "registry", namespace: NAMESPACE },
-                spec: {
-                  replicas: 1,
-                  selector: { matchLabels: { app: "registry" } },
-                  template: {
-                    metadata: { labels: { app: "registry" } },
-                    spec: {
-                      nodeSelector: { Naming::LABEL_SERVER_GROUP => Naming::MASTER_GROUP },
-                      containers: [ {
-                        name: "registry",
-                        image: "registry:3.0",
-                        ports: [ { containerPort: 5000 } ],
-                        envFrom: [ { secretRef: { name: "registry-s3-secret" } } ],
-                        resources: {
-                          requests: { memory: "128Mi", cpu: "50m" },
-                          limits: { memory: "512Mi" }
-                        }
-                      } ]
-                    }
-                  }
-                }
-              },
-              {
-                apiVersion: "v1", kind: "Service",
-                metadata: { name: "registry", namespace: NAMESPACE },
-                spec: {
-                  type: "NodePort",
-                  selector: { app: "registry" },
-                  ports: [ { port: 5000, targetPort: 5000, nodePort: 30_500 } ]
-                }
+          def registry_deployment
+            {
+              apiVersion: "apps/v1",
+              kind: "Deployment",
+              metadata: { name: "registry", namespace: NAMESPACE },
+              spec: registry_deployment_spec
+            }
+          end
+
+          def registry_deployment_spec
+            {
+              replicas: 1,
+              selector: { matchLabels: { app: "registry" } },
+              template: {
+                metadata: { labels: { app: "registry" } },
+                spec: registry_pod_spec
               }
-            ]
+            }
+          end
+
+          def registry_pod_spec
+            {
+              nodeSelector: master_node_selector,
+              containers: [ registry_container ]
+            }
+          end
+
+          def registry_container
+            {
+              name: "registry",
+              image: "registry:3.0",
+              ports: [ { containerPort: 5000 } ],
+              envFrom: [ { secretRef: { name: registry_secret_name } } ],
+              resources: registry_resources
+            }
+          end
+
+          def registry_resources
+            {
+              requests: { memory: "128Mi", cpu: "50m" },
+              limits: { memory: "512Mi" }
+            }
+          end
+
+          def registry_service
+            {
+              apiVersion: "v1",
+              kind: "Service",
+              metadata: { name: "registry", namespace: NAMESPACE },
+              spec: {
+                type: "NodePort",
+                selector: { app: "registry" },
+                ports: [ { port: 5000, targetPort: 5000, nodePort: 30_500 } ]
+              }
+            }
           end
       end
     end

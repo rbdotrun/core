@@ -88,32 +88,11 @@ module RbrunCore
 
         def delete_server(id)
           server_id = id.to_i
+          server = fetch_server_for_deletion(server_id)
+          return nil unless server
 
-          begin
-            server = get("/servers/#{server_id}")["server"]
-
-            # Detach from firewalls and wait for actions to complete
-            get("/firewalls")["firewalls"].each do |fw|
-              fw["applied_to"]&.each do |applied|
-                next unless applied["type"] == "server" && applied.dig("server", "id") == server_id
-
-                response = remove_firewall_from_server(fw["id"], server_id)
-                wait_for_action(response.dig("actions", 0, "id")) if response.dig("actions", 0, "id")
-              rescue StandardError
-              end
-            end
-
-            # Detach from networks and wait for actions to complete
-            server["private_net"]&.each do |pn|
-              response = detach_server_from_network(server_id, pn["network"])
-              wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
-            rescue StandardError
-            end
-          rescue Error::Api => e
-            return nil if e.not_found?
-
-            raise
-          end
+          detach_server_from_firewalls(server_id)
+          detach_server_from_networks(server, server_id)
 
           delete("/servers/#{server_id}")
           wait_for_server_deletion(server_id)
@@ -134,10 +113,10 @@ module RbrunCore
           return existing if existing
 
           network_zone = NETWORK_ZONES[location] || "eu-central"
-          response = post("/networks", {
-                            name:, ip_range:,
-                            subnets: [ { type: "cloud", ip_range: subnet_range, network_zone: } ]
-                          })
+          response = post(
+            "/networks",
+            { name:, ip_range:, subnets: [ { type: "cloud", ip_range: subnet_range, network_zone: } ] }
+          )
           to_network(response["network"])
         end
 
@@ -211,10 +190,10 @@ module RbrunCore
         end
 
         def create_volume(name:, size:, location:, labels: {}, format: "xfs")
-          response = post("/volumes", {
-                            name:, size:, location:, labels: labels || {},
-                            automount: false, format:
-                          })
+          response = post(
+            "/volumes",
+            { name:, size:, location:, labels: labels || {}, automount: false, format: }
+          )
           to_volume(response["volume"])
         end
 
@@ -246,9 +225,10 @@ module RbrunCore
             detach_volume(volume_id:)
           end
 
-          response = post("/volumes/#{volume_id.to_i}/actions/attach", {
-                            server: server_id.to_i, automount:
-                          })
+          response = post(
+            "/volumes/#{volume_id.to_i}/actions/attach",
+            { server: server_id.to_i, automount: }
+          )
           wait_for_action(response["action"]["id"]) if response["action"]
           get_volume(volume_id)
         end
@@ -340,13 +320,52 @@ module RbrunCore
           end
 
           def remove_firewall_from_server(firewall_id, server_id)
-            post("/firewalls/#{firewall_id}/actions/remove_from_resources", {
-                   remove_from: [ { type: "server", server: { id: server_id } } ]
-                 })
+            post(
+              "/firewalls/#{firewall_id}/actions/remove_from_resources",
+              { remove_from: [ { type: "server", server: { id: server_id } } ] }
+            )
           end
 
           def detach_server_from_network(server_id, network_id)
             post("/servers/#{server_id}/actions/detach_from_network", { network: network_id })
+          end
+
+          def fetch_server_for_deletion(server_id)
+            get("/servers/#{server_id}")["server"]
+          rescue Error::Api => e
+            raise unless e.not_found?
+
+            nil
+          end
+
+          def detach_server_from_firewalls(server_id)
+            get("/firewalls")["firewalls"].each do |fw|
+              detach_firewall_if_applied(fw, server_id)
+            end
+          end
+
+          def detach_firewall_if_applied(firewall, server_id)
+            firewall["applied_to"]&.each do |applied|
+              next unless applied["type"] == "server" && applied.dig("server", "id") == server_id
+
+              response = remove_firewall_from_server(firewall["id"], server_id)
+              wait_for_action(response.dig("actions", 0, "id")) if response.dig("actions", 0, "id")
+            end
+          rescue StandardError
+            # best effort
+          end
+
+          def detach_server_from_networks(server, server_id)
+            server["private_net"]&.each do |pn|
+              detach_from_network_safely(server_id, pn["network"])
+            end
+          end
+
+          def detach_from_network_safely(server_id, network_id)
+            response = detach_server_from_network(server_id, network_id)
+            wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
+          rescue StandardError
+            # best effort
           end
       end
     end

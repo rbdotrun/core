@@ -33,68 +33,109 @@ module RbrunCore
           def wait_for_cloud_init!
             @on_step&.call("Cloud-init", :in_progress)
             Waiter.poll(max_attempts: CLOUD_INIT_TIMEOUT, interval: 5, message: "Cloud-init did not complete") do
-              result = @ctx.ssh_client.execute("test -f /var/lib/cloud/instance/boot-finished && echo ready", raise_on_error: false)
+              result = @ctx.ssh_client.execute(cloud_init_check_cmd, raise_on_error: false)
               result[:output].include?("ready")
             end
             @on_step&.call("Cloud-init", :done)
           end
 
+          def cloud_init_check_cmd
+            [ "test", "-f", "/var/lib/cloud/instance/boot-finished", "&&", "echo", "ready" ].join(" ")
+          end
+
           def discover_network_info
             @on_step&.call("Network", :in_progress)
             public_ip = @ctx.server_ip
-
-            # Find private IP (RFC1918), excluding virtual interfaces
-            exec = @ctx.ssh_client.execute("ip addr show | grep -v 'cni\\|flannel\\|veth' | grep -E 'inet (10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.)' | awk '{print $2}' | cut -d/ -f1 | head -1", raise_on_error: false)
-            private_ip = exec[:output].strip
-            private_ip = public_ip if private_ip.empty?
-
-            # Find interface for the IP
-            exec = @ctx.ssh_client.execute("ip addr show | grep 'inet #{private_ip}/' | awk '{print $NF}'", raise_on_error: false)
-            interface = exec[:output].strip
-            interface = "eth0" if interface.empty?
-
+            private_ip = discover_private_ip || public_ip
+            interface = discover_interface(private_ip)
             @on_step&.call("Network", :done)
             { public_ip:, private_ip:, interface: }
           end
 
+          def discover_private_ip
+            cmd = [
+              "ip", "addr", "show",
+              "|", "grep", "-v", "'cni\\|flannel\\|veth'",
+              "|", "grep", "-E", "'inet (10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.)'",
+              "|", "awk", "'{print $2}'",
+              "|", "cut", "-d/", "-f1",
+              "|", "head", "-1"
+            ].join(" ")
+            exec = @ctx.ssh_client.execute(cmd, raise_on_error: false)
+            ip = exec[:output].strip
+            ip.empty? ? nil : ip
+          end
+
+          def discover_interface(private_ip)
+            cmd = [
+              "ip", "addr", "show",
+              "|", "grep", "'inet #{private_ip}/'",
+              "|", "awk", "'{print $NF}'"
+            ].join(" ")
+            exec = @ctx.ssh_client.execute(cmd, raise_on_error: false)
+            interface = exec[:output].strip
+            interface.empty? ? "eth0" : interface
+          end
+
           def configure_k3s_registries!
             @on_step&.call("Registries", :in_progress)
-            registries_yaml = <<~YAML
-            mirrors:
-              "localhost:#{REGISTRY_PORT}":
-                endpoint:
-                  - "http://registry.default.svc.cluster.local:5000"
-                  - "http://localhost:#{REGISTRY_PORT}"
-          YAML
-            @ctx.ssh_client.execute("sudo mkdir -p /etc/rancher/k3s")
+            @ctx.ssh_client.execute([ "sudo", "mkdir", "-p", "/etc/rancher/k3s" ].join(" "))
             encoded = Base64.strict_encode64(registries_yaml)
-            @ctx.ssh_client.execute("echo '#{encoded}' | base64 -d | sudo tee /etc/rancher/k3s/registries.yaml > /dev/null")
+            write_cmd = [ "echo", "'#{encoded}'", "|", "base64", "-d", "|", "sudo", "tee", "/etc/rancher/k3s/registries.yaml", ">", "/dev/null" ]
+            @ctx.ssh_client.execute(write_cmd.join(" "))
             @on_step&.call("Registries", :done)
           end
 
+          def registries_yaml
+            <<~YAML
+              mirrors:
+                "localhost:#{REGISTRY_PORT}":
+                  endpoint:
+                    - "http://registry.default.svc.cluster.local:5000"
+                    - "http://localhost:#{REGISTRY_PORT}"
+            YAML
+          end
+
           def install_k3s!(public_ip, private_ip, interface)
-            check = @ctx.ssh_client.execute("command -v kubectl && kubectl get nodes 2>/dev/null | grep -q Ready", raise_on_error: false)
-            return if check[:exit_code].zero?
+            return if k3s_already_installed?
 
             @on_step&.call("K3s", :in_progress)
-            k3s_args = [
+            k3s_args = build_k3s_args(public_ip, private_ip, interface)
+            install_cmd = "curl -sfL https://get.k3s.io | sudo INSTALL_K3S_EXEC=\"#{k3s_args}\" sh -"
+
+            @ctx.ssh_client.execute_with_retry(install_cmd, timeout: 300)
+            wait_for_k3s_ready!
+            @on_step&.call("K3s", :done)
+          end
+
+          def k3s_already_installed?
+            cmd = [ "command", "-v", "kubectl", "&&", "kubectl", "get", "nodes", "2>/dev/null", "|", "grep", "-q", "Ready" ].join(" ")
+            check = @ctx.ssh_client.execute(cmd, raise_on_error: false)
+            check[:exit_code].zero?
+          end
+
+          def build_k3s_args(public_ip, private_ip, interface)
+            [
               "--disable=traefik",
               "--flannel-backend=wireguard-native",
               "--flannel-iface=#{interface}",
-              "--bind-address=#{private_ip}", "--advertise-address=#{private_ip}",
-              "--node-ip=#{private_ip}", "--node-external-ip=#{public_ip}",
+              "--bind-address=#{private_ip}",
+              "--advertise-address=#{private_ip}",
+              "--node-ip=#{private_ip}",
+              "--node-external-ip=#{public_ip}",
               "--tls-san=#{private_ip}",
               "--write-kubeconfig-mode=644",
-              "--cluster-cidr=#{CLUSTER_CIDR}", "--service-cidr=#{SERVICE_CIDR}"
+              "--cluster-cidr=#{CLUSTER_CIDR}",
+              "--service-cidr=#{SERVICE_CIDR}"
             ].join(" ")
+          end
 
-            @ctx.ssh_client.execute_with_retry("curl -sfL https://get.k3s.io | sudo INSTALL_K3S_EXEC=\"#{k3s_args}\" sh -", timeout: 300)
-
+          def wait_for_k3s_ready!
             Waiter.poll(max_attempts: 30, interval: 5, message: "K3s did not become ready") do
-              exec = @ctx.ssh_client.execute("sudo kubectl get nodes", raise_on_error: false)
+              cmd = [ "sudo", "kubectl", "get", "nodes" ].join(" ")
+              exec = @ctx.ssh_client.execute(cmd, raise_on_error: false)
               exec[:exit_code].zero? && exec[:output].include?("Ready")
             end
-            @on_step&.call("K3s", :done)
           end
 
           def setup_kubeconfig!(private_ip)
@@ -112,109 +153,82 @@ module RbrunCore
 
           def deploy_ingress_controller!
             @on_step&.call("Ingress", :in_progress)
-            kubeconfig = "/home/#{Naming.default_user}/.kube/config"
-            @ctx.ssh_client.execute("kubectl --kubeconfig=#{kubeconfig} apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.0/deploy/static/provider/baremetal/deploy.yaml")
+            apply_ingress_manifest!
+            wait_for_ingress_ready!
+            patch_ingress_nodeports!
+            @on_step&.call("Ingress", :done)
+          end
 
+          def apply_ingress_manifest!
+            cmd = [
+              "kubectl", "--kubeconfig=#{kubeconfig_path}",
+              "apply", "-f", ingress_manifest_url
+            ].join(" ")
+            @ctx.ssh_client.execute(cmd)
+          end
+
+          def ingress_manifest_url
+            "https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.0/deploy/static/provider/baremetal/deploy.yaml"
+          end
+
+          def wait_for_ingress_ready!
             Waiter.poll(max_attempts: 30, interval: 5, message: "Ingress controller did not become ready") do
-              exec = @ctx.ssh_client.execute(
-                "kubectl --kubeconfig=#{kubeconfig} -n ingress-nginx get pods -l app.kubernetes.io/component=controller -o jsonpath='{.items[0].status.phase}'", raise_on_error: false
-              )
+              cmd = [
+                "kubectl", "--kubeconfig=#{kubeconfig_path}",
+                "-n", "ingress-nginx",
+                "get", "pods",
+                "-l", "app.kubernetes.io/component=controller",
+                "-o", "jsonpath='{.items[0].status.phase}'"
+              ].join(" ")
+              exec = @ctx.ssh_client.execute(cmd, raise_on_error: false)
               exec[:output].include?("Running")
             end
+          end
 
+          def patch_ingress_nodeports!
             patch_json = '[{"op":"replace","path":"/spec/ports/0/nodePort","value":30080},{"op":"replace","path":"/spec/ports/1/nodePort","value":30443}]'
-            @ctx.ssh_client.execute(
-              "kubectl --kubeconfig=#{kubeconfig} patch svc ingress-nginx-controller -n ingress-nginx --type='json' -p='#{patch_json}'", raise_on_error: false
-            )
-            @on_step&.call("Ingress", :done)
+            cmd = [
+              "kubectl", "--kubeconfig=#{kubeconfig_path}",
+              "patch", "svc", "ingress-nginx-controller",
+              "-n", "ingress-nginx",
+              "--type='json'",
+              "-p='#{patch_json}'"
+            ].join(" ")
+            @ctx.ssh_client.execute(cmd, raise_on_error: false)
+          end
+
+          def kubeconfig_path
+            "/home/#{Naming.default_user}/.kube/config"
           end
 
           def label_all_nodes!
             return unless multi_server?
 
             @on_step&.call("Nodes", :in_progress)
-            kubeconfig = "/home/#{Naming.default_user}/.kube/config"
-
-            @ctx.servers.each do |server_key, server_info|
-              group = server_info[:group]
-              node_name = "#{@ctx.prefix}-#{server_key}"
-              @ctx.ssh_client.execute("kubectl --kubeconfig=#{kubeconfig} label node #{node_name} #{Naming::LABEL_SERVER_GROUP}=#{group} --overwrite",
-                   raise_on_error: false)
-            end
+            @ctx.servers.each { |server_key, server_info| label_node(server_key, server_info) }
             @on_step&.call("Nodes", :done)
           end
 
+          def label_node(server_key, server_info)
+            node_name = "#{@ctx.prefix}-#{server_key}"
+            cmd = [
+              "kubectl", "--kubeconfig=#{kubeconfig_path}",
+              "label", "node", node_name,
+              "#{Naming::LABEL_SERVER_GROUP}=#{server_info[:group]}",
+              "--overwrite"
+            ].join(" ")
+            @ctx.ssh_client.execute(cmd, raise_on_error: false)
+          end
+
           def setup_worker_nodes!(master_private_ip)
-            @on_step&.call("Token", :in_progress)
-            token_result = @ctx.ssh_client.execute("sudo cat /var/lib/rancher/k3s/server/node-token")
-            cluster_token = token_result[:output].strip
-            @on_step&.call("Token", :done)
+            SetupWorkers.new(
+              ctx: @ctx,
+              master_private_ip:,
+              kubeconfig_path:,
+              on_step: @on_step
+            ).run
 
-            kubeconfig = "/home/#{Naming.default_user}/.kube/config"
-
-            # Skip the first server (master)
-            worker_entries = @ctx.servers.to_a[1..]
-            workers_to_setup = worker_entries.select do |server_key, _server_info|
-              node_name = "#{@ctx.prefix}-#{server_key}"
-              @ctx.new_servers.include?(server_key) || !node_in_cluster?(node_name, kubeconfig:)
-            end
-
-            if workers_to_setup.any?
-              @on_step&.call("Workers", :in_progress)
-              workers_to_setup.each do |server_key, server_info|
-                node_name = "#{@ctx.prefix}-#{server_key}"
-                worker_ip = server_info[:ip]
-
-                @on_step&.call(:"worker_#{server_key}", :in_progress, parent: "Workers")
-
-                worker_ssh = Clients::Ssh.new(
-                  host: worker_ip, private_key: @ctx.ssh_private_key, user: Naming.default_user
-                )
-
-                # Wait for cloud-init
-                Waiter.poll(max_attempts: CLOUD_INIT_TIMEOUT, interval: 5, message: "Worker cloud-init did not complete") do
-                  result = worker_ssh.execute("test -f /var/lib/cloud/instance/boot-finished && echo ready",
-                                              raise_on_error: false)
-                  result[:output].include?("ready")
-                end
-
-                # Discover worker private IP (exclude virtual interfaces)
-                exec = worker_ssh.execute("ip -4 addr show | grep -v 'cni\\|flannel\\|veth' | grep -oP '(?<=inet\\s)10\\.\\d+\\.\\d+\\.\\d+|172\\.(1[6-9]|2[0-9]|3[01])\\.\\d+\\.\\d+|192\\.168\\.\\d+\\.\\d+' | head -1")
-                worker_private_ip = exec[:output].strip
-
-                exec = worker_ssh.execute("ip -4 addr show | grep '#{worker_private_ip}' -B2 | grep -oP '(?<=: )[^:@]+(?=:)'")
-                worker_iface = exec[:output].strip.split("\n").last || "eth0"
-
-                # Join K3s cluster as agent
-                worker_ssh.execute_with_retry(
-                  "curl -sfL https://get.k3s.io | K3S_URL=\"https://#{master_private_ip}:6443\" " \
-                  "K3S_TOKEN=\"#{cluster_token}\" sh -s - agent " \
-                  "--node-ip=#{worker_private_ip} " \
-                  "--flannel-iface=#{worker_iface} " \
-                  "--node-name=#{node_name}",
-                  timeout: 300
-                )
-
-                wait_for_node_ready!(node_name, kubeconfig:)
-                @on_step&.call(:"worker_#{server_key}", :done, parent: "Workers")
-              end
-              @on_step&.call("Workers", :done)
-            end
-
-            # Always re-label all nodes (applies label changes on redeploy)
             label_all_nodes!
-          end
-
-          def node_in_cluster?(node_name, kubeconfig:)
-            result = @ctx.ssh_client.execute("kubectl --kubeconfig=#{kubeconfig} get node #{node_name} 2>/dev/null", raise_on_error: false)
-            result[:exit_code].zero? && result[:output].include?("Ready")
-          end
-
-          def wait_for_node_ready!(node_name, kubeconfig:, max_attempts: 30, interval: 5)
-            Waiter.poll(max_attempts:, interval:, message: "Node #{node_name} not Ready after #{max_attempts * interval}s") do
-              result = @ctx.ssh_client.execute("kubectl --kubeconfig=#{kubeconfig} get node #{node_name} 2>/dev/null", raise_on_error: false)
-              result[:output].include?("Ready")
-            end
           end
       end
     end

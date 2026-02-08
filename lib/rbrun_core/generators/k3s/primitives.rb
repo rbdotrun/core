@@ -7,39 +7,20 @@ module RbrunCore
         private
 
           def labels(name)
-            { Naming::LABEL_APP => name, Naming::LABEL_INSTANCE => @prefix,
-              Naming::LABEL_MANAGED_BY => "rbrun" }
+            {
+              Naming::LABEL_APP => name,
+              Naming::LABEL_INSTANCE => @prefix,
+              Naming::LABEL_MANAGED_BY => "rbrun"
+            }
           end
 
           def deployment(name:, containers:, volumes: [], replicas: 1, host_network: false, node_selector: nil,
                          init_containers: [])
-            spec = { containers: }
-            spec[:initContainers] = init_containers if init_containers.any?
-            spec[:volumes] = volumes if volumes.any?
-            spec[:hostNetwork] = true if host_network
-            if node_selector == :affinity
-              process = @config.app_config&.processes&.values&.find { |p| p.runs_on.is_a?(Array) && p.runs_on.length > 1 }
-              if process
-                spec[:affinity] = {
-                  nodeAffinity: {
-                    requiredDuringSchedulingIgnoredDuringExecution: {
-                      nodeSelectorTerms: [ {
-                        matchExpressions: [ {
-                          key: Naming::LABEL_SERVER_GROUP,
-                          operator: "In",
-                          values: process.runs_on.map(&:to_s)
-                        } ]
-                      } ]
-                    }
-                  }
-                }
-              end
-            elsif node_selector
-              spec[:nodeSelector] = node_selector
-            end
+            spec = build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector)
 
             {
-              apiVersion: "apps/v1", kind: "Deployment",
+              apiVersion: "apps/v1",
+              kind: "Deployment",
               metadata: { name:, namespace: NAMESPACE, labels: labels(name) },
               spec: {
                 replicas:,
@@ -49,19 +30,73 @@ module RbrunCore
             }
           end
 
+          def build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector)
+            spec = { containers: }
+            spec[:initContainers] = init_containers if init_containers.any?
+            spec[:volumes] = volumes if volumes.any?
+            spec[:hostNetwork] = true if host_network
+
+            if node_selector == :affinity
+              affinity = build_node_affinity
+              spec[:affinity] = affinity if affinity
+            elsif node_selector
+              spec[:nodeSelector] = node_selector
+            end
+
+            spec
+          end
+
+          def build_node_affinity
+            process = find_multi_node_process
+            return nil unless process
+
+            {
+              nodeAffinity: {
+                requiredDuringSchedulingIgnoredDuringExecution: {
+                  nodeSelectorTerms: [
+                    {
+                      matchExpressions: [
+                        {
+                          key: Naming::LABEL_SERVER_GROUP,
+                          operator: "In",
+                          values: process.runs_on.map(&:to_s)
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          end
+
+          def find_multi_node_process
+            @config.app_config&.processes&.values&.find do |p|
+              p.runs_on.is_a?(Array) && p.runs_on.length > 1
+            end
+          end
+
           def service(name:, port:)
             {
-              apiVersion: "v1", kind: "Service",
+              apiVersion: "v1",
+              kind: "Service",
               metadata: { name:, namespace: NAMESPACE, labels: labels(name) },
-              spec: { selector: { Naming::LABEL_APP => name }, ports: [ { port:, targetPort: port } ] }
+              spec: {
+                selector: { Naming::LABEL_APP => name },
+                ports: [ { port:, targetPort: port } ]
+              }
             }
           end
 
           def headless_service(name:, port:)
             {
-              apiVersion: "v1", kind: "Service",
+              apiVersion: "v1",
+              kind: "Service",
               metadata: { name:, namespace: NAMESPACE, labels: labels(name) },
-              spec: { clusterIP: "None", selector: { Naming::LABEL_APP => name }, ports: [ { port:, targetPort: port } ] }
+              spec: {
+                clusterIP: "None",
+                selector: { Naming::LABEL_APP => name },
+                ports: [ { port:, targetPort: port } ]
+              }
             }
           end
 
@@ -71,7 +106,8 @@ module RbrunCore
             spec[:nodeSelector] = node_selector if node_selector
 
             {
-              apiVersion: "apps/v1", kind: "StatefulSet",
+              apiVersion: "apps/v1",
+              kind: "StatefulSet",
               metadata: { name:, namespace: NAMESPACE, labels: labels(name) },
               spec: {
                 serviceName: name,
@@ -84,7 +120,8 @@ module RbrunCore
 
           def secret(name:, data:)
             {
-              apiVersion: "v1", kind: "Secret",
+              apiVersion: "v1",
+              kind: "Secret",
               metadata: { name:, namespace: NAMESPACE },
               type: "Opaque",
               data: data.transform_values { |v| Base64.strict_encode64(v.to_s) }
@@ -93,13 +130,29 @@ module RbrunCore
 
           def ingress(name:, hostname:, port:)
             {
-              apiVersion: "networking.k8s.io/v1", kind: "Ingress",
-              metadata: { name:, namespace: NAMESPACE, annotations: { "nginx.ingress.kubernetes.io/proxy-body-size" => "50m" } },
+              apiVersion: "networking.k8s.io/v1",
+              kind: "Ingress",
+              metadata: {
+                name:,
+                namespace: NAMESPACE,
+                annotations: { "nginx.ingress.kubernetes.io/proxy-body-size" => "50m" }
+              },
               spec: {
                 ingressClassName: "nginx",
-                rules: [ { host: hostname,
-                          http: { paths: [ { path: "/", pathType: "Prefix",
-                                            backend: { service: { name:, port: { number: port } } } } ] } } ]
+                rules: [
+                  {
+                    host: hostname,
+                    http: {
+                      paths: [
+                        {
+                          path: "/",
+                          pathType: "Prefix",
+                          backend: { service: { name:, port: { number: port } } }
+                        }
+                      ]
+                    }
+                  }
+                ]
               }
             }
           end

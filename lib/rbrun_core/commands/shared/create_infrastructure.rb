@@ -10,30 +10,40 @@ module RbrunCore
         end
 
         def run
-          @on_step&.call("Firewall", :in_progress)
-          firewall = create_firewall!
-          @on_step&.call("Firewall", :done)
-
-          @on_step&.call("Network", :in_progress)
-          network = compute_client.find_or_create_network(
-            @ctx.prefix,
-            location:
-          )
-          @on_step&.call("Network", :done)
-
-          create_all_servers!(firewall_id: firewall.id, network_id: network.id)
+          firewall = create_firewall_step!
+          network = create_network_step!
+          create_servers_step!(firewall_id: firewall.id, network_id: network.id)
         end
 
         private
 
-          def create_all_servers!(firewall_id:, network_id:)
+          def create_firewall_step!
+            @on_step&.call("Firewall", :in_progress)
+            firewall = compute_client.find_or_create_firewall(@ctx.prefix, rules: firewall_rules)
+            @on_step&.call("Firewall", :done)
+            firewall
+          end
+
+          def create_network_step!
+            @on_step&.call("Network", :in_progress)
+            network = compute_client.find_or_create_network(@ctx.prefix, location:)
+            @on_step&.call("Network", :done)
+            network
+          end
+
+          def create_servers_step!(firewall_id:, network_id:)
             desired = build_desired_servers
             existing = discover_existing_servers
+
+            validate_master_unchanged!(existing, desired.keys.first)
+            plan_server_changes!(desired, existing)
+            create_missing_servers!(desired, existing, firewall_id:, network_id:)
+            update_context!(desired, existing)
+            wait_for_new_servers!
+          end
+
+          def plan_server_changes!(desired, existing)
             master_key = desired.keys.first
-
-            validate_master_unchanged!(existing, master_key)
-
-            to_create = desired.keys - existing.keys
             to_remove = existing.keys - desired.keys
 
             if to_remove.include?(master_key)
@@ -41,92 +51,118 @@ module RbrunCore
                     "Cannot remove master node #{@ctx.prefix}-#{master_key} — scale down other groups first"
             end
 
-            # Store servers to remove - will be removed after deploy_manifests
-            @ctx.servers_to_remove = to_remove.sort.reverse.map { |key| "#{@ctx.prefix}-#{key}" }
+            @ctx.servers_to_remove = to_remove.sort.reverse.map { |key| server_name(key) }
+          end
 
-            # Build servers hash from kept existing servers
-            servers = {}
-            (desired.keys & existing.keys).each do |key|
-              servers[key] = existing[key]
-            end
+          def create_missing_servers!(desired, existing, firewall_id:, network_id:)
+            to_create = desired.keys - existing.keys
 
-            # Scale up — create missing servers
             to_create.each do |key|
-              group = desired[key]
-              server_name = "#{@ctx.prefix}-#{key}"
-
-              @on_step&.call("Server", :in_progress, server_name)
+              name = server_name(key)
+              @on_step&.call("Server", :in_progress, name)
 
               server = create_server!(
-                name: server_name,
-                server_type: group.type,
-                firewall_id:, network_id:
+                name:,
+                server_type: desired[key].type,
+                firewall_id:,
+                network_id:
               )
 
-              servers[key] = {
-                id: server.id, ip: server.public_ipv4,
-                private_ip: nil, group: key.split("-").first
-              }
+              existing[key] = build_server_info(server, key)
               @ctx.new_servers.add(key)
 
-              @on_step&.call("Server", :done, server_name)
+              @on_step&.call("Server", :done, name)
+            end
+          end
+
+          def update_context!(desired, servers)
+            kept_servers = desired.keys.each_with_object({}) do |key, hash|
+              hash[key] = servers[key] if servers[key]
             end
 
-            @ctx.servers = servers
-            first = servers[desired.keys.first]
+            @ctx.servers = kept_servers
+
+            first = kept_servers[desired.keys.first]
             @ctx.server_id = first[:id]
             @ctx.server_ip = first[:ip]
+          end
 
-            # Wait for SSH only on new servers
-            unless @ctx.new_servers.empty?
-              @on_step&.call("SSH", :in_progress)
-              @ctx.new_servers.each do |key|
-                srv = servers[key]
-                ssh = Clients::Ssh.new(host: srv[:ip], private_key: @ctx.ssh_private_key, user: Naming.default_user)
-                ssh.wait_until_ready(max_attempts: 36, interval: 5)
-              end
-              @on_step&.call("SSH", :done)
+          def wait_for_new_servers!
+            return if @ctx.new_servers.empty?
+
+            @on_step&.call("SSH", :in_progress)
+
+            @ctx.new_servers.each do |key|
+              srv = @ctx.servers[key]
+              ssh = Clients::Ssh.new(host: srv[:ip], private_key: @ctx.ssh_private_key, user: Naming.default_user)
+              ssh.wait_until_ready(max_attempts: 36, interval: 5)
             end
+
+            @on_step&.call("SSH", :done)
           end
 
           def build_desired_servers
             compute = @ctx.config.compute_config
             desired = {}
 
-            # Master servers (always present)
-            master = compute.master
-            (1..master.count).each do |i|
-              desired["#{Naming::MASTER_GROUP}-#{i}"] = master
-            end
-
-            # Additional server groups (optional)
-            compute.servers.each do |group_name, group|
-              (1..group.count).each do |i|
-                desired["#{group_name}-#{i}"] = group
-              end
-            end
+            add_master_servers!(desired, compute.master)
+            add_worker_servers!(desired, compute.servers)
 
             desired
           end
 
+          def add_master_servers!(desired, master)
+            (1..master.count).each do |i|
+              desired["#{Naming::MASTER_GROUP}-#{i}"] = master
+            end
+          end
+
+          def add_worker_servers!(desired, servers)
+            servers.each do |group_name, group|
+              (1..group.count).each do |i|
+                desired["#{group_name}-#{i}"] = group
+              end
+            end
+          end
+
           def discover_existing_servers
             all_servers = compute_client.list_servers
-            prefix = @ctx.prefix
-            pattern = /\A#{Regexp.escape(prefix)}-(\w+-\d+)\z/
+            pattern = /\A#{Regexp.escape(@ctx.prefix)}-(\w+-\d+)\z/
 
-            existing = {}
-            all_servers.each do |server|
+            all_servers.each_with_object({}) do |server, existing|
               match = server.name.match(pattern)
               next unless match
 
               key = match[1]
-              existing[key] = {
-                id: server.id, ip: server.public_ipv4,
-                private_ip: nil, group: key.split("-").first,
-                instance_type: server.instance_type
-              }
+              existing[key] = build_existing_server_info(server, key)
             end
-            existing
+          end
+
+          def build_server_info(server, key)
+            {
+              id: server.id,
+              ip: server.public_ipv4,
+              private_ip: nil,
+              group: extract_group(key)
+            }
+          end
+
+          def build_existing_server_info(server, key)
+            {
+              id: server.id,
+              ip: server.public_ipv4,
+              private_ip: nil,
+              group: extract_group(key),
+              instance_type: server.instance_type
+            }
+          end
+
+          def extract_group(key)
+            key.split("-").first
+          end
+
+          def server_name(key)
+            "#{@ctx.prefix}-#{key}"
           end
 
           def validate_master_unchanged!(existing, master_key)
@@ -141,12 +177,22 @@ module RbrunCore
                   "config=#{configured_type}. Cannot change master type without destroying infrastructure."
           end
 
-          def create_firewall!
-            rules = [ { direction: "in", protocol: "tcp", port: "22", source_ips: [ "0.0.0.0/0", "::/0" ] } ]
-            if @ctx.target != :sandbox
-              rules << { direction: "in", protocol: "tcp", port: "6443", source_ips: [ "10.0.0.0/16" ] }
-            end
-            compute_client.find_or_create_firewall(@ctx.prefix, rules:)
+          def firewall_rules
+            rules = [ ssh_firewall_rule ]
+            rules << k3s_firewall_rule unless sandbox?
+            rules
+          end
+
+          def ssh_firewall_rule
+            { direction: "in", protocol: "tcp", port: "22", source_ips: [ "0.0.0.0/0", "::/0" ] }
+          end
+
+          def k3s_firewall_rule
+            { direction: "in", protocol: "tcp", port: "6443", source_ips: [ "10.0.0.0/16" ] }
+          end
+
+          def sandbox?
+            @ctx.target == :sandbox
           end
 
           def create_server!(name:, server_type:, firewall_id:, network_id:)

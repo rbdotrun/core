@@ -7,44 +7,105 @@ module RbrunCore
         private
 
           def database_manifests
-            manifests = []
-            @config.database_configs.each do |type, db_config|
+            @config.database_configs.flat_map do |type, db_config|
               case type
-              when :postgres then manifests.concat(postgres_manifests(db_config))
+              when :postgres
+                postgres_manifests(db_config)
+              else
+                []
               end
             end
-            manifests
           end
 
           def postgres_manifests(db_config)
-            name = Naming.postgres(@prefix)
-            secret_name = Naming.secret_for(name)
-            pg_user = db_config.username || "app"
-            pg_db = db_config.database || "app"
-            node_selector = node_selector_for(db_config.runs_on) ||
-                            { Naming::LABEL_SERVER_GROUP => Naming::MASTER_GROUP }
-
             [
-              secret(name: secret_name, data: { "DB_PASSWORD" => @db_password }),
-              statefulset(
-                name:,
-                node_selector:,
-                containers: [ {
-                  name: "postgres", image: db_config.image,
-                  ports: [ { containerPort: 5432 } ],
-                  env: [
-                    { name: "POSTGRES_USER", value: pg_user },
-                    { name: "POSTGRES_DB", value: pg_db },
-                    { name: "POSTGRES_PASSWORD", valueFrom: { secretKeyRef: { name: secret_name, key: "DB_PASSWORD" } } },
-                    { name: "PGDATA", value: "/var/lib/postgresql/data/pgdata" }
-                  ],
-                  volumeMounts: [ { name: "data", mountPath: "/var/lib/postgresql/data" } ],
-                  readinessProbe: { exec: { command: [ "pg_isready", "-U", pg_user ] }, initialDelaySeconds: 5, periodSeconds: 5 }
-                } ],
-                volumes: [ host_path_volume("data", "/mnt/data/#{name}") ]
-              ),
-              headless_service(name:, port: 5432)
+              postgres_secret,
+              postgres_statefulset(db_config),
+              postgres_service
             ]
+          end
+
+          def postgres_secret
+            secret(
+              name: postgres_secret_name,
+              data: { "DB_PASSWORD" => @db_password }
+            )
+          end
+
+          def postgres_statefulset(db_config)
+            statefulset(
+              name: postgres_name,
+              node_selector: postgres_node_selector(db_config),
+              containers: [ postgres_container(db_config) ],
+              volumes: [ postgres_volume ]
+            )
+          end
+
+          def postgres_container(db_config)
+            {
+              name: "postgres",
+              image: db_config.image,
+              ports: [ { containerPort: 5432 } ],
+              env: postgres_env(db_config),
+              volumeMounts: [ { name: "data", mountPath: "/var/lib/postgresql/data" } ],
+              readinessProbe: postgres_readiness_probe(db_config)
+            }
+          end
+
+          def postgres_env(db_config)
+            [
+              { name: "POSTGRES_USER", value: postgres_user(db_config) },
+              { name: "POSTGRES_DB", value: postgres_database(db_config) },
+              {
+                name: "POSTGRES_PASSWORD",
+                valueFrom: {
+                  secretKeyRef: { name: postgres_secret_name, key: "DB_PASSWORD" }
+                }
+              },
+              { name: "PGDATA", value: "/var/lib/postgresql/data/pgdata" }
+            ]
+          end
+
+          def postgres_readiness_probe(db_config)
+            {
+              exec: {
+                command: [ "pg_isready", "-U", postgres_user(db_config) ]
+              },
+              initialDelaySeconds: 5,
+              periodSeconds: 5
+            }
+          end
+
+          def postgres_volume
+            host_path_volume("data", "/mnt/data/#{postgres_name}")
+          end
+
+          def postgres_service
+            headless_service(name: postgres_name, port: 5432)
+          end
+
+          def postgres_node_selector(db_config)
+            node_selector_for(db_config.runs_on) || master_node_selector
+          end
+
+          def postgres_name
+            Naming.postgres(@prefix)
+          end
+
+          def postgres_secret_name
+            Naming.secret_for(postgres_name)
+          end
+
+          def postgres_user(db_config)
+            db_config.username || "app"
+          end
+
+          def postgres_database(db_config)
+            db_config.database || "app"
+          end
+
+          def master_node_selector
+            { Naming::LABEL_SERVER_GROUP => Naming::MASTER_GROUP }
           end
       end
     end
