@@ -83,8 +83,8 @@ module RbrunCore
             SetupK3s.new(@ctx, on_step: steps).run
           end
 
-          assert_includes steps, Step::Id::SETUP_WORKERS
-          assert_includes steps, Step::Id::RETRIEVE_TOKEN
+          assert_includes steps, "Workers"
+          assert_includes steps, "Token"
         end
 
         def test_skips_existing_workers
@@ -97,7 +97,7 @@ module RbrunCore
           end
 
           # SETUP_WORKERS should not fire when no new workers
-          refute_includes steps, Step::Id::SETUP_WORKERS
+          refute_includes steps, "Workers"
         end
 
         def test_joins_only_new_workers

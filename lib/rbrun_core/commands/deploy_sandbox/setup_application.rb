@@ -25,14 +25,14 @@ module RbrunCore
         private
 
           def install_software!
-            @on_step&.call(Step::Id::INSTALL_PACKAGES, Step::IN_PROGRESS)
+            @on_step&.call("Packages", :in_progress)
             @ctx.ssh_client.execute("sudo apt-get update && sudo apt-get install -y curl git jq rsync docker.io docker-compose-v2 ca-certificates gnupg")
-            @on_step&.call(Step::Id::INSTALL_PACKAGES, Step::DONE)
+            @on_step&.call("Packages", :done)
 
             unless command_exists?("docker")
-              @on_step&.call(Step::Id::INSTALL_DOCKER, Step::IN_PROGRESS)
+              @on_step&.call("Docker", :in_progress)
               @ctx.ssh_client.execute("sudo systemctl enable docker && sudo systemctl start docker")
-              @on_step&.call(Step::Id::INSTALL_DOCKER, Step::DONE)
+              @on_step&.call("Docker", :done)
             end
 
             install_node!
@@ -44,42 +44,42 @@ module RbrunCore
           def install_node!
             return if command_exists?("node")
 
-            @on_step&.call(Step::Id::INSTALL_NODE, Step::IN_PROGRESS)
+            @on_step&.call("Node", :in_progress)
             @ctx.ssh_client.execute(<<~BASH)
             curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && \
             sudo apt-get install -y nodejs
           BASH
-            @on_step&.call(Step::Id::INSTALL_NODE, Step::DONE)
+            @on_step&.call("Node", :done)
           end
 
           def install_claude_code!
             return if command_exists?("claude")
 
-            @on_step&.call(Step::Id::INSTALL_CLAUDE_CODE, Step::IN_PROGRESS)
+            @on_step&.call("Claude Code", :in_progress)
             @ctx.ssh_client.execute("sudo npm install -g @anthropic-ai/claude-code")
-            @on_step&.call(Step::Id::INSTALL_CLAUDE_CODE, Step::DONE)
+            @on_step&.call("Claude Code", :done)
           end
 
           def install_gh_cli!
             return if command_exists?("gh")
 
-            @on_step&.call(Step::Id::INSTALL_GH_CLI, Step::IN_PROGRESS)
+            @on_step&.call("GitHub CLI", :in_progress)
             @ctx.ssh_client.execute(<<~BASH)
             curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
             sudo apt-get update && sudo apt-get install -y gh
           BASH
-            @on_step&.call(Step::Id::INSTALL_GH_CLI, Step::DONE)
+            @on_step&.call("GitHub CLI", :done)
           end
 
           def setup_git_auth!
             pat = local_git_pat
             return unless pat && !pat.empty?
 
-            @on_step&.call(Step::Id::CONFIGURE_GIT_AUTH, Step::IN_PROGRESS)
+            @on_step&.call("Git auth", :in_progress)
             @ctx.ssh_client.execute("git config --global user.name 'rbrun' && git config --global user.email 'sandbox@rbrun.dev'")
             @ctx.ssh_client.execute("echo #{Shellwords.escape(pat)} | gh auth login --with-token", raise_on_error: false)
-            @on_step&.call(Step::Id::CONFIGURE_GIT_AUTH, Step::DONE)
+            @on_step&.call("Git auth", :done)
           end
 
           def command_exists?(cmd)
@@ -87,47 +87,47 @@ module RbrunCore
           end
 
           def clone_repo!
-            @on_step&.call(Step::Id::CLONE_REPO, Step::IN_PROGRESS)
+            @on_step&.call("Repo", :in_progress)
             result = @ctx.ssh_client.execute("test -d #{WORKSPACE}/.git", raise_on_error: false, timeout: 10)
             if result[:exit_code].zero?
-              @on_step&.call(Step::Id::CLONE_REPO, Step::DONE)
+              @on_step&.call("Repo", :done)
               return
             end
 
             clone_url = git_clone_url
             @ctx.ssh_client.execute("git clone #{Shellwords.escape(clone_url)} #{WORKSPACE}", timeout: 120)
-            @on_step&.call(Step::Id::CLONE_REPO, Step::DONE)
+            @on_step&.call("Repo", :done)
           end
 
           def checkout_branch!
-            @on_step&.call(Step::Id::CHECKOUT_BRANCH, Step::IN_PROGRESS)
+            @on_step&.call("Branch", :in_progress)
             @ctx.ssh_client.execute("cd #{WORKSPACE} && git checkout -B #{Shellwords.escape(Naming.branch(@ctx.slug))}")
-            @on_step&.call(Step::Id::CHECKOUT_BRANCH, Step::DONE)
+            @on_step&.call("Branch", :done)
           end
 
           def write_environment!
-            @on_step&.call(Step::Id::WRITE_ENV, Step::IN_PROGRESS)
+            @on_step&.call("Environment", :in_progress)
             env_content = build_env_content
             if env_content.empty?
-              @on_step&.call(Step::Id::WRITE_ENV, Step::DONE)
+              @on_step&.call("Environment", :done)
               return
             end
 
             @ctx.ssh_client.execute("cat > #{WORKSPACE}/.env << 'ENVEOF'\n#{env_content}\nENVEOF")
             @ctx.ssh_client.execute("grep -qxF '.env' #{WORKSPACE}/.gitignore 2>/dev/null || echo '.env' >> #{WORKSPACE}/.gitignore")
-            @on_step&.call(Step::Id::WRITE_ENV, Step::DONE)
+            @on_step&.call("Environment", :done)
           end
 
           def generate_compose!
-            @on_step&.call(Step::Id::GENERATE_COMPOSE, Step::IN_PROGRESS)
+            @on_step&.call("Compose", :in_progress)
             compose_content = Generators::Compose.new(@ctx.config).generate
             @ctx.ssh_client.execute("cat > #{WORKSPACE}/#{COMPOSE_FILE} << 'COMPOSEEOF'\n#{compose_content}\nCOMPOSEEOF")
             @ctx.ssh_client.execute("grep -qxF '#{COMPOSE_FILE}' #{WORKSPACE}/.gitignore 2>/dev/null || echo '#{COMPOSE_FILE}' >> #{WORKSPACE}/.gitignore")
-            @on_step&.call(Step::Id::GENERATE_COMPOSE, Step::DONE)
+            @on_step&.call("Compose", :done)
           end
 
           def setup_docker_compose!
-            @on_step&.call(Step::Id::START_COMPOSE, Step::IN_PROGRESS)
+            @on_step&.call("Compose", :in_progress)
             config = @ctx.config
 
             docker_compose!("up -d postgres", raise_on_error: false) if config.database?(:postgres)
@@ -142,7 +142,7 @@ module RbrunCore
             end
 
             docker_compose!("up -d")
-            @on_step&.call(Step::Id::START_COMPOSE, Step::DONE)
+            @on_step&.call("Compose", :done)
           end
 
           def build_env_content

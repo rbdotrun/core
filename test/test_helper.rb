@@ -108,24 +108,24 @@ class TestStepCollector
     @steps = []
   end
 
-  def call(id, status, message: nil, parent: nil)
-    @steps << { id:, status:, message:, parent: }
+  def call(label, status, message = nil, parent: nil)
+    @steps << { label:, status:, message:, parent: }
   end
 
-  def step_ids
-    @steps.map { |s| s[:id] }
+  def labels
+    @steps.map { |s| s[:label] }
   end
 
-  def include?(step_id)
-    step_ids.include?(step_id)
+  def include?(label)
+    labels.include?(label)
   end
 
-  def find(step_id)
-    @steps.find { |s| s[:id] == step_id }
+  def find(label)
+    @steps.find { |s| s[:label] == label }
   end
 
   def done_steps
-    @steps.select { |s| s[:status] == RbrunCore::Step::DONE }.map { |s| s[:id] }
+    @steps.select { |s| s[:status] == :done }.map { |s| s[:label] }
   end
 end
 

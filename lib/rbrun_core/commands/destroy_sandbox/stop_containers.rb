@@ -14,7 +14,7 @@ module RbrunCore
         end
 
         def run
-          @on_step&.call(Step::Id::STOP_CONTAINERS, Step::IN_PROGRESS)
+          @on_step&.call("Containers", :in_progress)
           begin
             @ctx.ssh_client.execute(
               "cd #{WORKSPACE} && docker compose -f #{COMPOSE_FILE} down",
@@ -23,7 +23,7 @@ module RbrunCore
           rescue Clients::Ssh::Error
             # Server may already be gone
           end
-          @on_step&.call(Step::Id::STOP_CONTAINERS, Step::DONE)
+          @on_step&.call("Containers", :done)
         end
       end
     end

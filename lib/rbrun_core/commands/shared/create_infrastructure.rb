@@ -11,16 +11,16 @@ module RbrunCore
         end
 
         def run
-          @on_step&.call(Step::Id::CREATE_FIREWALL, Step::IN_PROGRESS)
+          @on_step&.call("Firewall", :in_progress)
           firewall = create_firewall!
-          @on_step&.call(Step::Id::CREATE_FIREWALL, Step::DONE)
+          @on_step&.call("Firewall", :done)
 
-          @on_step&.call(Step::Id::CREATE_NETWORK, Step::IN_PROGRESS)
+          @on_step&.call("Network", :in_progress)
           network = compute_client.find_or_create_network(
             @ctx.prefix,
             location:
           )
-          @on_step&.call(Step::Id::CREATE_NETWORK, Step::DONE)
+          @on_step&.call("Network", :done)
 
           create_all_servers!(firewall_id: firewall.id, network_id: network.id)
         end
@@ -56,7 +56,7 @@ module RbrunCore
               group = desired[key]
               server_name = "#{@ctx.prefix}-#{key}"
 
-              @on_step&.call(Step::Id::CREATE_SERVER, Step::IN_PROGRESS, message: server_name)
+              @on_step&.call("Server", :in_progress, server_name)
 
               server = create_server!(
                 name: server_name,
@@ -70,7 +70,7 @@ module RbrunCore
               }
               @ctx.new_servers.add(key)
 
-              @on_step&.call(Step::Id::CREATE_SERVER, Step::DONE, message: server_name)
+              @on_step&.call("Server", :done, server_name)
             end
 
             @ctx.servers = servers
@@ -80,13 +80,13 @@ module RbrunCore
 
             # Wait for SSH only on new servers
             unless @ctx.new_servers.empty?
-              @on_step&.call(Step::Id::WAIT_SSH, Step::IN_PROGRESS)
+              @on_step&.call("SSH", :in_progress)
               @ctx.new_servers.each do |key|
                 srv = servers[key]
                 ssh = Clients::Ssh.new(host: srv[:ip], private_key: @ctx.ssh_private_key, user: Naming.default_user)
                 ssh.wait_until_ready(max_attempts: 36, interval: 5)
               end
-              @on_step&.call(Step::Id::WAIT_SSH, Step::DONE)
+              @on_step&.call("SSH", :done)
             end
           end
 

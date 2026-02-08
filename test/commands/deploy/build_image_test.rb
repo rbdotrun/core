@@ -41,8 +41,8 @@ module RbrunCore
             end
           end
 
-          assert_includes steps, Step::Id::BUILD_IMAGE
-          assert_includes steps.done_steps, Step::Id::BUILD_IMAGE
+          assert_includes steps, "Image"
+          assert_includes steps.done_steps, "Image"
         end
 
         def test_raises_when_no_source_folder

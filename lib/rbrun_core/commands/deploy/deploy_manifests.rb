@@ -14,7 +14,7 @@ module RbrunCore
         end
 
         def run
-          @on_step&.call(Step::Id::DEPLOY_MANIFESTS, Step::IN_PROGRESS)
+          @on_step&.call("Manifests", :in_progress)
 
           r2_credentials = setup_backend_bucket
           storage_credentials = setup_storage_buckets
@@ -31,11 +31,11 @@ module RbrunCore
           )
 
           kubectl.apply(generator.generate)
-          @on_step&.call(Step::Id::DEPLOY_MANIFESTS, Step::DONE)
+          @on_step&.call("Manifests", :done)
 
-          @on_step&.call(Step::Id::WAIT_ROLLOUT, Step::IN_PROGRESS)
+          @on_step&.call("Rollout", :in_progress)
           wait_for_rollout!
-          @on_step&.call(Step::Id::WAIT_ROLLOUT, Step::DONE)
+          @on_step&.call("Rollout", :done)
         end
 
         private

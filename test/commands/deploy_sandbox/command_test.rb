@@ -26,16 +26,16 @@ module RbrunCore
       def test_run_reports_infrastructure_steps
         steps = run_and_collect_steps
 
-        assert_includes steps, Step::Id::CREATE_FIREWALL
-        assert_includes steps, Step::Id::CREATE_SERVER
+        assert_includes steps, "Firewall"
+        assert_includes steps, "Server"
       end
 
       def test_run_reports_application_steps
         steps = run_and_collect_steps
 
-        assert_includes steps, Step::Id::INSTALL_PACKAGES
-        assert_includes steps, Step::Id::CLONE_REPO
-        assert_includes steps, Step::Id::START_COMPOSE
+        assert_includes steps, "Packages"
+        assert_includes steps, "Repo"
+        assert_includes steps, "Compose"
       end
 
       def test_state_transitions

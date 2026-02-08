@@ -15,7 +15,7 @@ module RbrunCore
         def run
           return unless @ctx.cloudflare_configured?
 
-          @on_step&.call(Step::Id::SETUP_TUNNEL, Step::IN_PROGRESS)
+          @on_step&.call("Tunnel", :in_progress)
 
           cf_client = @ctx.cloudflare_client
           tunnel = cf_client.find_or_create_tunnel(@ctx.prefix)
@@ -27,7 +27,7 @@ module RbrunCore
 
           create_tunnel_dns_records!(tunnel[:id])
 
-          @on_step&.call(Step::Id::SETUP_TUNNEL, Step::DONE)
+          @on_step&.call("Tunnel", :done)
         end
 
         private

@@ -24,7 +24,7 @@ module RbrunCore
         def run
           raise Error::Standard, "source_folder is required for build" unless @ctx.source_folder
 
-          @on_step&.call(Step::Id::BUILD_IMAGE, Step::IN_PROGRESS)
+          @on_step&.call("Image", :in_progress)
 
           @timestamp = Time.now.utc.strftime("%Y%m%d%H%M%S")
 
@@ -43,7 +43,7 @@ module RbrunCore
             @ctx.registry_tag = result[:registry_tag]
           end
 
-          @on_step&.call(Step::Id::BUILD_IMAGE, Step::DONE)
+          @on_step&.call("Image", :done)
         end
 
         private

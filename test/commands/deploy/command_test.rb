@@ -53,8 +53,8 @@ module RbrunCore
           end
         end
 
-        assert_includes steps, Step::Id::CREATE_FIREWALL
-        assert_includes steps, Step::Id::CREATE_NETWORK
+        assert_includes steps, "Firewall"
+        assert_includes steps, "Network"
       end
 
       def test_cleanup_images_runs_when_app_configured

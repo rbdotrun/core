@@ -52,16 +52,16 @@ module RbrunCore
         def test_on_step_fires_for_git_steps
           steps = collect_steps
 
-          assert_includes steps, Step::Id::CLONE_REPO
-          assert_includes steps, Step::Id::CHECKOUT_BRANCH
-          assert_includes steps, Step::Id::WRITE_ENV
+          assert_includes steps, "Repo"
+          assert_includes steps, "Branch"
+          assert_includes steps, "Environment"
         end
 
         def test_on_step_fires_for_compose_steps
           steps = collect_steps
 
-          assert_includes steps, Step::Id::GENERATE_COMPOSE
-          assert_includes steps, Step::Id::START_COMPOSE
+          assert_includes steps, "Compose"
+          assert_includes steps, "Compose"
         end
 
         def test_installs_node_when_not_present

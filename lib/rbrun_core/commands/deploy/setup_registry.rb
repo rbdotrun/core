@@ -16,7 +16,7 @@ module RbrunCore
         def run
           return unless @ctx.config.cloudflare_configured?
 
-          @on_step&.call(Step::Id::SETUP_REGISTRY, Step::IN_PROGRESS)
+          @on_step&.call("Registry", :in_progress)
 
           r2_credentials = setup_backend_bucket
           return unless r2_credentials
@@ -24,7 +24,7 @@ module RbrunCore
           deploy_registry_manifest!(r2_credentials)
           wait_for_registry!
 
-          @on_step&.call(Step::Id::SETUP_REGISTRY, Step::DONE)
+          @on_step&.call("Registry", :done)
         end
 
         private

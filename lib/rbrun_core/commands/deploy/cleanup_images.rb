@@ -16,7 +16,7 @@ module RbrunCore
         end
 
         def run
-          @on_step&.call(Step::Id::CLEANUP_IMAGES, Step::IN_PROGRESS)
+          @on_step&.call("Images", :in_progress)
 
           prefix = @ctx.prefix
 
@@ -32,7 +32,7 @@ module RbrunCore
             tags.each { |tag| system("docker", "rmi", "#{prefix}:#{tag}") }
           end
 
-          @on_step&.call(Step::Id::CLEANUP_IMAGES, Step::DONE)
+          @on_step&.call("Images", :done)
         end
       end
     end

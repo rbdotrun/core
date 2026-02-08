@@ -11,7 +11,7 @@ module RbrunCore
         end
 
         def run
-          @on_step&.call(Step::Id::CLEANUP_TUNNEL, Step::IN_PROGRESS)
+          @on_step&.call("Tunnel", :in_progress)
 
           cf_client = @ctx.cloudflare_client
 
@@ -26,7 +26,7 @@ module RbrunCore
           tunnel = cf_client.find_tunnel(@ctx.prefix)
           cf_client.delete_tunnel(tunnel[:id]) if tunnel
 
-          @on_step&.call(Step::Id::CLEANUP_TUNNEL, Step::DONE)
+          @on_step&.call("Tunnel", :done)
         end
 
         private

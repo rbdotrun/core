@@ -15,13 +15,13 @@ module RbrunCore
         def run
           return unless needs_volumes?
 
-          @on_step&.call(Step::Id::PROVISION_VOLUMES, Step::IN_PROGRESS)
+          @on_step&.call("Volumes", :in_progress)
 
           @ctx.config.database_configs.each do |type, db_config|
             provision_database_volume(type, db_config)
           end
 
-          @on_step&.call(Step::Id::PROVISION_VOLUMES, Step::DONE)
+          @on_step&.call("Volumes", :done)
         end
 
         private

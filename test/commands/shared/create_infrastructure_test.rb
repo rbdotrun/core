@@ -89,8 +89,8 @@ module RbrunCore
             CreateInfrastructure.new(@ctx, on_step: steps).run
           end
 
-          assert_includes steps, Step::Id::CREATE_FIREWALL
-          assert_includes steps, Step::Id::CREATE_NETWORK
+          assert_includes steps, "Firewall"
+          assert_includes steps, "Network"
         end
 
         def test_on_step_fires_for_server_steps_when_creating_new_server
@@ -111,8 +111,8 @@ module RbrunCore
             CreateInfrastructure.new(@ctx, on_step: steps).run
           end
 
-          assert_includes steps, Step::Id::CREATE_SERVER
-          assert_includes steps, Step::Id::WAIT_SSH
+          assert_includes steps, "Server"
+          assert_includes steps, "SSH"
         end
 
         # ── Firewall sandbox vs release ──
@@ -274,7 +274,7 @@ module RbrunCore
           _, steps = run_multi_server_create_with_steps
 
           # Should report CREATE_SERVER step (IN_PROGRESS + DONE for each = 8 total for 4 servers)
-          create_server_steps = steps.steps.select { |s| s[:id] == Step::Id::CREATE_SERVER }
+          create_server_steps = steps.steps.select { |s| s[:label] == "Server" }
 
           assert_operator create_server_steps.size, :>=, 4
         end
@@ -283,7 +283,7 @@ module RbrunCore
           _, steps = run_multi_server_create_with_steps
 
           # Should report WAIT_SSH step
-          assert_includes steps, Step::Id::WAIT_SSH
+          assert_includes steps, "SSH"
         end
 
         # ── Reconciliation ──
