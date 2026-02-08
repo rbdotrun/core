@@ -23,12 +23,12 @@ module RbrunCore
           assert(cmds.any? { |cmd| cmd.include?("k3s") || cmd.include?("curl") })
         end
 
-        def test_installs_docker_registry
+        def test_configures_k3s_registry_mirrors
           cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady") do
             SetupK3s.new(@ctx, logger: TestLogger.new).run
           end
 
-          assert(cmds.any? { |cmd| cmd.include?("registry") || cmd.include?("docker") })
+          assert(cmds.any? { |cmd| cmd.include?("registries.yaml") })
         end
 
         def test_is_idempotent_checks_if_already_installed

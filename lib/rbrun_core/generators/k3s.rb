@@ -29,7 +29,12 @@ module RbrunCore
         manifests.concat(app_manifests) if @config.app? && @registry_tag
         manifests << tunnel_manifest if @tunnel_token
         manifests.concat(backup_manifests) if @config.database?(:postgres) && @r2_credentials
+        manifests.concat(registry_manifest) if @r2_credentials
         to_yaml(manifests)
+      end
+
+      def registry_manifest_yaml
+        to_yaml(registry_manifest)
       end
 
       private
@@ -423,13 +428,67 @@ module RbrunCore
             TIMESTAMP=$(date +%Y%m%d-%H%M%S) &&
             pg_dump -h $PGHOST -U $PGUSER -d $PGDATABASE --no-owner --no-acl |
             gzip |
-            aws s3 cp - s3://$BUCKET/backup-$TIMESTAMP.sql.gz --endpoint-url $R2_ENDPOINT_URL &&
-            aws s3 ls s3://$BUCKET/ --endpoint-url $R2_ENDPOINT_URL |
+            aws s3 cp - s3://$BUCKET/postgres-backups/backup-$TIMESTAMP.sql.gz --endpoint-url $R2_ENDPOINT_URL &&
+            aws s3 ls s3://$BUCKET/postgres-backups/ --endpoint-url $R2_ENDPOINT_URL |
             sort -r |
             tail -n +8 |
             awk '{print $4}' |
-            xargs -I {} aws s3 rm s3://$BUCKET/{} --endpoint-url $R2_ENDPOINT_URL
+            xargs -I {} aws s3 rm s3://$BUCKET/postgres-backups/{} --endpoint-url $R2_ENDPOINT_URL
           SH
+        end
+
+        def registry_manifest
+          return nil unless @r2_credentials
+
+          secret_data = {
+            "REGISTRY_STORAGE" => "s3",
+            "REGISTRY_STORAGE_S3_ACCESSKEY" => @r2_credentials[:access_key_id],
+            "REGISTRY_STORAGE_S3_SECRETKEY" => @r2_credentials[:secret_access_key],
+            "REGISTRY_STORAGE_S3_REGION" => "auto",
+            "REGISTRY_STORAGE_S3_BUCKET" => @r2_credentials[:bucket],
+            "REGISTRY_STORAGE_S3_REGIONENDPOINT" => @r2_credentials[:endpoint],
+            "REGISTRY_STORAGE_S3_ROOTDIRECTORY" => "/docker-registry",
+            "REGISTRY_STORAGE_S3_FORCEPATHSTYLE" => "true",
+            "REGISTRY_HEALTH_STORAGEDRIVER_ENABLED" => "false",
+            "REGISTRY_STORAGE_DELETE_ENABLED" => "true"
+          }
+
+          [
+            secret(name: "registry-s3-secret", data: secret_data),
+            {
+              apiVersion: "apps/v1", kind: "Deployment",
+              metadata: { name: "registry", namespace: NAMESPACE },
+              spec: {
+                replicas: 1,
+                selector: { matchLabels: { app: "registry" } },
+                template: {
+                  metadata: { labels: { app: "registry" } },
+                  spec: {
+                    nodeSelector: { Naming::LABEL_SERVER_GROUP => Naming::MASTER_GROUP },
+                    containers: [ {
+                      name: "registry",
+                      image: "registry:2",
+                      ports: [ { containerPort: 5000 } ],
+                      envFrom: [ { secretRef: { name: "registry-s3-secret" } } ],
+                      resources: {
+                        requests: { memory: "64Mi", cpu: "50m" },
+                        limits: { memory: "256Mi" }
+                      }
+                    } ]
+                  }
+                }
+              }
+            },
+            {
+              apiVersion: "v1", kind: "Service",
+              metadata: { name: "registry", namespace: NAMESPACE },
+              spec: {
+                type: "NodePort",
+                selector: { app: "registry" },
+                ports: [ { port: 5000, targetPort: 5000, nodePort: 30_500 } ]
+              }
+            }
+          ]
         end
     end
   end

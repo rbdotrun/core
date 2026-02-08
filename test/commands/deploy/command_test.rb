@@ -31,8 +31,10 @@ module RbrunCore
         stub_cloudflare!
 
         with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady", exit_code: 0) do
-          cmd = Deploy.new(@ctx, logger: TestLogger.new)
-          cmd.run
+          Clients::CloudflareR2.stub(:new, mock_r2_client) do
+            cmd = Deploy.new(@ctx, logger: TestLogger.new)
+            cmd.run
+          end
         end
 
         assert_equal :production, @ctx.target
@@ -46,7 +48,9 @@ module RbrunCore
         logger = TestLogger.new
 
         with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady", exit_code: 0) do
-          Deploy.new(@ctx, logger:).run
+          Clients::CloudflareR2.stub(:new, mock_r2_client) do
+            Deploy.new(@ctx, logger:).run
+          end
         end
 
         assert_includes logger.categories, "firewall"
@@ -76,8 +80,10 @@ module RbrunCore
 
         Deploy::BuildImage.stub(:new, noop_build) do
           Deploy::CleanupImages.stub(:new, noop_cleanup) do
-            with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady", exit_code: 0) do
-              Deploy.new(@ctx, logger: TestLogger.new).run
+            Clients::CloudflareR2.stub(:new, mock_r2_client) do
+              with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady", exit_code: 0) do
+                Deploy.new(@ctx, logger: TestLogger.new).run
+              end
             end
           end
         end
@@ -124,6 +130,9 @@ module RbrunCore
         end
 
         def stub_cloudflare!
+          stub_request(:get, "https://api.cloudflare.com/client/v4/user/tokens/verify").to_return(
+            status: 200, body: { result: { id: "test-token-id" } }.to_json, headers: json_headers
+          )
           stub_request(:get, /cfd_tunnel/).to_return(
             status: 200, body: { success: true, result: [] }.to_json, headers: json_headers
           )
@@ -154,6 +163,13 @@ module RbrunCore
             "server_type" => { "name" => "cpx11" },
             "datacenter" => { "name" => "ash-dc1", "location" => { "name" => "ash" } },
             "labels" => {} }
+        end
+
+        def mock_r2_client
+          client = Object.new
+          client.define_singleton_method(:ensure_bucket) { |_| }
+          client.define_singleton_method(:credentials) { { access_key_id: "k", secret_access_key: "s", endpoint: "https://x" } }
+          client
         end
     end
   end

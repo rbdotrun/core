@@ -15,7 +15,7 @@ module RbrunCore
         def run
           log("deploy_manifests", "Generating and applying K3s manifests")
 
-          r2_credentials = setup_backup_bucket
+          r2_credentials = setup_backend_bucket
           storage_credentials = setup_storage_buckets
 
           generator = Generators::K3s.new(
@@ -37,13 +37,13 @@ module RbrunCore
 
         private
 
-          def setup_backup_bucket
-            return nil unless @ctx.config.database?(:postgres) && @ctx.config.cloudflare_configured?
+          def setup_backend_bucket
+            return nil unless @ctx.config.cloudflare_configured?
 
             cf_config = @ctx.config.cloudflare_config
             r2 = Clients::CloudflareR2.new(api_token: cf_config.api_token, account_id: cf_config.account_id)
 
-            bucket_name = Naming.backup_bucket(@ctx.config.name, @ctx.target)
+            bucket_name = Naming.backend_bucket(@ctx.config.name, @ctx.target)
             r2.ensure_bucket(bucket_name)
 
             r2.credentials.merge(bucket: bucket_name)

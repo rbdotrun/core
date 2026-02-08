@@ -15,8 +15,12 @@ module RbrunCore
         end
 
         def test_applies_generated_k3s_manifests_via_ssh_kubectl
+          stub_cloudflare_token_verify
+
           cmds = with_capturing_ssh do
-            DeployManifests.new(@ctx, logger: TestLogger.new).run
+            Clients::CloudflareR2.stub(:new, mock_r2_client) do
+              DeployManifests.new(@ctx, logger: TestLogger.new).run
+            end
           end
 
           assert(cmds.any? { |cmd| cmd.include?("kubectl") && cmd.include?("apply") })
@@ -37,7 +41,7 @@ module RbrunCore
           assert(cmds.any? { |cmd| cmd.include?("rollout status") })
         end
 
-        def test_backup_bucket_uses_context_target_not_config_target
+        def test_backend_bucket_uses_context_target_not_config_target
           # Build staging context - ctx.target should be :staging
           staging_ctx = build_context(target: :staging)
           staging_ctx.server_ip = "1.2.3.4"
@@ -61,7 +65,7 @@ module RbrunCore
             end
           end
 
-          assert_equal "testapp-staging-backups", captured_bucket, "Bucket should use staging target"
+          assert_equal "testapp-staging-backend", captured_bucket, "Bucket should use staging target"
         end
 
         def test_staging_target_produces_staging_prefix

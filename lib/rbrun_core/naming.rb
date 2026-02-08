@@ -119,9 +119,9 @@ module RbrunCore
         "#{PREFIX}-#{slug}"
       end
 
-      # R2 backup bucket name for release deployments.
-      def backup_bucket(app_name, environment)
-        "#{app_name}-#{environment}-backups"
+      # R2 backend bucket name for release deployments (registry, backups, etc).
+      def backend_bucket(app_name, environment)
+        "#{app_name}-#{environment}-backend"
       end
 
       # R2 storage bucket name for app storage.

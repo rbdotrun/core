@@ -18,6 +18,7 @@ module RbrunCore
         SetupK3s.new(@ctx, logger: @logger).run
         ProvisionVolumes.new(@ctx, logger: @logger).run if needs_volumes?
         SetupTunnel.new(@ctx, logger: @logger).run if needs_tunnel?
+        SetupRegistry.new(@ctx, logger: @logger).run if needs_registry?
         if has_app?
           BuildImage.new(@ctx, logger: @logger).run
           CleanupImages.new(@ctx, logger: @logger).run
@@ -59,6 +60,10 @@ module RbrunCore
 
         def needs_tunnel?
           @ctx.cloudflare_configured?
+        end
+
+        def needs_registry?
+          @ctx.cloudflare_configured? && has_app?
         end
 
         def needs_volumes?

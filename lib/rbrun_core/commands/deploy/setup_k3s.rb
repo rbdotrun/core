@@ -8,7 +8,6 @@ module RbrunCore
         CLUSTER_CIDR = "10.42.0.0/16"
         SERVICE_CIDR = "10.43.0.0/16"
         CLOUD_INIT_TIMEOUT = 120
-        REGISTRY_TIMEOUT = 60
 
         def initialize(ctx, logger: nil)
           @ctx = ctx
@@ -18,13 +17,9 @@ module RbrunCore
         def run
           wait_for_cloud_init!
           network = discover_network_info
-          install_docker!
-          configure_docker!(network[:private_ip])
           configure_k3s_registries!
           install_k3s!(network[:public_ip], network[:private_ip], network[:interface])
           setup_kubeconfig!(network[:private_ip])
-          deploy_registry!
-          wait_for_registry!
           deploy_ingress_controller!
           setup_worker_nodes!(network[:private_ip]) if multi_server?
         end
@@ -47,8 +42,8 @@ module RbrunCore
             log("discover_network", "Discovering network info")
             public_ip = @ctx.server_ip
 
-            # Find private IP (RFC1918), excluding docker/bridge interfaces
-            exec = ssh!("ip addr show | grep -v 'docker\\|br-\\|veth' | grep -E 'inet (10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.)' | awk '{print $2}' | cut -d/ -f1 | head -1", raise_on_error: false)
+            # Find private IP (RFC1918), excluding virtual interfaces
+            exec = ssh!("ip addr show | grep -v 'cni\\|flannel\\|veth' | grep -E 'inet (10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.)' | awk '{print $2}' | cut -d/ -f1 | head -1", raise_on_error: false)
             private_ip = exec[:output].strip
             private_ip = public_ip if private_ip.empty?
 
@@ -58,32 +53,6 @@ module RbrunCore
             interface = "eth0" if interface.empty?
 
             { public_ip:, private_ip:, interface: }
-          end
-
-          def install_docker!
-            check = ssh!("command -v docker && systemctl is-active docker", raise_on_error: false)
-            return if check[:exit_code].zero?
-
-            log("install_docker", "Installing Docker")
-            ssh!(<<~BASH)
-            export DEBIAN_FRONTEND=noninteractive
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq docker.io docker-compose
-            sudo systemctl enable docker
-            sudo systemctl start docker
-            sudo usermod -aG docker #{Naming.default_user}
-          BASH
-          end
-
-          def configure_docker!(private_ip)
-            log("configure_docker", "Configuring Docker")
-            daemon_json = {
-              "insecure-registries" => [ "#{private_ip}:5001", "localhost:#{REGISTRY_PORT}" ]
-            }.to_json
-
-            ssh!("sudo mkdir -p /etc/docker")
-            ssh!("echo '#{daemon_json}' | sudo tee /etc/docker/daemon.json > /dev/null")
-            ssh!("sudo systemctl restart docker")
           end
 
           def configure_k3s_registries!
@@ -134,76 +103,6 @@ module RbrunCore
             sudo chown -R #{user}:#{user} /home/#{user}/.kube
             chmod 600 /home/#{user}/.kube/config
           BASH
-          end
-
-          def deploy_registry!
-            log("deploy_registry", "Deploying registry")
-            apply_manifest!(registry_manifest)
-          end
-
-          def registry_manifest
-            <<~YAML
-            apiVersion: v1
-            kind: PersistentVolumeClaim
-            metadata:
-              name: registry-pvc
-              namespace: default
-            spec:
-              accessModes: [ReadWriteOnce]
-              resources:
-                requests:
-                  storage: 10Gi
-            ---
-            apiVersion: apps/v1
-            kind: Deployment
-            metadata:
-              name: registry
-              namespace: default
-            spec:
-              replicas: 1
-              selector:
-                matchLabels:
-                  app: registry
-              template:
-                metadata:
-                  labels:
-                    app: registry
-                spec:
-                  containers:
-                  - name: registry
-                    image: registry:2
-                    ports:
-                    - containerPort: 5000
-                    volumeMounts:
-                    - name: registry-data
-                      mountPath: /var/lib/registry
-                  volumes:
-                  - name: registry-data
-                    persistentVolumeClaim:
-                      claimName: registry-pvc
-            ---
-            apiVersion: v1
-            kind: Service
-            metadata:
-              name: registry
-              namespace: default
-            spec:
-              type: NodePort
-              selector:
-                app: registry
-              ports:
-              - port: 5000
-                targetPort: 5000
-                nodePort: #{REGISTRY_PORT}
-          YAML
-          end
-
-          def wait_for_registry!
-            log("wait_registry", "Waiting for registry")
-            Waiter.poll(max_attempts: REGISTRY_TIMEOUT, interval: 2, message: "Registry did not become ready") do
-              exec = ssh!("curl -sf http://localhost:#{REGISTRY_PORT}/v2/ && echo ok", raise_on_error: false)
-              exec[:output].include?("ok")
-            end
           end
 
           def deploy_ingress_controller!
@@ -269,19 +168,8 @@ module RbrunCore
                 result[:output].include?("ready")
               end
 
-              # Install Docker on worker
-              check = worker_ssh.execute("command -v docker && systemctl is-active docker", raise_on_error: false)
-              unless check[:exit_code].zero?
-                worker_ssh.execute(<<~BASH)
-                  export DEBIAN_FRONTEND=noninteractive
-                  sudo apt-get update -qq
-                  sudo apt-get install -y -qq docker.io
-                  sudo systemctl enable docker && sudo systemctl start docker
-                BASH
-              end
-
-              # Discover worker private IP (excluding docker interfaces)
-              exec = worker_ssh.execute("ip -4 addr show | grep -v 'docker\\|br-' | grep -oP '(?<=inet\\s)10\\.\\d+\\.\\d+\\.\\d+|172\\.(1[6-9]|2[0-9]|3[01])\\.\\d+\\.\\d+|192\\.168\\.\\d+\\.\\d+' | head -1")
+              # Discover worker private IP (exclude virtual interfaces)
+              exec = worker_ssh.execute("ip -4 addr show | grep -v 'cni\\|flannel\\|veth' | grep -oP '(?<=inet\\s)10\\.\\d+\\.\\d+\\.\\d+|172\\.(1[6-9]|2[0-9]|3[01])\\.\\d+\\.\\d+|192\\.168\\.\\d+\\.\\d+' | head -1")
               worker_private_ip = exec[:output].strip
 
               exec = worker_ssh.execute("ip -4 addr show | grep '#{worker_private_ip}' -B2 | grep -oP '(?<=: )[^:@]+(?=:)'")
@@ -313,16 +201,6 @@ module RbrunCore
             Waiter.poll(max_attempts:, interval:, message: "Node #{node_name} not Ready after #{max_attempts * interval}s") do
               result = ssh!("kubectl --kubeconfig=#{kubeconfig} get node #{node_name} 2>/dev/null", raise_on_error: false)
               result[:output].include?("Ready")
-            end
-          end
-
-          def apply_manifest!(yaml)
-            kubeconfig = "/home/#{Naming.default_user}/.kube/config"
-            if yaml.start_with?("http")
-              ssh!("kubectl --kubeconfig=#{kubeconfig} apply -f #{yaml}")
-            else
-              encoded = Base64.strict_encode64(yaml)
-              ssh!("echo '#{encoded}' | base64 -d | kubectl --kubeconfig=#{kubeconfig} apply -f -")
             end
           end
 

@@ -104,16 +104,16 @@ class TargetPropagationTest < Minitest::Test
     assert_equal "myapp-preview", prefix
   end
 
-  def test_backup_bucket_includes_target
-    bucket = RbrunCore::Naming.backup_bucket("myapp", :staging)
+  def test_backend_bucket_includes_target
+    bucket = RbrunCore::Naming.backend_bucket("myapp", :staging)
 
-    assert_equal "myapp-staging-backups", bucket
+    assert_equal "myapp-staging-backend", bucket
   end
 
-  def test_backup_bucket_with_production_target
-    bucket = RbrunCore::Naming.backup_bucket("myapp", :production)
+  def test_backend_bucket_with_production_target
+    bucket = RbrunCore::Naming.backend_bucket("myapp", :production)
 
-    assert_equal "myapp-production-backups", bucket
+    assert_equal "myapp-production-backend", bucket
   end
 
   def test_config_and_context_target_always_match_when_loaded_from_yaml
