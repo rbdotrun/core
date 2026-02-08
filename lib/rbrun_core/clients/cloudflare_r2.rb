@@ -20,8 +20,6 @@ module RbrunCore
       end
 
       def client
-        require "aws-sdk-s3"
-
         @client ||= Aws::S3::Client.new(
           endpoint: credentials[:endpoint],
           region: credentials[:region],
