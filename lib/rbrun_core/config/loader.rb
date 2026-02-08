@@ -140,7 +140,9 @@ module RbrunCore
 
               config.database(type) do |db|
                 db.image = db_data["image"] if db_data&.dig("image")
-                # Note: runs_on is no longer supported for databases - they always run on master
+                db.username = db_data["username"] || raise(Error::Configuration, "databases.#{type}.username is required")
+                db.password = db_data["password"] || raise(Error::Configuration, "databases.#{type}.password is required")
+                db.database = db_data["database"] || raise(Error::Configuration, "databases.#{type}.database is required")
               end
             end
           end

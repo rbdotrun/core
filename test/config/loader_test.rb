@@ -200,12 +200,78 @@ module RbrunCore
           databases:
             postgres:
               image: pgvector/pgvector:pg17
+              username: myuser
+              password: mypassword
+              database: mydb
         YAML
 
         config = load_yaml(yaml)
 
         assert config.database?(:postgres)
         assert_equal "pgvector/pgvector:pg17", config.database_configs[:postgres].image
+        assert_equal "myuser", config.database_configs[:postgres].username
+        assert_equal "mypassword", config.database_configs[:postgres].password
+        assert_equal "mydb", config.database_configs[:postgres].database
+      end
+
+      def test_database_requires_username
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          databases:
+            postgres:
+              password: mypassword
+              database: mydb
+        YAML
+
+        err = assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
+        assert_match(/username is required/, err.message)
+      end
+
+      def test_database_requires_password
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          databases:
+            postgres:
+              username: myuser
+              database: mydb
+        YAML
+
+        err = assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
+        assert_match(/password is required/, err.message)
+      end
+
+      def test_database_requires_database
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          databases:
+            postgres:
+              username: myuser
+              password: mypassword
+        YAML
+
+        err = assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
+        assert_match(/database is required/, err.message)
       end
 
       def test_rejects_redis_as_database
