@@ -24,6 +24,16 @@ module RbrunCore
           assert_equal "ubuntu_jammy", @config.image
         end
 
+        def test_default_root_volume_size
+          assert_equal 20, @config.root_volume_size
+        end
+
+        def test_root_volume_size_can_be_set
+          @config.root_volume_size = 50
+
+          assert_equal 50, @config.root_volume_size
+        end
+
         # Location alias tests
         def test_location_returns_zone
           @config.zone = "nl-ams-1"

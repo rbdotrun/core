@@ -8,10 +8,13 @@ module RbrunCore
 
         BASE_URL = "https://api.scaleway.com"
 
-        def initialize(api_key:, project_id:, zone: "fr-par-1")
+        DEFAULT_ROOT_VOLUME_SIZE = 20 # GB
+
+        def initialize(api_key:, project_id:, zone: "fr-par-1", root_volume_size: nil)
           @api_key = api_key
           @project_id = project_id
           @zone = zone
+          @root_volume_size = root_volume_size || DEFAULT_ROOT_VOLUME_SIZE
           raise Error::Standard, "Scaleway API key not configured" if @api_key.nil? || @api_key.empty?
           raise Error::Standard, "Scaleway project ID not configured" if @project_id.nil? || @project_id.empty?
 
@@ -32,7 +35,10 @@ module RbrunCore
                           firewall_ids: [], network_ids: [])
           tags = labels_to_tags(labels)
           image_id = resolve_image(image, instance_type)
-          payload = { name:, commercial_type: instance_type, image: image_id, project: @project_id, tags: }
+          payload = {
+            name:, commercial_type: instance_type, image: image_id, project: @project_id, tags:,
+            volumes: { "0" => { size: @root_volume_size * 1_000_000_000, volume_type: "l_ssd" } }
+          }
           payload[:security_group] = firewall_ids.first if firewall_ids&.any?
 
           response = post(instance_path("/servers"), payload)

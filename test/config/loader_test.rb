@@ -652,6 +652,64 @@ module RbrunCore
         assert_equal "cpx11", config.compute_config.master.instance_type
       end
 
+      # ─── Root Volume Size ───
+
+      def test_scaleway_root_volume_size_defaults_to_20
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: scaleway
+            api_key: test-key
+            project_id: test-project
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: DEV1-S
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal 20, config.compute_config.root_volume_size
+      end
+
+      def test_scaleway_root_volume_size_can_be_configured
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: scaleway
+            api_key: test-key
+            project_id: test-project
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            root_volume_size: 50
+            master:
+              instance_type: DEV1-S
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal 50, config.compute_config.root_volume_size
+      end
+
+      def test_hetzner_raises_when_root_volume_size_specified
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            root_volume_size: 50
+            master:
+              instance_type: cpx11
+        YAML
+
+        config = load_yaml(yaml)
+        err = assert_raises(RbrunCore::Error::Configuration) { config.compute_config.validate! }
+
+        assert_match(/root_volume_size is not supported for Hetzner/, err.message)
+      end
+
       # ─── Storage Configuration ───
 
       def test_loads_storage_buckets

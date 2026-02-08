@@ -13,6 +13,11 @@ module RbrunCore
           @location = "ash"
           @image = "ubuntu-22.04"
           @ssh_key_path = nil
+          @root_volume_size_set = false
+        end
+
+        def root_volume_size=(_value)
+          @root_volume_size_set = true
         end
 
         def add_server_group(name, type:, count: 1)
@@ -50,6 +55,9 @@ module RbrunCore
         end
 
         def validate!
+          if @root_volume_size_set
+            raise Error::Configuration, "root_volume_size is not supported for Hetzner"
+          end
           raise Error::Configuration, "compute.api_key is required for Hetzner" if api_key.nil? || api_key.empty?
           raise Error::Configuration, "compute.ssh_key_path is required" if ssh_key_path.nil? || ssh_key_path.empty?
 

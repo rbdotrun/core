@@ -62,10 +62,12 @@ module RbrunCore
               case provider
               when :hetzner
                 c.api_key = compute_data["api_key"]
+                c.root_volume_size = compute_data["root_volume_size"] if compute_data["root_volume_size"]
               when :scaleway
                 c.api_key = compute_data["api_key"]
                 c.project_id = compute_data["project_id"] if compute_data["project_id"]
                 c.zone = compute_data["zone"] if compute_data["zone"]
+                c.root_volume_size = compute_data["root_volume_size"] if compute_data["root_volume_size"]
               when :aws
                 c.access_key_id = compute_data["access_key_id"]
                 c.secret_access_key = compute_data["secret_access_key"]

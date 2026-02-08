@@ -4,8 +4,10 @@ module RbrunCore
   module Config
     module Compute
       class Scaleway < Base
-        attr_accessor :api_key, :project_id, :zone, :image, :ssh_key_path
+        attr_accessor :api_key, :project_id, :zone, :image, :ssh_key_path, :root_volume_size
         attr_reader :servers
+
+        DEFAULT_ROOT_VOLUME_SIZE = 20 # GB
 
         def initialize
           super
@@ -13,6 +15,7 @@ module RbrunCore
           @image = "ubuntu_jammy"
           @servers = {}
           @ssh_key_path = nil
+          @root_volume_size = DEFAULT_ROOT_VOLUME_SIZE
         end
 
         def location
@@ -84,7 +87,10 @@ module RbrunCore
         end
 
         def client
-          @client ||= Clients::Compute::Scaleway.new(api_key: @api_key, project_id: @project_id, zone: @zone)
+          @client ||= Clients::Compute::Scaleway.new(
+            api_key: @api_key, project_id: @project_id, zone: @zone,
+            root_volume_size: @root_volume_size
+          )
         end
       end
     end
