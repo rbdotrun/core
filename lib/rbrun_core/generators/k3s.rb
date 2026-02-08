@@ -73,8 +73,8 @@ module RbrunCore
             pg = @config.database_configs[:postgres]
             pg_user = pg.username || "app"
             pg_db = pg.database || "app"
-            env_data["DATABASE_URL"] = "postgresql://#{pg_user}:#{@db_password}@#{@prefix}-postgres:5432/#{pg_db}"
-            env_data["POSTGRES_HOST"] = "#{@prefix}-postgres"
+            env_data["DATABASE_URL"] = Naming.postgres_url(@prefix, pg_user, @db_password, pg_db)
+            env_data["POSTGRES_HOST"] = Naming.postgres(@prefix)
             env_data["POSTGRES_USER"] = pg_user
             env_data["POSTGRES_PASSWORD"] = @db_password
             env_data["POSTGRES_DB"] = pg_db
@@ -84,21 +84,20 @@ module RbrunCore
           @config.service_configs.each do |name, svc_config|
             next unless svc_config.port
 
-            env_var = "#{name.to_s.upcase}_URL"
             protocol = name == :redis ? "redis" : "http"
-            env_data[env_var] = "#{protocol}://#{@prefix}-#{name}:#{svc_config.port}"
+            env_data[Naming.service_env_var(name)] = Naming.service_url(@prefix, name, svc_config.port, protocol:)
           end
 
           @storage_credentials.each do |bucket_name, creds|
-            prefix = "STORAGE_#{bucket_name.to_s.upcase}"
-            env_data["#{prefix}_BUCKET"] = creds[:bucket]
-            env_data["#{prefix}_ACCESS_KEY_ID"] = creds[:access_key_id]
-            env_data["#{prefix}_SECRET_ACCESS_KEY"] = creds[:secret_access_key]
-            env_data["#{prefix}_ENDPOINT"] = creds[:endpoint]
-            env_data["#{prefix}_REGION"] = creds[:region]
+            env_prefix = Naming.storage_env_prefix(bucket_name)
+            env_data["#{env_prefix}_BUCKET"] = creds[:bucket]
+            env_data["#{env_prefix}_ACCESS_KEY_ID"] = creds[:access_key_id]
+            env_data["#{env_prefix}_SECRET_ACCESS_KEY"] = creds[:secret_access_key]
+            env_data["#{env_prefix}_ENDPOINT"] = creds[:endpoint]
+            env_data["#{env_prefix}_REGION"] = creds[:region]
           end
 
-          secret(name: "#{@prefix}-app-secret", data: env_data)
+          secret(name: Naming.app_secret(@prefix), data: env_data)
         end
     end
   end

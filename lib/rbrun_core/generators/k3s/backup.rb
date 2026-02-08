@@ -9,18 +9,19 @@ module RbrunCore
           def backup_manifests
             return [] unless @r2_credentials
 
-            name = "#{@prefix}-postgres-backup"
+            name = Naming.postgres_backup(@prefix)
+            secret_name = Naming.secret_for(name)
             pg = @config.database_configs[:postgres]
             pg_user = pg.username || "app"
             pg_db = pg.database || "app"
 
             [
-              secret(name: "#{name}-secret", data: {
+              secret(name: secret_name, data: {
                 "AWS_ACCESS_KEY_ID" => @r2_credentials[:access_key_id],
                 "AWS_SECRET_ACCESS_KEY" => @r2_credentials[:secret_access_key],
                 "R2_ENDPOINT_URL" => @r2_credentials[:endpoint],
                 "BUCKET" => @r2_credentials[:bucket],
-                "PGHOST" => "#{@prefix}-postgres",
+                "PGHOST" => Naming.postgres(@prefix),
                 "PGUSER" => pg_user,
                 "PGPASSWORD" => @db_password,
                 "PGDATABASE" => pg_db
@@ -44,7 +45,7 @@ module RbrunCore
                             image: pg.image,
                             command: [ "/bin/sh", "-c" ],
                             args: [ backup_script ],
-                            envFrom: [ { secretRef: { name: "#{name}-secret" } } ]
+                            envFrom: [ { secretRef: { name: secret_name } } ]
                           } ]
                         }
                       }

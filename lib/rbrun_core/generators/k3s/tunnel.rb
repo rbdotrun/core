@@ -7,7 +7,7 @@ module RbrunCore
         private
 
           def tunnel_manifest
-            name = "#{@prefix}-cloudflared"
+            name = Naming.cloudflared(@prefix)
             deployment(
               name:, replicas: 1, host_network: true,
               node_selector: { Naming::LABEL_SERVER_GROUP => Naming::MASTER_GROUP },

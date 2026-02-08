@@ -15,8 +15,8 @@ module RbrunCore
           end
 
           def generic_service_manifests(name, svc_config)
-            deployment_name = "#{@prefix}-#{name}"
-            secret_name = "#{deployment_name}-secret"
+            deployment_name = Naming.deployment(@prefix, name)
+            secret_name = Naming.secret_for(deployment_name)
             manifests = []
 
             manifests << secret(name: secret_name, data: svc_config.env.transform_keys(&:to_s)) if svc_config.env.any?
@@ -44,7 +44,7 @@ module RbrunCore
 
             subdomain = svc_config.subdomain
             if subdomain && svc_config.port
-              manifests << ingress(name: deployment_name, hostname: "#{subdomain}.#{@zone}", port: svc_config.port)
+              manifests << ingress(name: deployment_name, hostname: Naming.fqdn(subdomain, @zone), port: svc_config.port)
             end
 
             manifests

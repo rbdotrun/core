@@ -15,13 +15,13 @@ module RbrunCore
           end
 
           def process_manifests(name, process)
-            deployment_name = "#{@prefix}-#{name}"
+            deployment_name = Naming.deployment(@prefix, name)
             subdomain = process.subdomain
             manifests = []
 
             container = {
               name: name.to_s, image: @registry_tag,
-              envFrom: [ { secretRef: { name: "#{@prefix}-app-secret" } } ]
+              envFrom: [ { secretRef: { name: Naming.app_secret(@prefix) } } ]
             }
             if process.env&.any?
               container[:env] = process.env.map { |k, v| { name: k.to_s, value: v.to_s } }
@@ -31,7 +31,7 @@ module RbrunCore
 
             if process.port
               http_get = { path: "/up", port: process.port }
-              http_get[:httpHeaders] = [ { name: "Host", value: "#{subdomain}.#{@zone}" } ] if subdomain && @zone
+              http_get[:httpHeaders] = [ { name: "Host", value: Naming.fqdn(subdomain, @zone) } ] if subdomain && @zone
               container[:readinessProbe] = { httpGet: http_get, initialDelaySeconds: 10, periodSeconds: 10 }
             end
 
@@ -42,7 +42,7 @@ module RbrunCore
                                     containers: [ container ], init_containers:)
             manifests << service(name: deployment_name, port: process.port) if process.port
             if subdomain && process.port
-              manifests << ingress(name: deployment_name, hostname: "#{subdomain}.#{@zone}",
+              manifests << ingress(name: deployment_name, hostname: Naming.fqdn(subdomain, @zone),
                                    port: process.port)
             end
 
@@ -57,7 +57,7 @@ module RbrunCore
                 name: "setup-#{idx}",
                 image: @registry_tag,
                 command: [ "sh", "-c", cmd ],
-                envFrom: [ { secretRef: { name: "#{@prefix}-app-secret" } } ]
+                envFrom: [ { secretRef: { name: Naming.app_secret(@prefix) } } ]
               }
             end
           end

@@ -144,6 +144,52 @@ module RbrunCore
         base = cronjob_name.slice(0, 63 - 8) # leave room for "-m" + 6 digits
         "#{base}-m#{suffix}"
       end
+
+      # ── K8s Resource Names ──
+
+      def deployment(prefix, name)
+        "#{prefix}-#{name}"
+      end
+
+      def secret_for(name)
+        "#{name}-secret"
+      end
+
+      def app_secret(prefix)
+        "#{prefix}-app-secret"
+      end
+
+      def postgres(prefix)
+        "#{prefix}-postgres"
+      end
+
+      def postgres_backup(prefix)
+        "#{prefix}-postgres-backup"
+      end
+
+      def cloudflared(prefix)
+        "#{prefix}-cloudflared"
+      end
+
+      def service_url(prefix, name, port, protocol: "http")
+        "#{protocol}://#{prefix}-#{name}:#{port}"
+      end
+
+      def postgres_url(prefix, user, password, database)
+        "postgresql://#{user}:#{password}@#{postgres(prefix)}:5432/#{database}"
+      end
+
+      def storage_env_prefix(bucket_name)
+        "STORAGE_#{bucket_name.to_s.upcase}"
+      end
+
+      def service_env_var(name)
+        "#{name.to_s.upcase}_URL"
+      end
+
+      def fqdn(subdomain, zone)
+        "#{subdomain}.#{zone}"
+      end
     end
   end
 end

@@ -17,8 +17,8 @@ module RbrunCore
           end
 
           def postgres_manifests(db_config)
-            name = "#{@prefix}-postgres"
-            secret_name = "#{name}-secret"
+            name = Naming.postgres(@prefix)
+            secret_name = Naming.secret_for(name)
             pg_user = db_config.username || "app"
             pg_db = db_config.database || "app"
             node_selector = node_selector_for(db_config.runs_on) ||
