@@ -421,11 +421,9 @@ module RbrunCore
         def backup_script
           prefix = Naming::POSTGRES_BACKUPS_PREFIX
           <<~SH.strip
-            if command -v apk >/dev/null; then
-              apk add --no-cache aws-cli
-            else
-              apt-get update && apt-get install -y awscli
-            fi &&
+            apt-get update && apt-get install -y curl unzip &&
+            curl -sL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip &&
+            unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install &&
             TIMESTAMP=$(date +%Y%m%d-%H%M%S) &&
             pg_dump -h $PGHOST -U $PGUSER -d $PGDATABASE --no-owner --no-acl |
             gzip |
