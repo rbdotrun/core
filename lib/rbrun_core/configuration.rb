@@ -3,11 +3,12 @@
 module RbrunCore
   class Configuration
     attr_reader :compute_config, :cloudflare_config, :claude_config, :database_configs, :service_configs,
-                :app_config, :env_vars
+                :app_config, :env_vars, :storage_config
     attr_accessor :target, :name
 
     def initialize
       @claude_config = Config::Claude.new
+      @storage_config = Config::Storage.new
       @database_configs = {}
       @service_configs = {}
       @app_config = nil
@@ -81,6 +82,19 @@ module RbrunCore
 
     def app?
       @app_config&.processes&.any?
+    end
+
+    # ─────────────────────────────────────────────────────────────
+    # Storage DSL
+    # ─────────────────────────────────────────────────────────────
+
+    def storage
+      yield @storage_config if block_given?
+      @storage_config
+    end
+
+    def storage?
+      @storage_config.any?
     end
 
     # ─────────────────────────────────────────────────────────────

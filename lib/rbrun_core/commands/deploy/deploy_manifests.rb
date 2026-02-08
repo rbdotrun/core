@@ -16,6 +16,7 @@ module RbrunCore
           log("deploy_manifests", "Generating and applying K3s manifests")
 
           r2_credentials = setup_backup_bucket
+          storage_credentials = setup_storage_buckets
 
           generator = Generators::K3s.new(
             @ctx.config,
@@ -24,7 +25,8 @@ module RbrunCore
             db_password: resolve_db_password,
             registry_tag: @ctx.registry_tag,
             tunnel_token: @ctx.tunnel_token,
-            r2_credentials:
+            r2_credentials:,
+            storage_credentials:
           )
 
           kubectl.apply(generator.generate)
@@ -45,6 +47,47 @@ module RbrunCore
             r2.ensure_bucket(bucket_name)
 
             r2.credentials.merge(bucket: bucket_name)
+          end
+
+          def setup_storage_buckets
+            return {} unless @ctx.config.storage? && @ctx.config.cloudflare_configured?
+
+            cf_config = @ctx.config.cloudflare_config
+            r2 = Clients::CloudflareR2.new(api_token: cf_config.api_token, account_id: cf_config.account_id)
+            base_credentials = r2.credentials
+            inferred_origins = collect_inferred_cors_origins
+
+            result = {}
+            @ctx.config.storage_config.each do |name, bucket_config|
+              bucket_name = Naming.storage_bucket(@ctx.config.name, @ctx.target, name)
+              r2.ensure_bucket(bucket_name)
+
+              if bucket_config.cors?
+                cors_config = bucket_config.cors_config(inferred_origins:)
+                r2.set_cors(bucket_name, cors_config)
+              end
+
+              result[name] = base_credentials.merge(bucket: bucket_name)
+            end
+
+            result
+          end
+
+          def collect_inferred_cors_origins
+            return [] unless @ctx.config.cloudflare_configured?
+
+            domain = @ctx.config.cloudflare_config.domain
+            origins = []
+
+            @ctx.config.app_config&.processes&.each do |_name, process|
+              origins << "https://#{process.subdomain}.#{domain}" if process.subdomain
+            end
+
+            @ctx.config.service_configs.each do |_name, service|
+              origins << "https://#{service.subdomain}.#{domain}" if service.subdomain
+            end
+
+            origins.uniq
           end
 
           def resolve_db_password

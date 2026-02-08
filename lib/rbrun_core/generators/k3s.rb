@@ -9,7 +9,8 @@ module RbrunCore
     class K3s
       NAMESPACE = "default"
 
-      def initialize(config, prefix:, zone:, db_password: nil, registry_tag: nil, tunnel_token: nil, r2_credentials: nil)
+      def initialize(config, prefix:, zone:, db_password: nil, registry_tag: nil, tunnel_token: nil, r2_credentials: nil,
+                     storage_credentials: nil)
         @config = config
         @prefix = prefix
         @zone = zone
@@ -17,6 +18,7 @@ module RbrunCore
         @registry_tag = registry_tag
         @tunnel_token = tunnel_token
         @r2_credentials = r2_credentials
+        @storage_credentials = storage_credentials || {}
       end
 
       def generate
@@ -72,6 +74,15 @@ module RbrunCore
             env_var = "#{name.to_s.upcase}_URL"
             protocol = name == :redis ? "redis" : "http"
             env_data[env_var] = "#{protocol}://#{@prefix}-#{name}:#{svc_config.port}"
+          end
+
+          @storage_credentials.each do |bucket_name, creds|
+            prefix = "STORAGE_#{bucket_name.to_s.upcase}"
+            env_data["#{prefix}_BUCKET"] = creds[:bucket]
+            env_data["#{prefix}_ACCESS_KEY_ID"] = creds[:access_key_id]
+            env_data["#{prefix}_SECRET_ACCESS_KEY"] = creds[:secret_access_key]
+            env_data["#{prefix}_ENDPOINT"] = creds[:endpoint]
+            env_data["#{prefix}_REGION"] = creds[:region]
           end
 
           secret(name: "#{@prefix}-app-secret", data: env_data)

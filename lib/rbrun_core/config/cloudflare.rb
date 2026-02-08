@@ -3,7 +3,7 @@
 module RbrunCore
   module Config
     class Cloudflare
-      attr_accessor :api_token, :account_id, :domain, :storage_bucket
+      attr_accessor :api_token, :account_id, :domain
 
       def configured?
         !api_token.nil? && !api_token.empty? &&

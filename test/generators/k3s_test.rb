@@ -226,6 +226,69 @@ module RbrunCore
         assert_includes env_names, "QUEUE"
         assert_includes env_names, "THREADS"
       end
+
+      # ─── Storage Credentials ───
+
+      def test_injects_storage_credentials
+        storage_credentials = {
+          uploads: {
+            bucket: "myapp-production-uploads",
+            access_key_id: "AKID123",
+            secret_access_key: "SECRET456",
+            endpoint: "https://account.r2.cloudflarestorage.com",
+            region: "auto"
+          }
+        }
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               storage_credentials:)
+        manifests = gen.generate
+
+        assert_includes manifests, Base64.strict_encode64("myapp-production-uploads")
+        assert_includes manifests, "STORAGE_UPLOADS_BUCKET"
+      end
+
+      def test_injects_storage_access_key
+        storage_credentials = {
+          uploads: {
+            bucket: "myapp-production-uploads",
+            access_key_id: "AKID123",
+            secret_access_key: "SECRET456",
+            endpoint: "https://account.r2.cloudflarestorage.com",
+            region: "auto"
+          }
+        }
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               storage_credentials:)
+        manifests = gen.generate
+
+        assert_includes manifests, "STORAGE_UPLOADS_ACCESS_KEY_ID"
+        assert_includes manifests, Base64.strict_encode64("AKID123")
+      end
+
+      def test_injects_multiple_storage_buckets
+        storage_credentials = {
+          uploads: {
+            bucket: "myapp-production-uploads",
+            access_key_id: "AKID",
+            secret_access_key: "SECRET",
+            endpoint: "https://r2.com",
+            region: "auto"
+          },
+          assets: {
+            bucket: "myapp-production-assets",
+            access_key_id: "AKID",
+            secret_access_key: "SECRET",
+            endpoint: "https://r2.com",
+            region: "auto"
+          }
+        }
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               storage_credentials:)
+        manifests = gen.generate
+
+        assert_includes manifests, "STORAGE_UPLOADS_BUCKET"
+        assert_includes manifests, "STORAGE_ASSETS_BUCKET"
+      end
     end
   end
 end

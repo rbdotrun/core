@@ -652,6 +652,175 @@ module RbrunCore
         assert_equal "cpx11", config.compute_config.master.instance_type
       end
 
+      # ─── Storage Configuration ───
+
+      def test_loads_storage_buckets
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          storage:
+            uploads:
+              public: true
+            assets:
+              public: false
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_predicate config, :storage?
+        assert_equal 2, config.storage_config.buckets.size
+      end
+
+      def test_loads_storage_bucket_public_option
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          storage:
+            uploads:
+              public: true
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert config.storage_config.buckets[:uploads].public
+      end
+
+      def test_loads_storage_bucket_cors_config
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          storage:
+            uploads:
+              cors:
+                origins:
+                  - https://example.com
+                methods:
+                  - GET
+                  - PUT
+        YAML
+
+        config = load_yaml(yaml)
+
+        bucket = config.storage_config.buckets[:uploads]
+
+        assert_predicate bucket, :cors?
+      end
+
+      def test_loads_storage_bucket_cors_origins
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          storage:
+            uploads:
+              cors:
+                origins:
+                  - https://example.com
+                methods:
+                  - GET
+                  - PUT
+        YAML
+
+        config = load_yaml(yaml)
+
+        cors = config.storage_config.buckets[:uploads].cors_config
+
+        assert_equal [ "https://example.com" ], cors[:allowed_origins]
+      end
+
+      def test_loads_storage_bucket_cors_methods
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          storage:
+            uploads:
+              cors:
+                origins:
+                  - https://example.com
+                methods:
+                  - GET
+                  - PUT
+        YAML
+
+        config = load_yaml(yaml)
+
+        cors = config.storage_config.buckets[:uploads].cors_config
+
+        assert_equal %w[GET PUT], cors[:allowed_methods]
+      end
+
+      def test_loads_storage_bucket_cors_true_inferred
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          storage:
+            uploads:
+              cors: true
+        YAML
+
+        config = load_yaml(yaml)
+
+        bucket = config.storage_config.buckets[:uploads]
+
+        assert_predicate bucket, :cors?
+        assert_predicate bucket, :cors_inferred?
+      end
+
+      def test_loads_storage_bucket_no_cors
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          storage:
+            uploads:
+              public: true
+        YAML
+
+        config = load_yaml(yaml)
+
+        refute_predicate config.storage_config.buckets[:uploads], :cors?
+      end
+
       # ─── Sandbox Mode Validation ───
 
       def test_raises_sandbox_with_service_runs_on

@@ -66,6 +66,14 @@ class NamingTest < Minitest::Test
     assert_equal "myapp-staging", RbrunCore::Naming.release_prefix("myapp", :staging)
   end
 
+  def test_storage_bucket_returns_app_environment_bucket
+    assert_equal "myapp-production-uploads", RbrunCore::Naming.storage_bucket("myapp", "production", "uploads")
+  end
+
+  def test_storage_bucket_with_symbol_args
+    assert_equal "myapp-staging-assets", RbrunCore::Naming.storage_bucket("myapp", :staging, :assets)
+  end
+
   def test_hostname_returns_prefixed_hostname
     assert_equal "rbrun-sandbox-a1b2c3.rb.run", RbrunCore::Naming.hostname(VALID_SLUG, "rb.run")
   end

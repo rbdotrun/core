@@ -41,6 +41,23 @@ module RbrunCore
         client.create_bucket(bucket: bucket_name)
       end
 
+      def set_cors(bucket_name, cors_config)
+        client.put_bucket_cors(
+          bucket: bucket_name,
+          cors_configuration: {
+            cors_rules: [
+              {
+                allowed_origins: cors_config[:allowed_origins],
+                allowed_methods: cors_config[:allowed_methods],
+                allowed_headers: cors_config[:allowed_headers] || [ "*" ],
+                expose_headers: cors_config[:expose_headers] || [],
+                max_age_seconds: cors_config[:max_age_seconds] || 3600
+              }
+            ]
+          }
+        )
+      end
+
       def upload_file(bucket:, key:, body:, content_type: nil)
         options = { bucket:, key:, body: }
         options[:content_type] = content_type if content_type

@@ -124,6 +124,11 @@ module RbrunCore
         "#{app_name}-#{environment}-backups"
       end
 
+      # R2 storage bucket name for app storage.
+      def storage_bucket(app_name, environment, bucket_name)
+        "#{app_name}-#{environment}-#{bucket_name}"
+      end
+
       # Database volume name.
       def database_volume(prefix, type)
         "#{prefix}-#{type}-data"

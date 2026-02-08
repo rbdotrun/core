@@ -37,6 +37,7 @@ module RbrunCore
 
             apply_compute!(config, data["compute"]) if data["compute"]
             apply_cloudflare!(config, data["cloudflare"]) if data["cloudflare"]
+            apply_storage!(config, data["storage"]) if data["storage"]
             apply_claude!(config, data["claude"]) if data["claude"]
             apply_databases!(config, data["databases"]) if data["databases"]
             apply_services!(config, data["services"]) if data["services"]
@@ -93,6 +94,32 @@ module RbrunCore
               cf.api_token = cf_data["api_token"]
               cf.account_id = cf_data["account_id"]
               cf.domain = cf_data["domain"]
+            end
+          end
+
+          def apply_storage!(config, storage_data)
+            storage_data.each do |bucket_name, bucket_data|
+              bucket_data ||= {}
+              config.storage do |s|
+                s.bucket(bucket_name) do |b|
+                  b.public = bucket_data["public"] == true
+                  b.cors = parse_cors(bucket_data["cors"])
+                end
+              end
+            end
+          end
+
+          def parse_cors(cors_value)
+            case cors_value
+            when true
+              true
+            when Hash
+              {
+                origins: cors_value["origins"] || [],
+                methods: cors_value["methods"]
+              }.compact
+            else
+              nil
             end
           end
 
