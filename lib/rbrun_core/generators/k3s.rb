@@ -437,6 +437,10 @@ module RbrunCore
           SH
         end
 
+        # Registry with S3 storage driver for R2.
+        # CHUNKSIZE set to 100MB to fix R2 multipart upload error:
+        # "InvalidPart: All non-trailing parts must have the same length"
+        # R2 requires consistent part sizes; default variable chunking fails.
         def registry_manifest
           return nil unless @r2_credentials
 
