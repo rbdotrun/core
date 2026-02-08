@@ -70,7 +70,8 @@ module RbrunCore
           end
 
           def mount_volume(server, volume, type)
-            ssh = Clients::Ssh.new(host: server.public_ipv4, private_key: @ctx.ssh_private_key)
+            ssh = Clients::Ssh.new(host: server.public_ipv4, private_key: @ctx.ssh_private_key,
+                                   user: Naming.default_user)
             device_path = compute_client.wait_for_device_path(volume.id, ssh)
 
             raise Error::Standard, "Volume #{volume.id} has no device path after attachment" unless device_path
