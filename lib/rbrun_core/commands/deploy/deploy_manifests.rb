@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     class Deploy
       class DeployManifests
-
         HTTP_NODE_PORT = 30_080
 
         def initialize(ctx, on_step: nil, on_rollout_progress: nil)

@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     class Deploy
       class SetupK3s
-
         REGISTRY_PORT = 30_500
         CLUSTER_CIDR = "10.42.0.0/16"
         SERVICE_CIDR = "10.43.0.0/16"

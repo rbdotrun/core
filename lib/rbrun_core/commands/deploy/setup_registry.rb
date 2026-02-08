@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     class Deploy
       class SetupRegistry
-
         REGISTRY_PORT = 30_500
         REGISTRY_TIMEOUT = 60
 

@@ -13,7 +13,6 @@ module RbrunCore
       # Requires source_folder to be set on context.
       # Requires local Docker to be running.
       class BuildImage
-
         REGISTRY_PORT = 30_500
 
         def initialize(ctx, on_step: nil)

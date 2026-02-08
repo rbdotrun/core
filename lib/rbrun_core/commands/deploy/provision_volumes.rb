@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     class Deploy
       class ProvisionVolumes
-
         DEFAULT_VOLUME_SIZE = 10 # GB, not configurable yet
 
         def initialize(ctx, on_step: nil)

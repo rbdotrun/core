@@ -7,7 +7,6 @@ module RbrunCore
     class Deploy
       # Cleans up old local Docker images, keeping the N most recent.
       class CleanupImages
-
         KEEP_IMAGES = 3
 
         def initialize(ctx, on_step: nil)

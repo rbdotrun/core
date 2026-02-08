@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     class DestroySandbox
       class StopContainers
-
         WORKSPACE = "/home/deploy/workspace"
         COMPOSE_FILE = "docker-compose.generated.yml"
 

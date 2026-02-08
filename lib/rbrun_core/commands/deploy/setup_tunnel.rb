@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     class Deploy
       class SetupTunnel
-
         HTTP_NODE_PORT = 30_080
 
         def initialize(ctx, on_step: nil)

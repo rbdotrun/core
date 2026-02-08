@@ -4,7 +4,6 @@ module RbrunCore
   module Commands
     module Shared
       class CreateInfrastructure
-
         def initialize(ctx, on_step: nil)
           @ctx = ctx
           @on_step = on_step
