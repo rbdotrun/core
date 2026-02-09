@@ -9,22 +9,24 @@ Gem::Specification.new do |s|
   s.summary     = 'Idempotent cloud deployment core'
   s.description = 'Standalone library for provisioning cloud infrastructure and deploying applications. No database or Rails dependencies.'
   s.license     = 'MIT'
+  s.homepage    = 'https://rb.run'
 
   s.required_ruby_version = '>= 3.2'
 
   s.files = Dir['lib/**/*', 'LICENSE', 'README.md']
   s.require_paths = [ 'lib' ]
 
-  s.add_dependency 'base64'
-  s.add_dependency 'bcrypt_pbkdf', '>= 1.0'
-  s.add_dependency 'ed25519', '>= 1.2'
+  s.add_dependency 'base64', '~> 0.2'
+  s.add_dependency 'bcrypt_pbkdf', '~> 1.0'
+  s.add_dependency 'ed25519', '~> 1.2'
   s.add_dependency 'faraday', '~> 2.0'
   s.add_dependency 'faraday-multipart', '~> 1.0'
   s.add_dependency 'sshkey', '~> 3.0'
   s.add_dependency 'aws-sdk-ec2', '~> 1.0'
+  s.add_dependency 'aws-sdk-elasticloadbalancingv2', '~> 1.0'
   s.add_dependency 'aws-sigv4', '~> 1.0'
   s.add_dependency 'httpx', '~> 1.0'
-  s.add_dependency 'rexml'
+  s.add_dependency 'rexml', '~> 3.0'
   s.add_dependency 'net-ssh', '~> 7.0'
   s.add_dependency 'net-scp', '~> 4.0'
   s.add_dependency 'zeitwerk', '~> 2.6'

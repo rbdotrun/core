@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "aws-sdk-ec2"
+require "aws-sdk-elasticloadbalancingv2"
 
 module RbrunCore
   module Clients
@@ -10,7 +11,7 @@ module RbrunCore
 
         CANONICAL_OWNER_ID = "099720109477"
         VPC_CIDR = "10.0.0.0/16"
-        SUBNET_CIDR = "10.0.1.0/24"
+        SUBNET_CIDRS = [ "10.0.1.0/24", "10.0.2.0/24" ].freeze
 
         def initialize(access_key_id:, secret_access_key:, region:)
           raise Error::Standard, "AWS access_key_id not configured" if access_key_id.nil? || access_key_id.empty?
@@ -20,11 +21,9 @@ module RbrunCore
           end
 
           @region = region
-          @ec2 = ::Aws::EC2::Client.new(
-            region:,
-            credentials: ::Aws::Credentials.new(access_key_id, secret_access_key),
-            ssl_verify_peer: false
-          )
+          credentials = ::Aws::Credentials.new(access_key_id, secret_access_key)
+          @ec2 = ::Aws::EC2::Client.new(region:, credentials:, ssl_verify_peer: false)
+          @elbv2 = ::Aws::ElasticLoadBalancingV2::Client.new(region:, credentials:, ssl_verify_peer: false)
         end
 
         # Server methods
@@ -142,15 +141,16 @@ module RbrunCore
           nil
         end
 
-        # Network methods (VPC + Subnet + IGW + Route Table)
+        # Network methods (VPC + Subnets + IGW + Route Table)
+        # Creates subnets in 2 AZs for ALB compatibility
         def find_or_create_network(name, location:)
           existing = find_network(name)
           return existing if existing
 
           vpc_id = create_vpc(name)
-          subnet_id = create_subnet(vpc_id, name)
+          subnet_ids = create_subnets(vpc_id, name)
           igw_id = create_internet_gateway(vpc_id, name)
-          setup_route_table(vpc_id, subnet_id, igw_id, name)
+          setup_route_table(vpc_id, subnet_ids, igw_id, name)
 
           find_network(name)
         end
@@ -168,6 +168,95 @@ module RbrunCore
           @ec2.delete_vpc(vpc_id: id)
         rescue ::Aws::EC2::Errors::InvalidVpcIDNotFound
           nil
+        end
+
+        # Load Balancer Management (ELBv2 - Application Load Balancer)
+        # AWS ALB requires subnets in 2+ AZs, uses target groups + listeners
+
+        def find_or_create_load_balancer(name:, type: "application", location: nil, network_id: nil,
+                                         firewall_ids: [], labels: {})
+          existing = find_load_balancer(name)
+          return existing if existing
+
+          subnet_ids = network_id ? find_subnets_for_network(network_id) : []
+          raise Error::Standard, "ALB requires at least 2 subnets in different AZs" if subnet_ids.length < 2
+
+          params = {
+            name:, subnets: subnet_ids,
+            scheme: "internet-facing",
+            type:, ip_address_type: "ipv4"
+          }
+          params[:security_groups] = firewall_ids if firewall_ids&.any?
+          params[:tags] = labels.map { |k, v| { key: k.to_s, value: v.to_s } } if labels&.any?
+
+          response = @elbv2.create_load_balancer(params)
+          lb = response.load_balancers.first
+
+          @elbv2.wait_until(:load_balancer_available, load_balancer_arns: [ lb.load_balancer_arn ])
+          to_load_balancer(lb)
+        end
+
+        def find_load_balancer(name)
+          response = @elbv2.describe_load_balancers(names: [ name ])
+          lb = response.load_balancers.first
+          lb ? to_load_balancer(lb) : nil
+        rescue ::Aws::ElasticLoadBalancingV2::Errors::LoadBalancerNotFound
+          nil
+        end
+
+        def list_load_balancers(**filters)
+          response = @elbv2.describe_load_balancers
+          response.load_balancers.map { |lb| to_load_balancer(lb) }
+        end
+
+        def delete_load_balancer(id)
+          # id is the ARN for AWS
+          @elbv2.delete_load_balancer(load_balancer_arn: id)
+
+          # Clean up associated target groups
+          cleanup_target_groups(id)
+        rescue ::Aws::ElasticLoadBalancingV2::Errors::LoadBalancerNotFound
+          nil
+        end
+
+        def attach_load_balancer_to_network(load_balancer_id:, network_id:)
+          # AWS ALBs are associated with VPC via subnets at creation time.
+          # No-op: the VPC/subnet association is set in find_or_create_load_balancer.
+        end
+
+        def add_load_balancer_target(load_balancer_id:, server_id:, use_private_ip: false)
+          tg = find_or_create_default_target_group(load_balancer_id)
+
+          @elbv2.register_targets(
+            target_group_arn: tg.target_group_arn,
+            targets: [ { id: server_id } ]
+          )
+        rescue ::Aws::ElasticLoadBalancingV2::Errors::InvalidTarget
+          raise Error::Standard, "Cannot register target #{server_id}"
+        end
+
+        def add_load_balancer_service(load_balancer_id:, protocol: "tcp", listen_port: 443,
+                                      destination_port: 443, health_check: {})
+          tg = find_or_create_default_target_group(load_balancer_id, port: destination_port,
+                                                   health_check: health_check)
+
+          # Check if listener already exists
+          existing = @elbv2.describe_listeners(load_balancer_arn: load_balancer_id)
+          return if existing.listeners.any? { |l| l.port == listen_port }
+
+          # ALB uses HTTP/HTTPS, not raw TCP
+          alb_protocol = listen_port == 443 ? "HTTPS" : "HTTP"
+
+          params = {
+            load_balancer_arn: load_balancer_id,
+            protocol: alb_protocol,
+            port: listen_port,
+            default_actions: [ { type: "forward", target_group_arn: tg.target_group_arn } ]
+          }
+
+          @elbv2.create_listener(params)
+        rescue ::Aws::ElasticLoadBalancingV2::Errors::DuplicateListener
+          # Already exists
         end
 
         # Validation
@@ -193,7 +282,8 @@ module RbrunCore
           {
             servers: list_servers,
             firewalls: list_firewalls,
-            networks: list_networks
+            networks: list_networks,
+            load_balancers: list_load_balancers
           }
         end
 
@@ -293,15 +383,27 @@ module RbrunCore
             vpc_id
           end
 
-          def create_subnet(vpc_id, name)
-            az = "#{@region}a"
-            subnet = @ec2.create_subnet(vpc_id:, cidr_block: SUBNET_CIDR, availability_zone: az)
-            subnet_id = subnet.subnet.subnet_id
-            tag_resource(subnet_id, "#{name}-subnet")
+          def create_subnets(vpc_id, name)
+            azs = available_azs
+            SUBNET_CIDRS.each_with_index.map do |cidr, i|
+              az = azs[i] || "#{@region}#{("a".ord + i).chr}"
+              subnet = @ec2.create_subnet(vpc_id:, cidr_block: cidr, availability_zone: az)
+              subnet_id = subnet.subnet.subnet_id
+              tag_resource(subnet_id, "#{name}-subnet-#{az}")
 
-            @ec2.modify_subnet_attribute(subnet_id:, map_public_ip_on_launch: { value: true })
+              @ec2.modify_subnet_attribute(subnet_id:, map_public_ip_on_launch: { value: true })
 
-            subnet_id
+              subnet_id
+            end
+          end
+
+          def available_azs
+            response = @ec2.describe_availability_zones(
+              filters: [ { name: "state", values: [ "available" ] } ]
+            )
+            response.availability_zones.map(&:zone_name).sort.first(2)
+          rescue ::Aws::EC2::Errors::ServiceError
+            [ "#{@region}a", "#{@region}b" ]
           end
 
           def create_internet_gateway(vpc_id, name)
@@ -313,13 +415,15 @@ module RbrunCore
             igw_id
           end
 
-          def setup_route_table(vpc_id, subnet_id, igw_id, name)
+          def setup_route_table(vpc_id, subnet_ids, igw_id, name)
             route_tables = @ec2.describe_route_tables(filters: [ { name: "vpc-id", values: [ vpc_id ] } ])
             rtb_id = route_tables.route_tables.first.route_table_id
             tag_resource(rtb_id, "#{name}-rtb")
 
             @ec2.create_route(route_table_id: rtb_id, destination_cidr_block: "0.0.0.0/0", gateway_id: igw_id)
-            @ec2.associate_route_table(route_table_id: rtb_id, subnet_id:)
+            subnet_ids.each do |subnet_id|
+              @ec2.associate_route_table(route_table_id: rtb_id, subnet_id:)
+            end
           end
 
           def delete_subnets(vpc_id)
@@ -414,8 +518,75 @@ module RbrunCore
             response.subnets.first&.subnet_id
           end
 
+          def find_subnets_for_network(vpc_id)
+            response = @ec2.describe_subnets(filters: [ { name: "vpc-id", values: [ vpc_id ] } ])
+            response.subnets.map(&:subnet_id)
+          end
+
           def tag_resource(resource_id, name)
             @ec2.create_tags(resources: [ resource_id ], tags: [ { key: "Name", value: name } ])
+          end
+
+          # Load balancer helpers
+
+          def find_or_create_default_target_group(lb_arn, port: 443, health_check: {})
+            # Derive target group name from LB name
+            lb = @elbv2.describe_load_balancers(load_balancer_arns: [ lb_arn ]).load_balancers.first
+            tg_name = "#{lb.load_balancer_name}-tg"[0, 32]
+
+            existing = find_target_group(tg_name)
+            return existing if existing
+
+            params = {
+              name: tg_name,
+              protocol: "HTTP",
+              port:,
+              vpc_id: lb.vpc_id,
+              target_type: "instance",
+              health_check_protocol: "HTTP",
+              health_check_path: health_check[:path] || "/",
+              health_check_interval_seconds: health_check[:interval] || 30,
+              health_check_timeout_seconds: health_check[:timeout] || 5,
+              healthy_threshold_count: 3,
+              unhealthy_threshold_count: 2
+            }
+
+            response = @elbv2.create_target_group(params)
+            response.target_groups.first
+          end
+
+          def find_target_group(name)
+            response = @elbv2.describe_target_groups(names: [ name ])
+            response.target_groups.first
+          rescue ::Aws::ElasticLoadBalancingV2::Errors::TargetGroupNotFound
+            nil
+          end
+
+          def cleanup_target_groups(lb_arn)
+            response = @elbv2.describe_target_groups
+            response.target_groups.each do |tg|
+              next unless tg.load_balancer_arns.include?(lb_arn)
+
+              @elbv2.delete_target_group(target_group_arn: tg.target_group_arn)
+            rescue ::Aws::ElasticLoadBalancingV2::Errors::ResourceInUse
+              # LB still draining, skip
+            end
+          rescue ::Aws::ElasticLoadBalancingV2::Errors::ServiceError
+            # Best effort
+          end
+
+          def to_load_balancer(lb)
+            Types::LoadBalancer.new(
+              id: lb.load_balancer_arn,
+              name: lb.load_balancer_name,
+              public_ipv4: lb.dns_name,
+              type: lb.type,
+              location: lb.availability_zones&.map { |az| az.zone_name }&.join(","),
+              targets: [],
+              services: [],
+              labels: {},
+              created_at: lb.created_time&.iso8601
+            )
           end
 
           # Type converters

@@ -132,6 +132,34 @@ module RbrunCore
         delete("/zones/#{zone_id}/dns_records/#{record_id}")
       end
 
+      # Generic DNS Record Management
+
+      def ensure_a_record(zone_id, hostname, ip, proxied: true)
+        ensure_record(zone_id, hostname, ip, type: "A", proxied:)
+      end
+
+      def ensure_cname_record(zone_id, hostname, target, proxied: true)
+        ensure_record(zone_id, hostname, target, type: "CNAME", proxied:)
+      end
+
+      def ensure_record(zone_id, hostname, content, type:, proxied: true, ttl: 1)
+        existing = find_dns_record(zone_id, hostname, type:)
+
+        if existing
+          return existing if existing["content"] == content
+
+          return update_generic_record(zone_id, existing["id"], hostname, content, type:, proxied:, ttl:)
+        end
+
+        create_generic_record(zone_id, hostname, content, type:, proxied:, ttl:)
+      end
+
+      # SSL Settings
+
+      def set_ssl_mode(zone_id, mode)
+        patch("/zones/#{zone_id}/settings/ssl", { value: mode })
+      end
+
       # High-Level Setup
       def setup_tunnel(tunnel_name:, hostname:, service_url:, zone_domain:)
         tunnel = find_or_create_tunnel(tunnel_name)
@@ -165,7 +193,7 @@ module RbrunCore
 
       # Workers
       def worker_name(slug)
-        Naming.worker(slug)
+        Sandbox::Naming.worker(slug)
       end
 
       def deploy_worker(slug, access_token:, ws_url: nil, api_url: nil)
@@ -184,7 +212,7 @@ module RbrunCore
       end
 
       def create_worker_route(zone_id, slug, domain)
-        pattern = Naming.worker_route(slug, domain)
+        pattern = Sandbox::Naming.worker_route(slug, domain)
         name = worker_name(slug)
 
         existing = find_worker_route(zone_id, pattern)
@@ -274,6 +302,22 @@ module RbrunCore
           response = put(
             "/zones/#{zone_id}/dns_records/#{record_id}",
             { type: "CNAME", name: hostname, content:, proxied: true, ttl: 1 }
+          )
+          response["result"]
+        end
+
+        def create_generic_record(zone_id, hostname, content, type:, proxied:, ttl:)
+          response = post(
+            "/zones/#{zone_id}/dns_records",
+            { type:, name: hostname, content:, proxied:, ttl: }
+          )
+          response["result"]
+        end
+
+        def update_generic_record(zone_id, record_id, hostname, content, type:, proxied:, ttl:)
+          response = put(
+            "/zones/#{zone_id}/dns_records/#{record_id}",
+            { type:, name: hostname, content:, proxied:, ttl: }
           )
           response["result"]
         end

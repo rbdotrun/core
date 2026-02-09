@@ -25,6 +25,18 @@ module RbrunCore
           :id, :name, :size, :server_id, :location, :labels, :created_at, :device_path, :status,
           keyword_init: true
         )
+
+        LoadBalancer = Struct.new(
+          :id, :name, :public_ipv4, :type, :location,
+          :targets, :services, :labels, :created_at,
+          keyword_init: true
+        )
+
+        Certificate = Struct.new(
+          :id, :name, :domain_names, :type, :status,
+          :not_valid_after, :created_at,
+          keyword_init: true
+        )
       end
     end
   end

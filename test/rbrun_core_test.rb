@@ -15,8 +15,10 @@ class RbrunCoreTest < Minitest::Test
     assert_kind_of Class, RbrunCore::Context
   end
 
-  def test_exposes_commands_module
-    assert_kind_of Module, RbrunCore::Commands
+  def test_exposes_strategy_modules
+    assert_kind_of Module, RbrunCore::K3s
+    assert_kind_of Module, RbrunCore::Sandbox
+    assert_kind_of Module, RbrunCore::Kamal
   end
 
   def test_exposes_clients_module

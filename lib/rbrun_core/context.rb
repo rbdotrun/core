@@ -14,7 +14,7 @@ module RbrunCore
     def initialize(config:, slug: nil, branch: nil)
       @config = config
       @target = config.target.to_sym
-      @slug = slug || Naming.generate_slug
+      @slug = slug || Sandbox::Naming.generate_slug
       @branch = branch || auto_detect_branch
       @state = :pending
       @servers = {}
@@ -24,7 +24,7 @@ module RbrunCore
 
     def prefix
       case target
-      when :sandbox then Naming.resource(slug)
+      when :sandbox then Sandbox::Naming.resource(slug)
       else Naming.release_prefix(config.name, target)
       end
     end

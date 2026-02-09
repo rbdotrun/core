@@ -1,0 +1,11 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "rbrun_cli"
+
+begin
+  RbrunCli::Cli.start(ARGV)
+rescue Interrupt
+  puts "\nAborted."
+  exit 130
+end

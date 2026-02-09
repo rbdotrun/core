@@ -127,7 +127,7 @@ class TargetPropagationTest < Minitest::Test
   end
 
   def test_database_volume_includes_prefix
-    volume = RbrunCore::Naming.database_volume("myapp-staging", :postgres)
+    volume = RbrunCore::K3s::Naming.database_volume("myapp-staging", :postgres)
 
     assert_equal "myapp-staging-postgres-data", volume
   end
@@ -138,7 +138,7 @@ class TargetPropagationTest < Minitest::Test
     config = build_config_with_app
     prefix = "myapp-staging"
 
-    generator = RbrunCore::Generators::K3s.new(
+    generator = RbrunCore::K3s::Generators.new(
       config, prefix:, zone: "test.dev", db_password: "secret", registry_tag: "test:latest"
     )
 
@@ -148,15 +148,15 @@ class TargetPropagationTest < Minitest::Test
     deployment = manifests.find { |m| m&.dig("kind") == "Deployment" && m.dig("metadata", "name")&.include?("web") }
 
     assert deployment, "Should have a web deployment"
-    assert_equal prefix, deployment.dig("metadata", "labels", RbrunCore::Naming::LABEL_INSTANCE)
-    assert_equal prefix, deployment.dig("spec", "template", "metadata", "labels", RbrunCore::Naming::LABEL_INSTANCE)
+    assert_equal prefix, deployment.dig("metadata", "labels", RbrunCore::K3s::Naming::LABEL_INSTANCE)
+    assert_equal prefix, deployment.dig("spec", "template", "metadata", "labels", RbrunCore::K3s::Naming::LABEL_INSTANCE)
   end
 
   def test_k3s_generator_service_names_include_prefix
     config = build_config_with_app
     prefix = "myapp-staging"
 
-    generator = RbrunCore::Generators::K3s.new(
+    generator = RbrunCore::K3s::Generators.new(
       config, prefix:, zone: "test.dev", db_password: "secret", registry_tag: "test:latest"
     )
 
@@ -174,7 +174,7 @@ class TargetPropagationTest < Minitest::Test
     config = build_config_with_postgres
     prefix = "myapp-staging"
 
-    generator = RbrunCore::Generators::K3s.new(
+    generator = RbrunCore::K3s::Generators.new(
       config, prefix:, zone: "test.dev", db_password: "secret", registry_tag: "test:latest"
     )
 
@@ -190,7 +190,7 @@ class TargetPropagationTest < Minitest::Test
     config = build_config_with_app
     prefix = "myapp-production"
 
-    generator = RbrunCore::Generators::K3s.new(
+    generator = RbrunCore::K3s::Generators.new(
       config, prefix:, zone: "test.dev", db_password: "secret", registry_tag: "test:latest"
     )
 
