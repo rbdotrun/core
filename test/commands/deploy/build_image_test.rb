@@ -22,7 +22,7 @@ module RbrunCore
           step = BuildImage.new(@ctx)
 
           with_fake_ssh_tunnel do
-            step.stub(:execute_docker, true) do
+            step.stub(:system, true) do
               step.run
             end
           end
@@ -36,7 +36,7 @@ module RbrunCore
           step = BuildImage.new(@ctx, on_step: steps)
 
           with_fake_ssh_tunnel do
-            step.stub(:execute_docker, true) do
+            step.stub(:system, true) do
               step.run
             end
           end
@@ -63,7 +63,7 @@ module RbrunCore
             captured_args = { host:, private_key:, user: }
             fake_client
           }) do
-            step.stub(:execute_docker, true) do
+            step.stub(:system, true) do
               step.run
             end
           end
@@ -84,7 +84,7 @@ module RbrunCore
           end
 
           Clients::Ssh.stub(:new, fake_client) do
-            step.stub(:execute_docker, true) do
+            step.stub(:system, true) do
               step.run
             end
           end
@@ -99,8 +99,8 @@ module RbrunCore
           docker_commands = []
 
           with_fake_ssh_tunnel do
-            step.stub(:execute_docker, ->(*args, **_opts) {
-              docker_commands << args
+            step.stub(:system, ->(*args, **_opts) {
+              docker_commands << args.drop(1) # drop "docker" prefix
               true
             }) do
               step.run
@@ -112,17 +112,6 @@ module RbrunCore
           assert_equal "tag", docker_commands[2][0]
           assert_equal "tag", docker_commands[3][0]
           assert_equal 4, docker_commands.size
-        end
-
-        def test_docker_output_is_indented
-          step = BuildImage.new(@ctx)
-          output = StringIO.new
-
-          $stdout = output
-          step.send(:emit_docker_line, "Building layer 1\n")
-          $stdout = STDOUT
-
-          assert_equal "    Building layer 1\n", output.string
         end
 
         private

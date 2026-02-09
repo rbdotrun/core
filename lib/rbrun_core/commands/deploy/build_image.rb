@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "open3"
-
 module RbrunCore
   module Commands
     class Deploy
@@ -77,21 +75,9 @@ module RbrunCore
           end
 
           def run_docker!(*args, chdir: nil)
-            success = execute_docker(*args, chdir: chdir) { |line| emit_docker_line(line) }
-            raise Error::Standard, "docker #{args.first} failed" unless success
-          end
-
-          def execute_docker(*args, chdir: nil)
             opts = chdir ? { chdir: } : {}
-
-            Open3.popen2e("docker", *args, **opts) do |_stdin, stdout_err, wait_thr|
-              stdout_err.each_line { |line| yield line if block_given? }
-              wait_thr.value.success?
-            end
-          end
-
-          def emit_docker_line(line)
-            $stdout.print "    #{line}"
+            success = system("docker", *args, **opts)
+            raise Error::Standard, "docker #{args.first} failed" unless success
           end
       end
     end
