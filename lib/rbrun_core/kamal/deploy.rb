@@ -89,9 +89,10 @@ module RbrunCore
 
           lb = compute_client.find_or_create_load_balancer(
             name: "#{prefix}-lb",
-            type: "lb11",
+            type: lb_type,
             location:,
-            network_id: @network&.id
+            network_id: @network&.id,
+            firewall_ids: [ @firewall&.id ].compact
           )
           @load_balancer = lb
 
@@ -218,6 +219,15 @@ module RbrunCore
 
         def server_type
           @ctx.config.compute_config&.master&.instance_type || "cpx21"
+        end
+
+        def lb_type
+          case compute_client
+          when Clients::Compute::Hetzner then "lb11"
+          when Clients::Compute::Scaleway then "lb-s"
+          when Clients::Compute::Aws then "application"
+          else "lb11"
+          end
         end
 
         def location

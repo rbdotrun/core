@@ -277,7 +277,7 @@ module RbrunCore
 
         # Load Balancer Management
 
-        def find_or_create_load_balancer(name:, type: "lb11", location:, network_id: nil, labels: {})
+        def find_or_create_load_balancer(name:, type: "lb11", location:, network_id: nil, firewall_ids: [], labels: {})
           existing = find_load_balancer(name)
           return existing if existing
 
