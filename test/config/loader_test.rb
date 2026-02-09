@@ -188,7 +188,23 @@ module RbrunCore
       end
 
       def test_loads_databases
-        yaml = <<~YAML
+        config = load_yaml(database_yaml)
+
+        assert config.database?(:postgres)
+        assert_equal "pgvector/pgvector:pg17", config.database_configs[:postgres].image
+      end
+
+      def test_loads_database_credentials
+        config = load_yaml(database_yaml)
+        pg = config.database_configs[:postgres]
+
+        assert_equal "myuser", pg.username
+        assert_equal "mypassword", pg.password
+        assert_equal "mydb", pg.database
+      end
+
+      def database_yaml
+        <<~YAML
           name: testapp
           target: production
           compute:
@@ -204,14 +220,6 @@ module RbrunCore
               password: mypassword
               database: mydb
         YAML
-
-        config = load_yaml(yaml)
-
-        assert config.database?(:postgres)
-        assert_equal "pgvector/pgvector:pg17", config.database_configs[:postgres].image
-        assert_equal "myuser", config.database_configs[:postgres].username
-        assert_equal "mypassword", config.database_configs[:postgres].password
-        assert_equal "mydb", config.database_configs[:postgres].database
       end
 
       def test_database_requires_username
