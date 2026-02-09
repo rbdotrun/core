@@ -61,7 +61,6 @@ module RbrunCore
             run_docker!(
               "buildx", "build",
               "--platform", platform,
-              "--pull",
               "-f", dockerfile,
               "-t", registry_tag,
               "--output=type=registry,registry.insecure=true",
