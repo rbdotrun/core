@@ -74,13 +74,13 @@ module RbrunCore
         end
 
         def build_node_groups
-          provider = @config.compute_config.provider_name
+          client = @config.compute_config.client
           groups = {
-            master: InstanceTypes.memory_mb(provider, @config.compute_config.master.instance_type)
+            master: client.server_type_memory_mb(@config.compute_config.master.instance_type)
           }
 
           @config.compute_config.servers.each do |name, server_group|
-            groups[name] = InstanceTypes.memory_mb(provider, server_group.type)
+            groups[name] = client.server_type_memory_mb(server_group.type)
           end
 
           groups

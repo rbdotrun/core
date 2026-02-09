@@ -77,6 +77,11 @@ module RbrunCore
         def validate_credentials
           raise NotImplementedError, "#{self.class}#validate_credentials not implemented"
         end
+
+        # Server type info
+        def server_type_memory_mb(instance_type)
+          raise NotImplementedError, "#{self.class}#server_type_memory_mb not implemented"
+        end
       end
     end
   end
