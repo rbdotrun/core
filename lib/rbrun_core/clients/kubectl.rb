@@ -74,7 +74,7 @@ module RbrunCore
       def get_pod_name(deployment, namespace: "default")
         cmd = [
           "kubectl", "get", "pods",
-          "-l", "#{Naming::LABEL_APP}=#{deployment}",
+          "-l", "#{K3s::Naming::LABEL_APP}=#{deployment}",
           "-n", namespace,
           "-o", "jsonpath='{.items[0].metadata.name}'"
         ]
@@ -91,7 +91,7 @@ module RbrunCore
       end
 
       def create_job_from_cronjob(cronjob_name, namespace: "default")
-        job_name = Naming.manual_job(cronjob_name)
+        job_name = K3s::Naming.manual_job(cronjob_name)
         cmd = [ "kubectl", "create", "job", job_name, "--from=cronjob/#{cronjob_name}", "-n", namespace ]
         run!(cmd.join(" "))
         job_name
@@ -138,7 +138,7 @@ module RbrunCore
 
           {
             name: pod.dig("metadata", "name"),
-            app: pod.dig("metadata", "labels", Naming::LABEL_APP),
+            app: pod.dig("metadata", "labels", K3s::Naming::LABEL_APP),
             ready_count:,
             total:,
             status:,

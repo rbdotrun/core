@@ -6,59 +6,59 @@ class NamingTest < Minitest::Test
   VALID_SLUG = "a1b2c3"
 
   def test_prefix_is_rbrun_sandbox
-    assert_equal "rbrun-sandbox", RbrunCore::Naming::PREFIX
+    assert_equal "rbrun-sandbox", RbrunCore::Sandbox::Naming::PREFIX
   end
 
   def test_slug_length_is_6
-    assert_equal 6, RbrunCore::Naming::SLUG_LENGTH
+    assert_equal 6, RbrunCore::Sandbox::Naming::SLUG_LENGTH
   end
 
   def test_generate_slug_returns_6_hex_chars
-    slug = RbrunCore::Naming.generate_slug
+    slug = RbrunCore::Sandbox::Naming.generate_slug
 
     assert_equal 6, slug.length
     assert_match(/\A[a-f0-9]{6}\z/, slug)
   end
 
   def test_generate_slug_returns_unique_values
-    slugs = 100.times.map { RbrunCore::Naming.generate_slug }
+    slugs = 100.times.map { RbrunCore::Sandbox::Naming.generate_slug }
 
     assert_equal 100, slugs.uniq.size
   end
 
   def test_valid_slug_true_for_valid
-    assert RbrunCore::Naming.valid_slug?(VALID_SLUG)
+    assert RbrunCore::Sandbox::Naming.valid_slug?(VALID_SLUG)
   end
 
   def test_valid_slug_false_for_nil_and_empty
-    refute RbrunCore::Naming.valid_slug?(nil)
-    refute RbrunCore::Naming.valid_slug?("")
-    refute RbrunCore::Naming.valid_slug?("abc")
+    refute RbrunCore::Sandbox::Naming.valid_slug?(nil)
+    refute RbrunCore::Sandbox::Naming.valid_slug?("")
+    refute RbrunCore::Sandbox::Naming.valid_slug?("abc")
   end
 
   def test_valid_slug_false_for_wrong_format
-    refute RbrunCore::Naming.valid_slug?("ABCDEF")
-    refute RbrunCore::Naming.valid_slug?("a1b2cg")
+    refute RbrunCore::Sandbox::Naming.valid_slug?("ABCDEF")
+    refute RbrunCore::Sandbox::Naming.valid_slug?("a1b2cg")
   end
 
   def test_validate_slug_raises_for_invalid
-    assert_raises(ArgumentError) { RbrunCore::Naming.validate_slug!("invalid") }
+    assert_raises(ArgumentError) { RbrunCore::Sandbox::Naming.validate_slug!("invalid") }
   end
 
   def test_resource_returns_prefixed_name
-    assert_equal "rbrun-sandbox-a1b2c3", RbrunCore::Naming.resource(VALID_SLUG)
+    assert_equal "rbrun-sandbox-a1b2c3", RbrunCore::Sandbox::Naming.resource(VALID_SLUG)
   end
 
   def test_resource_raises_for_invalid_slug
-    assert_raises(ArgumentError) { RbrunCore::Naming.resource("bad") }
+    assert_raises(ArgumentError) { RbrunCore::Sandbox::Naming.resource("bad") }
   end
 
   def test_container_returns_prefixed_name_with_role
-    assert_equal "rbrun-sandbox-a1b2c3-app", RbrunCore::Naming.container(VALID_SLUG, "app")
+    assert_equal "rbrun-sandbox-a1b2c3-app", RbrunCore::Sandbox::Naming.container(VALID_SLUG, "app")
   end
 
   def test_branch_returns_prefixed_branch
-    assert_equal "rbrun-sandbox/a1b2c3", RbrunCore::Naming.branch(VALID_SLUG)
+    assert_equal "rbrun-sandbox/a1b2c3", RbrunCore::Sandbox::Naming.branch(VALID_SLUG)
   end
 
   def test_release_prefix_returns_app_environment
@@ -80,43 +80,43 @@ class NamingTest < Minitest::Test
   end
 
   def test_postgres_backups_prefix_constant
-    assert_equal "postgres-backups/", RbrunCore::Naming::POSTGRES_BACKUPS_PREFIX
+    assert_equal "postgres-backups/", RbrunCore::K3s::Naming::POSTGRES_BACKUPS_PREFIX
   end
 
   def test_docker_registry_prefix_constant
-    assert_equal "docker-registry", RbrunCore::Naming::DOCKER_REGISTRY_PREFIX
+    assert_equal "docker-registry", RbrunCore::K3s::Naming::DOCKER_REGISTRY_PREFIX
   end
 
   def test_hostname_returns_prefixed_hostname
-    assert_equal "rbrun-sandbox-a1b2c3.rb.run", RbrunCore::Naming.hostname(VALID_SLUG, "rb.run")
+    assert_equal "rbrun-sandbox-a1b2c3.rb.run", RbrunCore::Sandbox::Naming.hostname(VALID_SLUG, "rb.run")
   end
 
   def test_self_hosted_preview_url_returns_https
     assert_equal "https://rbrun-sandbox-a1b2c3.rb.run",
-                 RbrunCore::Naming.self_hosted_preview_url(VALID_SLUG, "rb.run")
+                 RbrunCore::Sandbox::Naming.self_hosted_preview_url(VALID_SLUG, "rb.run")
   end
 
   def test_worker_returns_prefixed_worker_name
-    assert_equal "rbrun-sandbox-widget-a1b2c3", RbrunCore::Naming.worker(VALID_SLUG)
+    assert_equal "rbrun-sandbox-widget-a1b2c3", RbrunCore::Sandbox::Naming.worker(VALID_SLUG)
   end
 
   def test_worker_route_returns_route_pattern
-    assert_equal "rbrun-sandbox-a1b2c3.rb.run/*", RbrunCore::Naming.worker_route(VALID_SLUG, "rb.run")
+    assert_equal "rbrun-sandbox-a1b2c3.rb.run/*", RbrunCore::Sandbox::Naming.worker_route(VALID_SLUG, "rb.run")
   end
 
   def test_roundtrip
-    slug = RbrunCore::Naming.generate_slug
-    RbrunCore::Naming.resource(slug)
-    RbrunCore::Naming.container(slug, "app")
-    RbrunCore::Naming.branch(slug)
-    RbrunCore::Naming.hostname(slug, "rb.run")
-    RbrunCore::Naming.worker(slug)
+    slug = RbrunCore::Sandbox::Naming.generate_slug
+    RbrunCore::Sandbox::Naming.resource(slug)
+    RbrunCore::Sandbox::Naming.container(slug, "app")
+    RbrunCore::Sandbox::Naming.branch(slug)
+    RbrunCore::Sandbox::Naming.hostname(slug, "rb.run")
+    RbrunCore::Sandbox::Naming.worker(slug)
   end
 
   def test_slug_extractable_from_resource
-    slug = RbrunCore::Naming.generate_slug
-    resource = RbrunCore::Naming.resource(slug)
-    extracted = resource.match(RbrunCore::Naming.resource_regex)[1]
+    slug = RbrunCore::Sandbox::Naming.generate_slug
+    resource = RbrunCore::Sandbox::Naming.resource(slug)
+    extracted = resource.match(RbrunCore::Sandbox::Naming.resource_regex)[1]
 
     assert_equal slug, extracted
   end

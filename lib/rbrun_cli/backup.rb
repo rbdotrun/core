@@ -33,7 +33,7 @@ module RbrunCli
         bucket_name = RbrunCore::Naming.backend_bucket(config.name, config.target)
 
         begin
-          objects = r2.list_objects(bucket: bucket_name, prefix: RbrunCore::Naming::POSTGRES_BACKUPS_PREFIX)
+          objects = r2.list_objects(bucket: bucket_name, prefix: RbrunCore::K3s::Naming::POSTGRES_BACKUPS_PREFIX)
         rescue Aws::S3::Errors::NoSuchBucket
           formatter.info("No backups found (bucket does not exist yet)")
           return

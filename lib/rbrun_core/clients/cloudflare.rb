@@ -193,7 +193,7 @@ module RbrunCore
 
       # Workers
       def worker_name(slug)
-        Naming.worker(slug)
+        Sandbox::Naming.worker(slug)
       end
 
       def deploy_worker(slug, access_token:, ws_url: nil, api_url: nil)
@@ -212,7 +212,7 @@ module RbrunCore
       end
 
       def create_worker_route(zone_id, slug, domain)
-        pattern = Naming.worker_route(slug, domain)
+        pattern = Sandbox::Naming.worker_route(slug, domain)
         name = worker_name(slug)
 
         existing = find_worker_route(zone_id, pattern)

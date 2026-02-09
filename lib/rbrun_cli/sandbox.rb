@@ -17,8 +17,8 @@ module RbrunCli
     option :slug, type: :string, desc: "Sandbox slug (auto-generated if omitted)"
     def deploy
       with_error_handling do
-        slug = options[:slug] || RbrunCore::Naming.generate_slug
-        runner.execute(RbrunCore::Commands::Sandbox::Deploy, slug:, sandbox: true)
+        slug = options[:slug] || RbrunCore::Sandbox::Naming.generate_slug
+        runner.execute(RbrunCore::Sandbox::Deploy, slug:, sandbox: true)
       end
     end
 
@@ -26,8 +26,8 @@ module RbrunCli
     option :slug, type: :string, required: true, desc: "Sandbox slug"
     def destroy
       with_error_handling do
-        RbrunCore::Naming.validate_slug!(options[:slug])
-        runner.execute(RbrunCore::Commands::Sandbox::Destroy, slug: options[:slug], sandbox: true)
+        RbrunCore::Sandbox::Naming.validate_slug!(options[:slug])
+        runner.execute(RbrunCore::Sandbox::Destroy, slug: options[:slug], sandbox: true)
       end
     end
 
@@ -37,11 +37,11 @@ module RbrunCli
     option :service, type: :string, desc: "Service name (overrides --process)"
     def exec(command)
       with_error_handling do
-        RbrunCore::Naming.validate_slug!(options[:slug])
+        RbrunCore::Sandbox::Naming.validate_slug!(options[:slug])
         ctx = runner.build_operational_context(slug: options[:slug], sandbox: true)
         kubectl = runner.build_kubectl(ctx)
 
-        prefix = RbrunCore::Naming.resource(options[:slug])
+        prefix = RbrunCore::Sandbox::Naming.resource(options[:slug])
         deployment = if options[:service]
           "#{prefix}-#{options[:service]}"
         else
@@ -56,7 +56,7 @@ module RbrunCli
     option :slug, type: :string, required: true, desc: "Sandbox slug"
     def ssh
       with_error_handling do
-        RbrunCore::Naming.validate_slug!(options[:slug])
+        RbrunCore::Sandbox::Naming.validate_slug!(options[:slug])
         ctx = runner.build_operational_context(slug: options[:slug], sandbox: true)
         key_path = File.expand_path(ctx.config.compute_config.ssh_key_path)
         Kernel.exec("ssh", "-i", key_path, "-o", "StrictHostKeyChecking=no",
@@ -68,13 +68,13 @@ module RbrunCli
     option :slug, type: :string, required: true, desc: "Sandbox slug"
     def sql
       with_error_handling do
-        RbrunCore::Naming.validate_slug!(options[:slug])
+        RbrunCore::Sandbox::Naming.validate_slug!(options[:slug])
         ctx = runner.build_operational_context(slug: options[:slug], sandbox: true)
         pg = ctx.config.database_configs[:postgres]
         abort_with("No postgres database configured") unless pg
 
         key_path = File.expand_path(ctx.config.compute_config.ssh_key_path)
-        prefix = RbrunCore::Naming.resource(options[:slug])
+        prefix = RbrunCore::Sandbox::Naming.resource(options[:slug])
         pod_label = "#{prefix}-postgres"
         psql_cmd = "psql -U #{pg.username || "app"} #{pg.database || "app"}"
         Kernel.exec("ssh", "-t", "-i", key_path, "-o", "StrictHostKeyChecking=no",
@@ -91,10 +91,10 @@ module RbrunCli
     option :follow, type: :boolean, default: false, aliases: "-F", desc: "Stream logs in real-time"
     def logs
       with_error_handling do
-        RbrunCore::Naming.validate_slug!(options[:slug])
+        RbrunCore::Sandbox::Naming.validate_slug!(options[:slug])
         ctx = runner.build_operational_context(slug: options[:slug], sandbox: true)
 
-        prefix = RbrunCore::Naming.resource(options[:slug])
+        prefix = RbrunCore::Sandbox::Naming.resource(options[:slug])
         deployment = if options[:service]
           "#{prefix}-#{options[:service]}"
         else

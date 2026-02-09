@@ -14,7 +14,7 @@ module RbrunCore
       def test_script_contains_cookie_name
         script = CloudflareWorker.script
 
-        assert_includes script, RbrunCore::Naming.auth_cookie
+        assert_includes script, RbrunCore::Sandbox::Naming.auth_cookie
       end
     end
   end

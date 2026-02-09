@@ -16,14 +16,14 @@ module RbrunCli
     desc "deploy", "Provision infrastructure and deploy with Kamal"
     def deploy
       with_error_handling do
-        runner.execute(RbrunCore::Commands::Kamal::Deploy)
+        runner.execute(RbrunCore::Kamal::Deploy)
       end
     end
 
     desc "destroy", "Tear down Kamal infrastructure"
     def destroy
       with_error_handling do
-        runner.execute(RbrunCore::Commands::Kamal::Destroy)
+        runner.execute(RbrunCore::Kamal::Destroy)
       end
     end
 
@@ -44,7 +44,7 @@ module RbrunCli
         ctx = runner.build_context
         output_dir = ctx.source_folder || "."
 
-        builder = RbrunCore::Commands::Kamal::ConfigBuilder.new(
+        builder = RbrunCore::Kamal::ConfigBuilder.new(
           config: ctx.config,
           servers: {},
           domain: ctx.config.cloudflare_config&.domain

@@ -6,7 +6,7 @@ module RbrunCore
     module CloudflareWorker
       class << self
         def script
-          cookie_name = Naming.auth_cookie
+          cookie_name = Sandbox::Naming.auth_cookie
           <<~JS
             export default {
               async fetch(request, env) {

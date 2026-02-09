@@ -16,14 +16,14 @@ module RbrunCli
     desc "deploy", "Deploy release infrastructure + app"
     def deploy
       with_error_handling do
-        runner.execute(RbrunCore::Commands::K3s::Deploy)
+        runner.execute(RbrunCore::K3s::Deploy)
       end
     end
 
     desc "destroy", "Tear down release infrastructure"
     def destroy
       with_error_handling do
-        runner.execute(RbrunCore::Commands::K3s::Destroy)
+        runner.execute(RbrunCore::K3s::Destroy)
       end
     end
 
@@ -110,7 +110,7 @@ module RbrunCli
     def topology
       with_error_handling do
         ctx = runner.build_operational_context(server: options[:server])
-        topo = RbrunCore::Topology.new(ctx)
+        topo = RbrunCore::K3s::Topology.new(ctx)
 
         if options[:json]
           $stdout.puts topo.to_json
