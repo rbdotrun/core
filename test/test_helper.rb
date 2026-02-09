@@ -164,6 +164,10 @@ module RbrunCoreTestSetup
       .to_return(status: 200, body: { servers: [] }.to_json,
                  headers: { "Content-Type" => "application/json" })
 
+    stub_request(:get, %r{api\.hetzner\.cloud/v1/server_types})
+      .to_return(status: 200, body: { server_types: [ { name: "cpx11", memory: 2 } ] }.to_json,
+                 headers: { "Content-Type" => "application/json" })
+
     stub_request(:get, /api\.cloudflare\.com/)
       .to_return(status: 200, body: { success: true, result: [] }.to_json,
                  headers: { "Content-Type" => "application/json" })

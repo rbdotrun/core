@@ -124,6 +124,9 @@ module RbrunCore
               status: 200, body: { ssh_keys: [ { id: 1, name: "key",
                                                 fingerprint: "aa:bb" } ] }.to_json, headers: json_headers
             )
+            stub_request(:get, %r{hetzner\.cloud/v1/server_types}).to_return(
+              status: 200, body: { server_types: [ { name: "cpx11", memory: 2 } ] }.to_json, headers: json_headers
+            )
           end
 
           def stub_cloudflare!

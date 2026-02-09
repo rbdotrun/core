@@ -155,6 +155,7 @@ module RbrunCore
 
         @app_config.processes.each do |name, p|
           next unless p.subdomain && !p.subdomain.empty?
+          next unless p.replicas # nil means use default (which is 2 for subdomain processes)
 
           if p.replicas < 2
             raise(

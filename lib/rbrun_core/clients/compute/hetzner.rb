@@ -181,6 +181,19 @@ module RbrunCore
           raise
         end
 
+        def server_type_memory_mb(instance_type)
+          @server_type_cache ||= {}
+          return @server_type_cache[instance_type] if @server_type_cache.key?(instance_type)
+
+          response = get("/server_types", name: instance_type)
+          server_type = response["server_types"]&.first
+
+          raise Error::Configuration, "Unknown instance type '#{instance_type}'" unless server_type
+
+          memory_gb = server_type["memory"].to_f
+          @server_type_cache[instance_type] = (memory_gb * 1024).to_i
+        end
+
         # Volume Management
         def find_or_create_volume(name:, size:, location:, labels: {}, format: "xfs")
           existing = find_volume(name)

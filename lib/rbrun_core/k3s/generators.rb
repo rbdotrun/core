@@ -27,6 +27,7 @@ module RbrunCore
         @tunnel_token = tunnel_token
         @r2_credentials = r2_credentials
         @storage_credentials = storage_credentials || {}
+        @allocations = calculate_resource_allocations
       end
 
       def generate
@@ -60,6 +61,83 @@ module RbrunCore
           else
             obj
           end
+        end
+
+        def calculate_resource_allocations
+          workloads = build_workload_list
+          return {} if workloads.empty?
+
+          ResourceAllocator.new(
+            node_groups: build_node_groups,
+            workloads:
+          ).allocate
+        end
+
+        def build_node_groups
+          client = @config.compute_config.client
+          groups = {
+            master: client.server_type_memory_mb(@config.compute_config.master.instance_type)
+          }
+
+          @config.compute_config.servers.each do |name, server_group|
+            groups[name] = client.server_type_memory_mb(server_group.type)
+          end
+
+          groups
+        end
+
+        def build_workload_list
+          workloads = []
+
+          workloads << ResourceAllocator::Workload.new(
+            name: "registry",
+            profile: :minimal,
+            replicas: 1,
+            runs_on: :master
+          )
+
+          workloads << ResourceAllocator::Workload.new(
+            name: "tunnel",
+            profile: :minimal,
+            replicas: 1,
+            runs_on: :master
+          )
+
+          @config.database_configs.each_key do |type|
+            workloads << ResourceAllocator::Workload.new(
+              name: type.to_s,
+              profile: :large,
+              replicas: 1,
+              runs_on: :master
+            )
+          end
+
+          @config.service_configs.each do |name, svc|
+            workloads << ResourceAllocator::Workload.new(
+              name: name.to_s,
+              profile: ResourceAllocator.profile_for_service(svc),
+              replicas: 1,
+              runs_on: normalize_runs_on(svc.runs_on)
+            )
+          end
+
+          @config.app_config&.processes&.each do |name, process|
+            workloads << ResourceAllocator::Workload.new(
+              name: name.to_s,
+              profile: ResourceAllocator.profile_for_process(process),
+              replicas: process.effective_replicas,
+              runs_on: normalize_runs_on(process.runs_on)
+            )
+          end
+
+          workloads
+        end
+
+        def normalize_runs_on(runs_on)
+          return :master if runs_on.nil? || runs_on.empty?
+
+          # If runs_on is an array, take the first element as the target group
+          Array(runs_on).first
         end
 
         def app_secret

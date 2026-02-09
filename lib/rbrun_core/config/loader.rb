@@ -182,6 +182,7 @@ module RbrunCore
                 p.port = proc_data["port"] if proc_data["port"]
                 p.subdomain = proc_data["subdomain"] if proc_data["subdomain"]
                 p.replicas = proc_data["replicas"] if proc_data["replicas"]
+                p.resources = proc_data["resources"]&.to_sym if proc_data["resources"]
                 p.env = proc_data["env"] if proc_data["env"]
                 p.setup = proc_data["setup"] || []
                 p.runs_on = Array(proc_data["runs_on"]).map(&:to_sym) if proc_data["runs_on"]

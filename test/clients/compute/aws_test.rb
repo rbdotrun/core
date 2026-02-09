@@ -826,6 +826,41 @@ module RbrunCore
               .to_return(status: 200, body: "<DescribeRouteTablesResponse><routeTableSet></routeTableSet></DescribeRouteTablesResponse>")
           end
       end
+
+      class AwsServerTypeTest < Minitest::Test
+        def setup
+          super
+          WebMock.reset!
+          @client = Aws.new(access_key_id: "test-key", secret_access_key: "test-secret", region: "us-east-1")
+        end
+
+        def test_server_type_memory_mb_returns_memory
+          stub_request(:post, "https://ec2.us-east-1.amazonaws.com/")
+            .with(body: /Action=DescribeInstanceTypes/)
+            .to_return(status: 200, body: describe_instance_types_response)
+
+          result = @client.server_type_memory_mb("t3.medium")
+
+          assert_equal 4096, result
+        end
+
+        private
+
+          def describe_instance_types_response
+            <<~XML
+              <DescribeInstanceTypesResponse xmlns="http://ec2.amazonaws.com/doc/2016-11-15/">
+                <instanceTypeSet>
+                  <item>
+                    <instanceType>t3.medium</instanceType>
+                    <memoryInfo>
+                      <sizeInMiB>4096</sizeInMiB>
+                    </memoryInfo>
+                  </item>
+                </instanceTypeSet>
+              </DescribeInstanceTypesResponse>
+            XML
+          end
+      end
     end
   end
 end

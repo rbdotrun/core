@@ -316,6 +316,39 @@ module RbrunCore
             stub_request(:get, %r{/servers/server-123})
               .to_return(status: 404, body: { message: "not found" }.to_json, headers: json_headers)
           end
+
+          def stub_products_servers(servers = { "DEV1-S" => { "ram" => 2_147_483_648 } })
+            stub_request(:get, %r{/products/servers})
+              .to_return(status: 200, body: { servers: }.to_json, headers: json_headers)
+          end
+      end
+
+      class ScalewayServerTypeTest < Minitest::Test
+        def setup
+          super
+          WebMock.reset!
+          @client = Scaleway.new(api_key: "test-key", project_id: "test-project", zone: "fr-par-1")
+        end
+
+        def test_server_type_memory_mb_returns_memory
+          stub_request(:get, %r{/products/servers})
+            .to_return(status: 200, body: { servers: { "DEV1-S" => { "ram" => 2_147_483_648 } } }.to_json,
+                       headers: { "Content-Type" => "application/json" })
+
+          result = @client.server_type_memory_mb("DEV1-S")
+
+          assert_equal 2048, result
+        end
+
+        def test_server_type_memory_mb_raises_for_unknown_type
+          stub_request(:get, %r{/products/servers})
+            .to_return(status: 200, body: { servers: {} }.to_json,
+                       headers: { "Content-Type" => "application/json" })
+
+          assert_raises(RbrunCore::Error::Configuration) do
+            @client.server_type_memory_mb("UNKNOWN")
+          end
+        end
       end
     end
   end

@@ -101,7 +101,7 @@ module RbrunCore
 
             @on_step&.call("K3s", :in_progress)
             k3s_args = build_k3s_args(public_ip, private_ip, interface)
-            install_cmd = "curl -sfL https://get.k3s.io | sudo INSTALL_K3S_EXEC=\"#{k3s_args}\" sh -"
+            install_cmd = Installer.server_install_command(exec_args: k3s_args)
 
             @ctx.ssh_client.execute_with_retry(install_cmd, timeout: 300)
             wait_for_k3s_ready!
