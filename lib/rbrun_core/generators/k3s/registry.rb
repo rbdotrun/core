@@ -36,7 +36,7 @@ module RbrunCore
               "REGISTRY_STORAGE_S3_REGION" => "auto",
               "REGISTRY_STORAGE_S3_BUCKET" => @r2_credentials[:bucket],
               "REGISTRY_STORAGE_S3_REGIONENDPOINT" => @r2_credentials[:endpoint],
-              "REGISTRY_STORAGE_S3_ROOTDIRECTORY" => "/#{Naming::DOCKER_REGISTRY_PREFIX}",
+              "REGISTRY_STORAGE_S3_ROOTDIRECTORY" => Naming::DOCKER_REGISTRY_PREFIX,
               "REGISTRY_STORAGE_S3_FORCEPATHSTYLE" => "true",
               "REGISTRY_STORAGE_S3_CHUNKSIZE" => "33554432",
               "REGISTRY_HEALTH_STORAGEDRIVER_ENABLED" => "false",
