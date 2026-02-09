@@ -322,6 +322,20 @@ module RbrunCore
           raise
         end
 
+        def server_type_memory_mb(instance_type)
+          @server_type_cache ||= {}
+          return @server_type_cache[instance_type] if @server_type_cache.key?(instance_type)
+
+          response = get(instance_path("/products/servers"))
+          servers = response["servers"] || {}
+
+          server_info = servers[instance_type]
+          raise Error::Configuration, "Unknown instance type '#{instance_type}'" unless server_info
+
+          memory_bytes = server_info["ram"]
+          @server_type_cache[instance_type] = (memory_bytes / (1024 * 1024)).to_i
+        end
+
         private
 
           def instance_path(path) = "/instance/v1/zones/#{@zone}#{path}"

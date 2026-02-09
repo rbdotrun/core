@@ -103,7 +103,7 @@ module RbrunCore
 
       def apply_profile_cap(memory_mb, profile)
         cap = PROFILE_CAPS_MB.fetch(profile)
-        [memory_mb, cap].min
+        [ memory_mb, cap ].min
       end
 
       def calculate_total_weight(workloads)

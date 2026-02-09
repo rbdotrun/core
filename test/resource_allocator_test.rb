@@ -235,37 +235,25 @@ class ResourceAllocatorTest < Minitest::Test
   end
 
   def test_profile_caps_by_type
-    assert_equal 256, RbrunCore::ResourceAllocator::PROFILE_CAPS_MB[:minimal]
-    assert_equal 512, RbrunCore::ResourceAllocator::PROFILE_CAPS_MB[:small]
-    assert_equal 1024, RbrunCore::ResourceAllocator::PROFILE_CAPS_MB[:medium]
-    assert_equal 2048, RbrunCore::ResourceAllocator::PROFILE_CAPS_MB[:large]
+    expected = { minimal: 256, small: 512, medium: 1024, large: 2048 }
+
+    assert_equal expected, RbrunCore::ResourceAllocator::PROFILE_CAPS_MB
   end
 
   def test_rolling_update_headroom_constant
-    assert_equal 0.25, RbrunCore::ResourceAllocator::ROLLING_UPDATE_HEADROOM
+    assert_in_delta(0.25, RbrunCore::ResourceAllocator::ROLLING_UPDATE_HEADROOM)
   end
 
-  def test_production_multi_node_scenario
-    # Real production scenario that was failing
-    workloads = [
-      RbrunCore::ResourceAllocator::Workload.new(name: "postgres", profile: :large, replicas: 1, runs_on: :master),
-      RbrunCore::ResourceAllocator::Workload.new(name: "registry", profile: :minimal, replicas: 1, runs_on: :master),
-      RbrunCore::ResourceAllocator::Workload.new(name: "tunnel", profile: :minimal, replicas: 1, runs_on: :master),
-      RbrunCore::ResourceAllocator::Workload.new(name: "web", profile: :medium, replicas: 2, runs_on: :web),
-      RbrunCore::ResourceAllocator::Workload.new(name: "worker", profile: :small, replicas: 1, runs_on: :worker)
-    ]
+  def test_production_multi_node_dedicated_nodes
+    result = production_multi_node_allocations
 
-    allocator = RbrunCore::ResourceAllocator.new(
-      node_groups: { master: 4096, web: 4096, worker: 4096 },
-      workloads:
-    )
-
-    result = allocator.allocate
-
-    # Web and worker on dedicated nodes should have headroom for rolling updates
-    # and be capped at profile maximums
+    # Web and worker on dedicated nodes have headroom and profile caps
     assert_equal 1024, result["web"].memory_mb    # medium cap
     assert_equal 512, result["worker"].memory_mb  # small cap
+  end
+
+  def test_production_multi_node_master_workloads
+    result = production_multi_node_allocations
 
     # Master workloads use proportional allocation with caps
     assert_equal 2048, result["postgres"].memory_mb  # large cap
@@ -286,6 +274,21 @@ class ResourceAllocatorTest < Minitest::Test
 
       RbrunCore::ResourceAllocator.new(
         node_groups: { master: 4096 },
+        workloads:
+      ).allocate
+    end
+
+    def production_multi_node_allocations
+      workloads = [
+        RbrunCore::ResourceAllocator::Workload.new(name: "postgres", profile: :large, replicas: 1, runs_on: :master),
+        RbrunCore::ResourceAllocator::Workload.new(name: "registry", profile: :minimal, replicas: 1, runs_on: :master),
+        RbrunCore::ResourceAllocator::Workload.new(name: "tunnel", profile: :minimal, replicas: 1, runs_on: :master),
+        RbrunCore::ResourceAllocator::Workload.new(name: "web", profile: :medium, replicas: 2, runs_on: :web),
+        RbrunCore::ResourceAllocator::Workload.new(name: "worker", profile: :small, replicas: 1, runs_on: :worker)
+      ]
+
+      RbrunCore::ResourceAllocator.new(
+        node_groups: { master: 4096, web: 4096, worker: 4096 },
         workloads:
       ).allocate
     end

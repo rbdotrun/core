@@ -178,6 +178,17 @@ module RbrunCore
           raise Error::Standard, "AWS credentials invalid: #{e.message}"
         end
 
+        def server_type_memory_mb(instance_type)
+          @server_type_cache ||= {}
+          return @server_type_cache[instance_type] if @server_type_cache.key?(instance_type)
+
+          response = @ec2.describe_instance_types(instance_types: [ instance_type ])
+          info = response.instance_types.first
+          raise Error::Configuration, "Unknown instance type '#{instance_type}'" unless info
+
+          @server_type_cache[instance_type] = info.memory_info.size_in_mi_b
+        end
+
         def inventory
           {
             servers: list_servers,
