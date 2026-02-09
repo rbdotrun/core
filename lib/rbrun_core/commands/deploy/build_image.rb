@@ -60,7 +60,10 @@ module RbrunCore
           def build_and_push!(context_path)
             prefix = @ctx.prefix
             local_tag = "#{prefix}:#{@timestamp}"
-            registry_tag = "localhost:#{@local_port}/#{prefix}:#{@timestamp}"
+            # Local tunnel tag for build/push (dynamic port)
+            tunnel_tag = "localhost:#{@local_port}/#{prefix}:#{@timestamp}"
+            # Cluster tag for manifests (fixed NodePort)
+            cluster_tag = "localhost:#{REMOTE_REGISTRY_PORT}/#{prefix}:#{@timestamp}"
 
             dockerfile = @ctx.config.app_config.dockerfile
             platform = @ctx.config.app_config.platform
@@ -70,18 +73,19 @@ module RbrunCore
               "buildx", "build",
               "--platform", platform,
               "-f", dockerfile,
-              "-t", registry_tag,
+              "-t", tunnel_tag,
               "--output=type=registry,registry.insecure=true",
               ".",
               chdir: context_path
             )
 
             # Pull from registry and tag locally (faster than rebuilding)
-            run_docker!("pull", "--platform", platform, registry_tag)
-            run_docker!("tag", registry_tag, local_tag)
-            run_docker!("tag", registry_tag, "#{prefix}:latest")
+            run_docker!("pull", "--platform", platform, tunnel_tag)
+            run_docker!("tag", tunnel_tag, local_tag)
+            run_docker!("tag", tunnel_tag, "#{prefix}:latest")
 
-            { local_tag:, registry_tag:, timestamp: @timestamp }
+            # Return cluster_tag for manifests (uses fixed port 30500)
+            { local_tag:, registry_tag: cluster_tag, timestamp: @timestamp }
           end
 
           def run_docker!(*args, chdir: nil)

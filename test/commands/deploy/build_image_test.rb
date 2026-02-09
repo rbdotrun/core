@@ -31,6 +31,19 @@ module RbrunCore
           assert_includes @ctx.registry_tag, "localhost"
         end
 
+        def test_registry_tag_uses_fixed_cluster_port_not_dynamic_tunnel_port
+          step = BuildImage.new(@ctx)
+
+          with_fake_ssh_tunnel do
+            step.stub(:system, true) do
+              step.run
+            end
+          end
+
+          # Manifests need fixed cluster port (30500), not dynamic tunnel port
+          assert_includes @ctx.registry_tag, "localhost:30500/"
+        end
+
         def test_reports_build_step
           steps = TestStepCollector.new
           step = BuildImage.new(@ctx, on_step: steps)
