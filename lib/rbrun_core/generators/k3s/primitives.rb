@@ -18,9 +18,10 @@ module RbrunCore
                          init_containers: [])
             spec = build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector)
 
-            # Single replica on dedicated node: use Recreate to avoid scheduling conflicts
-            # Multi-replica: use RollingUpdate for zero-downtime deploys
-            strategy = replicas == 1 ? { type: "Recreate" } : { type: "RollingUpdate" }
+            # Dedicated nodes (node_selector set): use Recreate because pods can't spill to other
+            # nodes during rolling update, causing "Insufficient memory" when resource allocations change.
+            # Shared nodes (no node_selector): use RollingUpdate for zero-downtime deploys.
+            strategy = node_selector ? { type: "Recreate" } : { type: "RollingUpdate" }
 
             {
               apiVersion: "apps/v1",
