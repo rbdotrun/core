@@ -94,6 +94,26 @@ module RbrunCore
           assert_equal 30_500, tunnel_opts[:remote_port]
         end
 
+        def test_pulls_and_tags_instead_of_rebuilding
+          step = BuildImage.new(@ctx)
+          docker_commands = []
+
+          with_fake_ssh_tunnel do
+            step.stub(:execute_docker, ->(*args, **_opts) {
+              docker_commands << args
+              true
+            }) do
+              step.run
+            end
+          end
+
+          assert_equal "buildx", docker_commands[0][0]
+          assert_equal "pull", docker_commands[1][0]
+          assert_equal "tag", docker_commands[2][0]
+          assert_equal "tag", docker_commands[3][0]
+          assert_equal 4, docker_commands.size
+        end
+
         def test_docker_output_is_indented
           step = BuildImage.new(@ctx)
           output = StringIO.new

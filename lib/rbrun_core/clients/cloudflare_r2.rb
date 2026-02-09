@@ -42,6 +42,14 @@ module RbrunCore
         parse_list_objects(resp.body.to_s)
       end
 
+      def credentials
+        {
+          access_key_id: access_key_id,
+          secret_access_key: secret_access_key,
+          endpoint: endpoint
+        }
+      end
+
       private
 
         def request(method, path, body: nil, headers: {})

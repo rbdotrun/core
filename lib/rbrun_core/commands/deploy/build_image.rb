@@ -69,16 +69,10 @@ module RbrunCore
               chdir: context_path
             )
 
-            # Also keep local copy
-            run_docker!(
-              "build",
-              "--platform", platform,
-              "-f", dockerfile,
-              "-t", local_tag,
-              "-t", "#{prefix}:latest",
-              ".",
-              chdir: context_path
-            )
+            # Pull from registry and tag locally (faster than rebuilding)
+            run_docker!("pull", "--platform", platform, registry_tag)
+            run_docker!("tag", registry_tag, local_tag)
+            run_docker!("tag", registry_tag, "#{prefix}:latest")
 
             { local_tag:, registry_tag:, timestamp: @timestamp }
           end

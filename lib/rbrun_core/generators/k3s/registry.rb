@@ -30,6 +30,7 @@ module RbrunCore
 
           def registry_secret_data
             {
+              "OTEL_TRACES_EXPORTER" => "none",
               "REGISTRY_STORAGE" => "s3",
               "REGISTRY_STORAGE_S3_ACCESSKEY" => @r2_credentials[:access_key_id],
               "REGISTRY_STORAGE_S3_SECRETKEY" => @r2_credentials[:secret_access_key],
