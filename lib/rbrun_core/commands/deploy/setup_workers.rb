@@ -49,14 +49,14 @@ module RbrunCore
             node_name = "#{@ctx.prefix}-#{server_key}"
             worker_ssh = build_worker_ssh(server_info[:ip])
 
-            @on_step&.call(:"worker_#{server_key}", :in_progress, parent: "Workers")
+            @on_step&.call(:"worker_#{server_key}", :in_progress)
 
             wait_for_worker_cloud_init(worker_ssh)
             network_info = discover_worker_network(worker_ssh)
             join_cluster(worker_ssh, node_name, network_info, cluster_token)
             wait_for_node_ready(node_name)
 
-            @on_step&.call(:"worker_#{server_key}", :done, parent: "Workers")
+            @on_step&.call(:"worker_#{server_key}", :done)
           end
 
           def build_worker_ssh(worker_ip)
