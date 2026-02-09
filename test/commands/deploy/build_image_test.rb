@@ -73,23 +73,17 @@ module RbrunCore
           assert_equal TEST_SSH_KEY.private_key, captured_args[:private_key]
         end
 
-        def test_uses_correct_tunnel_ports
-          step = BuildImage.new(@ctx)
-          tunnel_opts = nil
+        def test_uses_dynamic_local_port
+          tunnel_opts = capture_tunnel_opts
 
-          fake_client = Object.new
-          fake_client.define_singleton_method(:with_local_forward) do |**opts, &block|
-            tunnel_opts = opts
-            block.call
-          end
+          # Local port is dynamically allocated (any available port)
+          assert_kind_of Integer, tunnel_opts[:local_port]
+          assert_operator tunnel_opts[:local_port], :>, 0
+        end
 
-          Clients::Ssh.stub(:new, fake_client) do
-            step.stub(:system, true) do
-              step.run
-            end
-          end
+        def test_uses_fixed_remote_registry_port
+          tunnel_opts = capture_tunnel_opts
 
-          assert_equal 30_500, tunnel_opts[:local_port]
           assert_equal "localhost", tunnel_opts[:remote_host]
           assert_equal 30_500, tunnel_opts[:remote_port]
         end
@@ -117,6 +111,25 @@ module RbrunCore
             fake_client.define_singleton_method(:with_local_forward) { |**_opts, &blk| blk.call }
 
             Clients::Ssh.stub(:new, fake_client, &block)
+          end
+
+          def capture_tunnel_opts
+            step = BuildImage.new(@ctx)
+            tunnel_opts = nil
+
+            fake_client = Object.new
+            fake_client.define_singleton_method(:with_local_forward) do |**opts, &block|
+              tunnel_opts = opts
+              block.call
+            end
+
+            Clients::Ssh.stub(:new, fake_client) do
+              step.stub(:system, true) do
+                step.run
+              end
+            end
+
+            tunnel_opts
           end
       end
     end
