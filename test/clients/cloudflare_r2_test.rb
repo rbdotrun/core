@@ -25,6 +25,7 @@ module RbrunCore
         creds = @client.credentials
 
         expected = Digest::SHA256.hexdigest("test-token")
+
         assert_equal expected, creds[:secret_access_key]
       end
 
@@ -111,7 +112,7 @@ module RbrunCore
         @http.stub_response(status: 200)
 
         @client.set_cors("bucket", {
-          allowed_origins: ["https://example.com"],
+          allowed_origins: [ "https://example.com" ],
           allowed_methods: %w[GET PUT]
         })
 
