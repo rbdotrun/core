@@ -1,8 +1,37 @@
 # frozen_string_literal: true
 
 module RbrunCore
+  # ResourceAllocator: Proportional memory allocation for Kubernetes workloads
+  #
+  # == Formula
+  #
+  #   For shared nodes (master):
+  #     available = node_memory × 0.80
+  #     per_pod = available × (weight / total_weight)
+  #     final = min(per_pod, profile_cap)
+  #
+  #   For dedicated nodes (runs_on specified):
+  #     available = node_memory × 0.80
+  #     allocatable = available × 0.75  (headroom for rolling updates)
+  #     per_pod = allocatable × (weight / total_weight)
+  #     final = per_pod  (no cap)
+  #
+  # == Inputs
+  #
+  #   - node_memory: Total RAM of the server (e.g., 16384 MB for 16GB)
+  #   - profile: :minimal, :small, :medium, :large (determines weight)
+  #   - replicas: Number of pod replicas (affects total_weight)
+  #   - runs_on: Node group (:master for shared, :web/:worker for dedicated)
+  #
+  # == Example (16GB dedicated web node, 2 replicas)
+  #
+  #   available   = 16384 × 0.80 = 13107 MB
+  #   allocatable = 13107 × 0.75 = 9830 MB
+  #   weight      = 4 (medium), total_weight = 4 × 2 = 8
+  #   per_pod     = 9830 × (4 / 8) = 4915 MB (~4.8 GB each)
+  #
   class ResourceAllocator
-    SYSTEM_RESERVE_MB = 512
+    SYSTEM_RESERVE_PERCENT = 0.20 # Always leave 20% for OS/k3s/kubelet
     ROLLING_UPDATE_HEADROOM = 0.25 # Reserve 25% for rolling update surge
 
     PROFILE_WEIGHTS = {
@@ -89,7 +118,7 @@ module RbrunCore
       end
 
       def allocate_group(workloads, server_memory_mb, reserve_headroom: false, dedicated: false)
-        available = server_memory_mb - SYSTEM_RESERVE_MB
+        available = (server_memory_mb * (1 - SYSTEM_RESERVE_PERCENT)).floor
         available = (available * (1 - ROLLING_UPDATE_HEADROOM)).floor if reserve_headroom
         total_weight = calculate_total_weight(workloads)
 

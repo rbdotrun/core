@@ -111,18 +111,22 @@ class ResourceAllocatorTest < Minitest::Test
   def test_single_node_allocation_system_components
     result = single_node_allocations
 
-    # Capped at minimal profile max (256)
-    assert_equal 179, result["registry"].memory_mb
-    assert_equal 179, result["tunnel"].memory_mb
+    # 4096 * 0.80 = 3276 available, weight 20 total
+    # minimal (1/20 * 3276) = 163, under cap
+    assert_equal 163, result["registry"].memory_mb
+    assert_equal 163, result["tunnel"].memory_mb
   end
 
   def test_single_node_allocation_app_components
     result = single_node_allocations
 
-    # Now capped at profile maximums
-    assert_equal 1433, result["postgres"].memory_mb  # under large cap (2048)
-    assert_equal 716, result["web"].memory_mb        # under medium cap (1024)
-    assert_equal 358, result["worker"].memory_mb     # under small cap (512)
+    # 4096 * 0.80 = 3276 available, weight 20 total
+    # postgres: 8/20 * 3276 = 1310, under large cap
+    # web: 4/20 * 3276 = 655, under medium cap
+    # worker: 2/20 * 3276 = 327, under small cap
+    assert_equal 1310, result["postgres"].memory_mb
+    assert_equal 655, result["web"].memory_mb
+    assert_equal 327, result["worker"].memory_mb
   end
 
   def test_multi_node_allocates_per_group
@@ -140,15 +144,14 @@ class ResourceAllocatorTest < Minitest::Test
 
     result = allocator.allocate
 
-    # Master group: no headroom reserved, but capped at profile max
-    # postgres: large profile, capped at 2048
+    # Master: 4096 * 0.80 = 3276, postgres(8) + registry(1) = 9 weight
+    # postgres: 8/9 * 3276 = 2912, capped at 2048
     assert_equal 2048, result["postgres"].memory_mb
 
-    # Worker group: dedicated node, 25% headroom reserved, NO CAPS
-    # 8192 - 512 = 7680 available, * 0.75 = 5760 allocatable
-    # web (medium, 2 replicas) + worker (small, 1 replica) = weight 10
-    # web gets 4/10 * 5760 = 2304 (no cap on dedicated nodes)
-    assert_equal 2304, result["web"].memory_mb
+    # Worker: 8192 * 0.80 = 6553, * 0.75 headroom = 4914
+    # web(8) + worker(2) = 10 weight
+    # web: 4/10 * 4914 = 1965 (no cap on dedicated)
+    assert_equal 1965, result["web"].memory_mb
   end
 
   def test_workload_defaults_to_master_when_runs_on_nil
@@ -179,10 +182,10 @@ class ResourceAllocatorTest < Minitest::Test
 
     result = allocator.allocate
 
-    # 4096 - 512 system = 3584 available
-    # With 25% headroom: 3584 * 0.75 = 2688 allocatable
-    # No cap on dedicated nodes: 4/8 * 2688 = 1344
-    assert_equal 1344, result["web"].memory_mb
+    # 4096 * 0.80 = 3276 available
+    # With 25% headroom: 3276 * 0.75 = 2457 allocatable
+    # No cap on dedicated nodes: 4/8 * 2457 = 1228
+    assert_equal 1228, result["web"].memory_mb
   end
 
   def test_dedicated_worker_node_reserves_headroom
@@ -198,8 +201,8 @@ class ResourceAllocatorTest < Minitest::Test
     result = allocator.allocate
 
     # No cap on dedicated nodes: full allocation after headroom
-    # 4096 - 512 = 3584, * 0.75 = 2688
-    assert_equal 2688, result["worker"].memory_mb
+    # 4096 * 0.80 = 3276, * 0.75 = 2457
+    assert_equal 2457, result["worker"].memory_mb
   end
 
   def test_master_node_does_not_reserve_extra_headroom
@@ -249,10 +252,10 @@ class ResourceAllocatorTest < Minitest::Test
     result = production_multi_node_allocations
 
     # Web and worker on dedicated nodes have headroom but NO caps
-    # Web: 4096 - 512 = 3584, * 0.75 = 2688, / weight 8 * 4 = 1344
-    # Worker: 4096 - 512 = 3584, * 0.75 = 2688 (full allocation, only workload)
-    assert_equal 1344, result["web"].memory_mb
-    assert_equal 2688, result["worker"].memory_mb
+    # Web: 4096 * 0.80 = 3276, * 0.75 = 2457, 4/8 * 2457 = 1228
+    # Worker: 4096 * 0.80 = 3276, * 0.75 = 2457 (full allocation)
+    assert_equal 1228, result["web"].memory_mb
+    assert_equal 2457, result["worker"].memory_mb
   end
 
   def test_production_multi_node_master_workloads
