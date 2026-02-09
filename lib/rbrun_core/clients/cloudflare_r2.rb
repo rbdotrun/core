@@ -28,7 +28,7 @@ module RbrunCore
       def upload_file(bucket:, key:, body:, content_type: nil)
         headers = {}
         headers["content-type"] = content_type if content_type
-        request(:put, "/#{bucket}/#{key}", body: body, headers: headers)
+        request(:put, "/#{bucket}/#{key}", body:, headers:)
       end
 
       def download_file(bucket:, key:)
@@ -45,9 +45,10 @@ module RbrunCore
 
       def credentials
         {
-          access_key_id: access_key_id,
-          secret_access_key: secret_access_key,
-          endpoint: endpoint
+          access_key_id:,
+          secret_access_key:,
+          endpoint:,
+          region: "auto"
         }
       end
 
@@ -59,14 +60,14 @@ module RbrunCore
 
           sig_headers = signer.sign_request(
             http_method: method.to_s.upcase,
-            url: url,
+            url:,
             headers: headers.merge("host" => uri.host),
             body: body || ""
           ).headers
 
           all_headers = headers.merge(sig_headers)
 
-          http.request(method, url, headers: all_headers, body: body, ssl: { verify_mode: OpenSSL::SSL::VERIFY_NONE })
+          http.request(method, url, headers: all_headers, body:, ssl: { verify_mode: OpenSSL::SSL::VERIFY_NONE })
         end
 
         def http
@@ -77,8 +78,8 @@ module RbrunCore
           @signer ||= Aws::Sigv4::Signer.new(
             service: "s3",
             region: "auto",
-            access_key_id: access_key_id,
-            secret_access_key: secret_access_key
+            access_key_id:,
+            secret_access_key:
           )
         end
 
@@ -104,7 +105,7 @@ module RbrunCore
               <CORSRule>
                 <AllowedOrigin>#{origin}</AllowedOrigin>
                 #{config[:allowed_methods].map { |m| "<AllowedMethod>#{m}</AllowedMethod>" }.join}
-                #{(config[:allowed_headers] || ["*"]).map { |h| "<AllowedHeader>#{h}</AllowedHeader>" }.join}
+                #{(config[:allowed_headers] || [ "*" ]).map { |h| "<AllowedHeader>#{h}</AllowedHeader>" }.join}
                 #{(config[:expose_headers] || []).map { |h| "<ExposeHeader>#{h}</ExposeHeader>" }.join}
                 <MaxAgeSeconds>#{config[:max_age_seconds] || 3600}</MaxAgeSeconds>
               </CORSRule>
