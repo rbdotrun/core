@@ -18,12 +18,17 @@ module RbrunCore
                          init_containers: [])
             spec = build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector)
 
+            # Single replica on dedicated node: use Recreate to avoid scheduling conflicts
+            # Multi-replica: use RollingUpdate for zero-downtime deploys
+            strategy = replicas == 1 ? { type: "Recreate" } : { type: "RollingUpdate" }
+
             {
               apiVersion: "apps/v1",
               kind: "Deployment",
               metadata: { name:, namespace: NAMESPACE, labels: labels(name) },
               spec: {
                 replicas:,
+                strategy:,
                 selector: { matchLabels: { Naming::LABEL_APP => name } },
                 template: { metadata: { labels: labels(name) }, spec: }
               }
