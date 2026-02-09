@@ -2,6 +2,7 @@
 
 require "aws-sdk-s3"
 require "digest"
+require "faraday"
 
 module RbrunCore
   module Clients
@@ -29,12 +30,32 @@ module RbrunCore
             credentials[:secret_access_key]
           ),
           force_path_style: true,
-          http_wire_trace: false,
-          ssl_verify_peer: false,
-          http_open_timeout: 10,
-          http_read_timeout: 60,
-          ssl_ca_bundle: false
+          http_handler: FaradayHandler.new
         )
+      end
+
+      class FaradayHandler < Seahorse::Client::Handler
+        def call(context)
+          req = context.http_request
+          resp = context.http_response
+
+          conn = Faraday.new(ssl: { verify: false }) do |f|
+            f.adapter Faraday.default_adapter
+          end
+
+          method = req.http_method.downcase.to_sym
+          url = req.endpoint.to_s
+          headers = req.headers.to_h
+          body = req.body.respond_to?(:read) ? req.body.read : req.body
+
+          faraday_resp = conn.run_request(method, url, body, headers)
+
+          resp.status_code = faraday_resp.status
+          resp.headers = faraday_resp.headers
+          resp.body = StringIO.new(faraday_resp.body || "")
+
+          Seahorse::Client::Response.new(context: context)
+        end
       end
 
       def ensure_bucket(bucket_name)
