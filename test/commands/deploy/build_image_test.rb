@@ -22,7 +22,7 @@ module RbrunCore
           step = BuildImage.new(@ctx)
 
           with_fake_ssh_tunnel do
-            step.stub(:system, true) do
+            step.stub(:execute_docker, true) do
               step.run
             end
           end
@@ -36,7 +36,7 @@ module RbrunCore
           step = BuildImage.new(@ctx, on_step: steps)
 
           with_fake_ssh_tunnel do
-            step.stub(:system, true) do
+            step.stub(:execute_docker, true) do
               step.run
             end
           end
@@ -63,7 +63,7 @@ module RbrunCore
             captured_args = { host:, private_key:, user: }
             fake_client
           }) do
-            step.stub(:system, true) do
+            step.stub(:execute_docker, true) do
               step.run
             end
           end
@@ -84,7 +84,7 @@ module RbrunCore
           end
 
           Clients::Ssh.stub(:new, fake_client) do
-            step.stub(:system, true) do
+            step.stub(:execute_docker, true) do
               step.run
             end
           end
@@ -92,6 +92,17 @@ module RbrunCore
           assert_equal 30_500, tunnel_opts[:local_port]
           assert_equal "localhost", tunnel_opts[:remote_host]
           assert_equal 30_500, tunnel_opts[:remote_port]
+        end
+
+        def test_docker_output_is_indented
+          step = BuildImage.new(@ctx)
+          output = StringIO.new
+
+          $stdout = output
+          step.send(:emit_docker_line, "Building layer 1\n")
+          $stdout = STDOUT
+
+          assert_equal "    Building layer 1\n", output.string
         end
 
         private
