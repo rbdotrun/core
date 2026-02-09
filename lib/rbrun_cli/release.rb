@@ -1,0 +1,169 @@
+# frozen_string_literal: true
+
+module RbrunCli
+  class Release < Thor
+    def self.exit_on_failure? = true
+
+    class_option :config, type: :string, default: "rbrun.yaml", aliases: "-c",
+                          desc: "Path to YAML config file"
+    class_option :folder, type: :string, aliases: "-f",
+                          desc: "Working directory for git detection"
+    class_option :env_file, type: :string, default: ".env", aliases: "-e",
+                             desc: "Path to .env file for variable interpolation"
+    class_option :log_file, type: :string, aliases: "-l",
+                             desc: "Log file path (default: {folder}/deploy.log)"
+
+    desc "deploy", "Deploy release infrastructure + app"
+    def deploy
+      with_error_handling do
+        runner.execute(RbrunCore::Commands::Deploy)
+      end
+    end
+
+    desc "destroy", "Tear down release infrastructure"
+    def destroy
+      with_error_handling do
+        runner.execute(RbrunCore::Commands::Destroy)
+      end
+    end
+
+    desc "status", "Show servers and their status"
+    def status
+      with_error_handling do
+        config = runner.load_config
+        compute_client = config.compute_config.client
+        prefix = build_prefix(config)
+        servers = compute_client.list_servers.select { |s| s.name.start_with?(prefix) }
+        formatter.status_table(servers)
+      end
+    end
+
+    desc "exec COMMAND", "Execute command in a running pod"
+    option :process, type: :string, default: "web", desc: "App process name"
+    option :service, type: :string, desc: "Service name (overrides --process)"
+    option :server, type: :string, desc: "Server name for multi-server (e.g. worker-1)"
+    def exec(command)
+      with_error_handling do
+        ctx = runner.build_operational_context(server: options[:server])
+        kubectl = runner.build_kubectl(ctx)
+
+        deployment = if options[:service]
+          "#{ctx.prefix}-#{options[:service]}"
+        else
+          "#{ctx.prefix}-#{options[:process]}"
+        end
+
+        kubectl.exec(deployment, command) { |line| $stdout.puts line }
+      end
+    end
+
+    desc "ssh", "SSH into the server"
+    option :server, type: :string, desc: "Server name for multi-server (e.g. worker-1)"
+    def ssh
+      with_error_handling do
+        ctx = runner.build_operational_context(server: options[:server])
+        key_path = File.expand_path(ctx.config.compute_config.ssh_key_path)
+        Kernel.exec("ssh", "-i", key_path, "-o", "StrictHostKeyChecking=no",
+                    "deploy@#{ctx.server_ip}")
+      end
+    end
+
+    desc "sql", "Connect to PostgreSQL via psql"
+    def sql
+      with_error_handling do
+        ctx = runner.build_operational_context
+        pg = ctx.config.database_configs[:postgres]
+        abort_with("No postgres database configured") unless pg
+
+        key_path = File.expand_path(ctx.config.compute_config.ssh_key_path)
+        pod_label = "#{ctx.prefix}-postgres"
+        psql_cmd = "psql -U #{pg.username || "app"} #{pg.database || "app"}"
+        Kernel.exec("ssh", "-t", "-i", key_path, "-o", "StrictHostKeyChecking=no",
+                    "deploy@#{ctx.server_ip}",
+                    "kubectl exec -it $(kubectl get pods -l app=#{pod_label} -o jsonpath='{.items[0].metadata.name}') -- #{psql_cmd}")
+      end
+    end
+
+    desc "logs", "Show pod logs"
+    option :process, type: :string, default: "web", desc: "App process name"
+    option :service, type: :string, desc: "Service name (overrides --process)"
+    option :tail, type: :numeric, default: 100, desc: "Number of lines"
+    option :follow, type: :boolean, default: false, aliases: "-F", desc: "Stream logs in real-time"
+    def logs
+      with_error_handling do
+        ctx = runner.build_operational_context
+
+        deployment = if options[:service]
+          "#{ctx.prefix}-#{options[:service]}"
+        else
+          "#{ctx.prefix}-#{options[:process]}"
+        end
+
+        kubectl = runner.build_kubectl(ctx)
+        kubectl.logs(deployment, tail: options[:tail], follow: options[:follow]) { |line| $stdout.puts line }
+      end
+    end
+
+    desc "topology", "Show cluster topology (nodes, pods, placement)"
+    option :json, type: :boolean, default: false, desc: "Output as JSON"
+    option :server, type: :string, desc: "Server name for multi-server"
+    def topology
+      with_error_handling do
+        ctx = runner.build_operational_context(server: options[:server])
+        topo = RbrunCore::Topology.new(ctx)
+
+        if options[:json]
+          $stdout.puts topo.to_json
+        else
+          formatter.topology(topo.topology_hash)
+        end
+      end
+    end
+
+    private
+
+      def runner
+        @runner ||= Runner.new(
+          config_path: options[:config],
+          folder: options[:folder],
+          env_file: options[:env_file],
+          log_file: options[:log_file],
+          formatter:
+        )
+      end
+
+      def formatter
+        @formatter ||= Formatter.new
+      end
+
+      def build_prefix(config)
+        RbrunCore::Naming.release_prefix(config.name, config.target)
+      end
+
+      def abort_with(message)
+        formatter.error(message)
+        exit 1
+      end
+
+      def with_error_handling
+        yield
+      rescue RbrunCore::Error::Configuration => e
+        formatter.error("Configuration error: #{e.message}")
+        exit 1
+      rescue RbrunCore::Error::Api => e
+        formatter.error("API error: #{e.message}")
+        exit 1
+      rescue RbrunCore::Clients::Ssh::CommandError => e
+        formatter.error("Command failed (exit #{e.exit_code}): #{e.output}")
+        exit 1
+      rescue RbrunCore::Error::Standard => e
+        formatter.error(e.message)
+        exit 1
+      rescue StandardError => e
+        location = e.backtrace&.find { |l| l.include?("rbrun") }&.sub(/.*gems\//, "")
+        formatter.error("#{e.class}: #{e.message}")
+        formatter.error("  at #{location}") if location
+        exit 1
+      end
+  end
+end

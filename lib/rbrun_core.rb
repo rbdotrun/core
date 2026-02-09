@@ -22,6 +22,10 @@ require "logger"
 require "faraday"
 require "faraday/net_http"
 
+# Ignore CLI (separate gem with its own loader)
+RbrunCore.loader.ignore("#{__dir__}/rbrun_cli.rb")
+RbrunCore.loader.ignore("#{__dir__}/rbrun_cli")
+
 # Setup and eager load
 RbrunCore.loader.setup
 RbrunCore.loader.eager_load

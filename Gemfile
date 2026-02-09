@@ -2,7 +2,8 @@
 
 source "https://rubygems.org"
 
-gemspec
+gemspec name: "rbrun-core"
+gemspec name: "rbrun"
 
 group :development, :test do
   gem "minitest", "~> 5.25"
