@@ -664,7 +664,7 @@ module RbrunCore
         assert_equal 3, config.app_config.processes[:web].replicas
       end
 
-      def test_process_replicas_defaults_to_2
+      def test_process_effective_replicas_defaults_based_on_subdomain
         yaml = <<~YAML
           name: testapp
           target: production
@@ -686,8 +686,8 @@ module RbrunCore
 
         config = load_yaml(yaml)
 
-        assert_equal 2, config.app_config.processes[:web].replicas
-        assert_equal 2, config.app_config.processes[:worker].replicas
+        assert_equal 2, config.app_config.processes[:web].effective_replicas
+        assert_equal 1, config.app_config.processes[:worker].effective_replicas
       end
 
       def test_loads_aws_provider

@@ -12,9 +12,15 @@ module RbrunCore
         @port = nil
         @subdomain = nil
         @runs_on = nil
-        @replicas = 2
+        @replicas = nil
         @env = {}
         @setup = []
+      end
+
+      def effective_replicas
+        return @replicas if @replicas
+
+        subdomain && !subdomain.empty? ? 2 : 1
       end
     end
   end
