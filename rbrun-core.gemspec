@@ -22,7 +22,7 @@ Gem::Specification.new do |s|
   s.add_dependency 'faraday-multipart', '~> 1.0'
   s.add_dependency 'sshkey', '~> 3.0'
   s.add_dependency 'aws-sdk-ec2', '~> 1.0'
-  s.add_dependency 'aws-sdk-s3', '~> 1.0'
+  s.add_dependency 'faraday_middleware-aws-sigv4', '~> 1.0'
   s.add_dependency 'rexml'
   s.add_dependency 'net-ssh', '~> 7.0'
   s.add_dependency 'net-scp', '~> 4.0'
