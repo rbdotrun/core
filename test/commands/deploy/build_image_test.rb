@@ -107,11 +107,7 @@ module RbrunCore
             end
           end
 
-          assert_equal "buildx", docker_commands[0][0]
-          assert_equal "pull", docker_commands[1][0]
-          assert_equal "tag", docker_commands[2][0]
-          assert_equal "tag", docker_commands[3][0]
-          assert_equal 4, docker_commands.size
+          assert_equal %w[buildx pull tag tag], docker_commands.map(&:first)
         end
 
         private
