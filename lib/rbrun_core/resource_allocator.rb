@@ -55,8 +55,8 @@ module RbrunCore
 
       workloads_by_group.each do |group, group_workloads|
         group_memory = @node_groups[group] || @node_groups[MASTER_GROUP]
-        needs_headroom = dedicated_node_group?(group)
-        allocations.merge!(allocate_group(group_workloads, group_memory, reserve_headroom: needs_headroom))
+        dedicated = dedicated_node_group?(group)
+        allocations.merge!(allocate_group(group_workloads, group_memory, reserve_headroom: dedicated, dedicated:))
       end
 
       allocations
@@ -88,7 +88,7 @@ module RbrunCore
         group != MASTER_GROUP && @node_groups.key?(group)
       end
 
-      def allocate_group(workloads, server_memory_mb, reserve_headroom: false)
+      def allocate_group(workloads, server_memory_mb, reserve_headroom: false, dedicated: false)
         available = server_memory_mb - SYSTEM_RESERVE_MB
         available = (available * (1 - ROLLING_UPDATE_HEADROOM)).floor if reserve_headroom
         total_weight = calculate_total_weight(workloads)
@@ -96,8 +96,9 @@ module RbrunCore
         workloads.each_with_object({}) do |workload, result|
           weight = PROFILE_WEIGHTS.fetch(workload.profile)
           memory_per_replica = (weight.to_f / total_weight * available).floor
-          capped_memory = apply_profile_cap(memory_per_replica, workload.profile)
-          result[workload.name] = Allocation.new(capped_memory)
+          # Only apply caps on shared nodes (master) - dedicated nodes use full allocation
+          final_memory = dedicated ? memory_per_replica : apply_profile_cap(memory_per_replica, workload.profile)
+          result[workload.name] = Allocation.new(final_memory)
         end
       end
 

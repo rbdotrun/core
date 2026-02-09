@@ -144,11 +144,11 @@ class ResourceAllocatorTest < Minitest::Test
     # postgres: large profile, capped at 2048
     assert_equal 2048, result["postgres"].memory_mb
 
-    # Worker group: dedicated node, 25% headroom reserved
+    # Worker group: dedicated node, 25% headroom reserved, NO CAPS
     # 8192 - 512 = 7680 available, * 0.75 = 5760 allocatable
     # web (medium, 2 replicas) + worker (small, 1 replica) = weight 10
-    # web gets 4/10 * 5760 = 2304, but capped at 1024 (medium)
-    assert_equal 1024, result["web"].memory_mb
+    # web gets 4/10 * 5760 = 2304 (no cap on dedicated nodes)
+    assert_equal 2304, result["web"].memory_mb
   end
 
   def test_workload_defaults_to_master_when_runs_on_nil
@@ -181,8 +181,8 @@ class ResourceAllocatorTest < Minitest::Test
 
     # 4096 - 512 system = 3584 available
     # With 25% headroom: 3584 * 0.75 = 2688 allocatable
-    # But capped at 1024 per medium profile
-    assert_equal 1024, result["web"].memory_mb
+    # No cap on dedicated nodes: 4/8 * 2688 = 1344
+    assert_equal 1344, result["web"].memory_mb
   end
 
   def test_dedicated_worker_node_reserves_headroom
@@ -197,8 +197,9 @@ class ResourceAllocatorTest < Minitest::Test
 
     result = allocator.allocate
 
-    # Capped at 512 for small profile
-    assert_equal 512, result["worker"].memory_mb
+    # No cap on dedicated nodes: full allocation after headroom
+    # 4096 - 512 = 3584, * 0.75 = 2688
+    assert_equal 2688, result["worker"].memory_mb
   end
 
   def test_master_node_does_not_reserve_extra_headroom
@@ -247,9 +248,11 @@ class ResourceAllocatorTest < Minitest::Test
   def test_production_multi_node_dedicated_nodes
     result = production_multi_node_allocations
 
-    # Web and worker on dedicated nodes have headroom and profile caps
-    assert_equal 1024, result["web"].memory_mb    # medium cap
-    assert_equal 512, result["worker"].memory_mb  # small cap
+    # Web and worker on dedicated nodes have headroom but NO caps
+    # Web: 4096 - 512 = 3584, * 0.75 = 2688, / weight 8 * 4 = 1344
+    # Worker: 4096 - 512 = 3584, * 0.75 = 2688 (full allocation, only workload)
+    assert_equal 1344, result["web"].memory_mb
+    assert_equal 2688, result["worker"].memory_mb
   end
 
   def test_production_multi_node_master_workloads
