@@ -275,6 +275,168 @@ module RbrunCore
           end
         end
 
+        # Load Balancer Management
+
+        def find_or_create_load_balancer(name:, type: "lb11", location:, network_id: nil, labels: {})
+          existing = find_load_balancer(name)
+          return existing if existing
+
+          payload = {
+            name:, load_balancer_type: type, location:,
+            labels: labels || {}
+          }
+          payload[:network] = network_id.to_i if network_id
+
+          response = post("/load_balancers", payload)
+          to_load_balancer(response["load_balancer"])
+        end
+
+        def get_load_balancer(id)
+          response = get("/load_balancers/#{id.to_i}")
+          to_load_balancer(response["load_balancer"])
+        rescue Error::Api => e
+          raise unless e.not_found?
+
+          nil
+        end
+
+        def find_load_balancer(name)
+          response = get("/load_balancers", name:)
+          lb = response["load_balancers"]&.first
+          lb ? to_load_balancer(lb) : nil
+        end
+
+        def list_load_balancers(label_selector: nil)
+          params = {}
+          params[:label_selector] = label_selector if label_selector
+          response = get("/load_balancers", params)
+          response["load_balancers"].map { |lb| to_load_balancer(lb) }
+        end
+
+        def delete_load_balancer(id)
+          delete("/load_balancers/#{id.to_i}")
+        rescue Error::Api => e
+          raise unless e.not_found?
+
+          nil
+        end
+
+        def add_load_balancer_target(load_balancer_id:, server_id:, use_private_ip: true)
+          response = post(
+            "/load_balancers/#{load_balancer_id.to_i}/actions/add_target",
+            { type: "server", server: { id: server_id.to_i }, use_private_ip: }
+          )
+          wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
+        end
+
+        def remove_load_balancer_target(load_balancer_id:, server_id:)
+          response = post(
+            "/load_balancers/#{load_balancer_id.to_i}/actions/remove_target",
+            { type: "server", server: { id: server_id.to_i } }
+          )
+          wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
+        end
+
+        def add_load_balancer_service(load_balancer_id:, protocol: "https", listen_port: 443,
+                                      destination_port: 443, http: {}, health_check: {})
+          payload = {
+            protocol:, listen_port:, destination_port:,
+            http:, health_check:
+          }
+          response = post("/load_balancers/#{load_balancer_id.to_i}/actions/add_service", payload)
+          wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
+        end
+
+        def update_load_balancer_service(load_balancer_id:, protocol: "https", listen_port: 443,
+                                         destination_port: 443, http: {}, health_check: {})
+          payload = {
+            protocol:, listen_port:, destination_port:,
+            http:, health_check:
+          }
+          response = post("/load_balancers/#{load_balancer_id.to_i}/actions/update_service", payload)
+          wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
+        end
+
+        def delete_load_balancer_service(load_balancer_id:, listen_port:)
+          response = post(
+            "/load_balancers/#{load_balancer_id.to_i}/actions/delete_service",
+            { listen_port: }
+          )
+          wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
+        end
+
+        def attach_load_balancer_to_network(load_balancer_id:, network_id:)
+          response = post(
+            "/load_balancers/#{load_balancer_id.to_i}/actions/attach_to_network",
+            { network: network_id.to_i }
+          )
+          wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
+        end
+
+        # Firewall Rule Management
+
+        def set_firewall_rules(firewall_id, rules)
+          response = post("/firewalls/#{firewall_id.to_i}/actions/set_rules", { rules: })
+          wait_for_actions(response) if response["actions"]
+        end
+
+        def apply_firewall_to_servers(firewall_id, server_ids)
+          resources = server_ids.map { |sid| { type: "server", server: { id: sid.to_i } } }
+          response = post("/firewalls/#{firewall_id.to_i}/actions/apply_to_resources", { apply_to: resources })
+          wait_for_actions(response) if response["actions"]
+        end
+
+        def remove_firewall_from_servers(firewall_id, server_ids)
+          resources = server_ids.map { |sid| { type: "server", server: { id: sid.to_i } } }
+          response = post("/firewalls/#{firewall_id.to_i}/actions/remove_from_resources", { remove_from: resources })
+          wait_for_actions(response) if response["actions"]
+        end
+
+        # Certificate Management
+
+        def find_or_create_managed_certificate(name:, domain_names:)
+          existing = find_certificate(name)
+          return existing if existing
+
+          response = post("/certificates", { name:, type: "managed", domain_names: })
+          to_certificate(response["certificate"])
+        end
+
+        def get_certificate(id)
+          response = get("/certificates/#{id.to_i}")
+          to_certificate(response["certificate"])
+        rescue Error::Api => e
+          raise unless e.not_found?
+
+          nil
+        end
+
+        def find_certificate(name)
+          response = get("/certificates", name:)
+          cert = response["certificates"]&.first
+          cert ? to_certificate(cert) : nil
+        end
+
+        def list_certificates
+          response = get("/certificates")
+          response["certificates"].map { |c| to_certificate(c) }
+        end
+
+        def delete_certificate(id)
+          delete("/certificates/#{id.to_i}")
+        rescue Error::Api => e
+          raise unless e.not_found?
+
+          nil
+        end
+
+        def wait_for_certificate(id, max_attempts: 60, interval: 10)
+          Waiter.poll(max_attempts:, interval:, message: "Certificate #{id} issuance timed out") do
+            cert = get_certificate(id)
+            cert if cert&.status == "completed"
+          end
+        end
+
         private
 
           def auth_headers
@@ -317,6 +479,39 @@ module RbrunCore
               labels: data["labels"] || {},
               created_at: data["created"]
             )
+          end
+
+          def to_load_balancer(data)
+            Types::LoadBalancer.new(
+              id: data["id"].to_s, name: data["name"],
+              public_ipv4: data.dig("public_net", "ipv4", "ip"),
+              type: data.dig("load_balancer_type", "name") || data["load_balancer_type"],
+              location: data.dig("location", "name"),
+              targets: (data["targets"] || []).map { |t|
+                { server_id: t.dig("server", "id")&.to_s, health_status: t["health_status"] }
+              },
+              services: data["services"] || [],
+              labels: data["labels"] || {},
+              created_at: data["created"]
+            )
+          end
+
+          def to_certificate(data)
+            Types::Certificate.new(
+              id: data["id"].to_s, name: data["name"],
+              domain_names: data["domain_names"] || [],
+              type: data["type"],
+              status: data.dig("status", "issuance", "status") || data["status"],
+              not_valid_after: data["not_valid_after"],
+              created_at: data["created"]
+            )
+          end
+
+          def wait_for_actions(response)
+            actions = response["actions"] || []
+            actions.each do |action|
+              wait_for_action(action["id"]) if action["id"]
+            end
           end
 
           def remove_firewall_from_server(firewall_id, server_id)

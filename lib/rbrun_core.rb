@@ -26,6 +26,10 @@ require "faraday/net_http"
 RbrunCore.loader.ignore("#{__dir__}/rbrun_cli.rb")
 RbrunCore.loader.ignore("#{__dir__}/rbrun_cli")
 
+# Ignore kamal-contrib (separate gem with its own loader)
+RbrunCore.loader.ignore("#{__dir__}/kamal_contrib.rb")
+RbrunCore.loader.ignore("#{__dir__}/kamal_contrib")
+
 # Setup and eager load
 RbrunCore.loader.setup
 RbrunCore.loader.eager_load
