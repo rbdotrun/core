@@ -83,10 +83,10 @@ module RbrunCore
           end
 
           def registry_resources
-            {
-              requests: { memory: "128Mi", cpu: "50m" },
-              limits: { memory: "512Mi" }
-            }
+            allocation = @allocations["registry"]
+            return { requests: { memory: "128Mi", cpu: "50m" }, limits: { memory: "512Mi" } } unless allocation
+
+            allocation.to_kubernetes
           end
 
           def registry_service

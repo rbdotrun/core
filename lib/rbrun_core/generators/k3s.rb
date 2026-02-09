@@ -27,6 +27,7 @@ module RbrunCore
         @tunnel_token = tunnel_token
         @r2_credentials = r2_credentials
         @storage_credentials = storage_credentials || {}
+        @allocations = calculate_resource_allocations
       end
 
       def generate
@@ -60,6 +61,63 @@ module RbrunCore
           else
             obj
           end
+        end
+
+        def calculate_resource_allocations
+          workloads = build_workload_list
+          return {} if workloads.empty?
+
+          server_memory = InstanceTypes.memory_mb(
+            @config.compute_config.provider_name,
+            @config.compute_config.master.instance_type
+          )
+
+          ResourceAllocator.new(
+            server_memory_mb: server_memory,
+            workloads:
+          ).allocate
+        end
+
+        def build_workload_list
+          workloads = []
+
+          workloads << ResourceAllocator::Workload.new(
+            name: "registry",
+            profile: :minimal,
+            replicas: 1
+          )
+
+          workloads << ResourceAllocator::Workload.new(
+            name: "tunnel",
+            profile: :minimal,
+            replicas: 1
+          )
+
+          @config.database_configs.each_key do |type|
+            workloads << ResourceAllocator::Workload.new(
+              name: type.to_s,
+              profile: :large,
+              replicas: 1
+            )
+          end
+
+          @config.service_configs.each do |name, svc|
+            workloads << ResourceAllocator::Workload.new(
+              name: name.to_s,
+              profile: ResourceAllocator.profile_for_service(svc),
+              replicas: 1
+            )
+          end
+
+          @config.app_config&.processes&.each do |name, process|
+            workloads << ResourceAllocator::Workload.new(
+              name: name.to_s,
+              profile: ResourceAllocator.profile_for_process(process),
+              replicas: process.effective_replicas
+            )
+          end
+
+          workloads
         end
 
         def app_secret

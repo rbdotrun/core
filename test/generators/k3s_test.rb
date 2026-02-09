@@ -289,6 +289,62 @@ module RbrunCore
         assert_includes manifests, "STORAGE_UPLOADS_BUCKET"
         assert_includes manifests, "STORAGE_ASSETS_BUCKET"
       end
+
+      def test_app_process_includes_resource_limits
+        @config.app do |a|
+          a.process(:web) do |p|
+            p.port = 3000
+            p.subdomain = "www"
+          end
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com", registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        web_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
+        container = web_deploy["spec"]["template"]["spec"]["containers"].first
+
+        assert container["resources"], "Container should have resources"
+        assert container["resources"]["requests"]["memory"]
+        assert container["resources"]["limits"]["memory"]
+      end
+
+      def test_database_includes_resource_limits
+        @config.database(:postgres)
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com", db_password: "pw")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        pg_sts = parsed.find { |r| r["kind"] == "StatefulSet" && r["metadata"]["name"] == "myapp-postgres" }
+        container = pg_sts["spec"]["template"]["spec"]["containers"].first
+
+        assert container["resources"], "Postgres container should have resources"
+        assert container["resources"]["requests"]["memory"]
+        assert container["resources"]["limits"]["memory"]
+      end
+
+      def test_database_gets_larger_allocation_than_app
+        @config.database(:postgres)
+        @config.app do |a|
+          a.process(:web) do |p|
+            p.port = 3000
+            p.subdomain = "www"
+          end
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1", db_password: "pw")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+
+        pg_sts = parsed.find { |r| r["kind"] == "StatefulSet" && r["metadata"]["name"] == "myapp-postgres" }
+        web_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
+
+        pg_mem = pg_sts["spec"]["template"]["spec"]["containers"].first["resources"]["limits"]["memory"]
+        web_mem = web_deploy["spec"]["template"]["spec"]["containers"].first["resources"]["limits"]["memory"]
+
+        pg_value = pg_mem.gsub("Mi", "").to_i
+        web_value = web_mem.gsub("Mi", "").to_i
+
+        assert_operator pg_value, :>, web_value, "Postgres should get more memory than web"
+      end
     end
   end
 end

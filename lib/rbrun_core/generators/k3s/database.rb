@@ -42,7 +42,7 @@ module RbrunCore
           end
 
           def postgres_container(db_config)
-            {
+            container = {
               name: "postgres",
               image: db_config.image,
               ports: [ { containerPort: 5432 } ],
@@ -50,6 +50,11 @@ module RbrunCore
               volumeMounts: [ { name: "data", mountPath: "/var/lib/postgresql/data" } ],
               readinessProbe: postgres_readiness_probe(db_config)
             }
+
+            allocation = @allocations["postgres"]
+            container[:resources] = allocation.to_kubernetes if allocation
+
+            container
           end
 
           def postgres_env(db_config)
