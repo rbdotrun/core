@@ -4,7 +4,6 @@ source "https://rubygems.org"
 
 gemspec name: "rbrun-core"
 gemspec name: "rbrun"
-gemspec name: "kamal-contrib"
 
 group :development, :test do
   gem "minitest", "~> 5.25"

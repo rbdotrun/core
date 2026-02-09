@@ -42,7 +42,7 @@ module RbrunCli
       }
 
       # Add rollout progress for deploy commands
-      if command_class == RbrunCore::Commands::Deploy
+      if command_class == RbrunCore::Commands::K3s::Deploy
         rollout_progress = RolloutProgress.new
         opts[:on_rollout_progress] = ->(event, data) { rollout_progress.call(event, data) }
       end

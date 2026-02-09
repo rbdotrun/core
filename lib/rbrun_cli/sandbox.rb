@@ -18,7 +18,7 @@ module RbrunCli
     def deploy
       with_error_handling do
         slug = options[:slug] || RbrunCore::Naming.generate_slug
-        runner.execute(RbrunCore::Commands::DeploySandbox, slug:, sandbox: true)
+        runner.execute(RbrunCore::Commands::Sandbox::Deploy, slug:, sandbox: true)
       end
     end
 
@@ -27,7 +27,7 @@ module RbrunCli
     def destroy
       with_error_handling do
         RbrunCore::Naming.validate_slug!(options[:slug])
-        runner.execute(RbrunCore::Commands::DestroySandbox, slug: options[:slug], sandbox: true)
+        runner.execute(RbrunCore::Commands::Sandbox::Destroy, slug: options[:slug], sandbox: true)
       end
     end
 
