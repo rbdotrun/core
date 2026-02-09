@@ -59,7 +59,7 @@ module RbrunCore
 
             to_create.each do |key|
               name = server_name(key)
-              @on_step&.call("Server", :in_progress, name)
+              @on_step&.call("Server", :in_progress, name: name)
 
               server = create_server!(
                 name:,
@@ -71,7 +71,7 @@ module RbrunCore
               existing[key] = build_server_info(server, key)
               @ctx.new_servers.add(key)
 
-              @on_step&.call("Server", :done, name)
+              @on_step&.call("Server", :done, name: name)
             end
           end
 

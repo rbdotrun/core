@@ -108,8 +108,8 @@ class TestStepCollector
     @steps = []
   end
 
-  def call(label, status, message = nil, parent: nil)
-    @steps << { label:, status:, message:, parent: }
+  def call(label, status, **meta)
+    @steps << { label:, status:, **meta }
   end
 
   def labels
