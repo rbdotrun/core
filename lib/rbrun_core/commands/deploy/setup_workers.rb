@@ -104,7 +104,11 @@ module RbrunCore
 
           def join_cluster(ssh, node_name, network_info, cluster_token)
             agent_args = build_agent_args(node_name, network_info)
-            cmd = "curl -sfL https://get.k3s.io | K3S_URL=\"https://#{@master_private_ip}:6443\" K3S_TOKEN=\"#{cluster_token}\" sh -s - agent #{agent_args}"
+            cmd = K3sInstaller.agent_install_command(
+              master_url: "https://#{@master_private_ip}:6443",
+              token: cluster_token,
+              agent_args:
+            )
             ssh.execute_with_retry(cmd, timeout: 300)
           end
 
