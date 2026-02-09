@@ -5,13 +5,13 @@ require "test_helper"
 class ResourceAllocatorTest < Minitest::Test
   def test_allocates_memory_proportionally
     workloads = [
-      RbrunCore::ResourceAllocator::Workload.new(name: "postgres", profile: :large, replicas: 1),
-      RbrunCore::ResourceAllocator::Workload.new(name: "web", profile: :medium, replicas: 2),
-      RbrunCore::ResourceAllocator::Workload.new(name: "worker", profile: :small, replicas: 1)
+      RbrunCore::ResourceAllocator::Workload.new(name: "postgres", profile: :large, replicas: 1, runs_on: :master),
+      RbrunCore::ResourceAllocator::Workload.new(name: "web", profile: :medium, replicas: 2, runs_on: :master),
+      RbrunCore::ResourceAllocator::Workload.new(name: "worker", profile: :small, replicas: 1, runs_on: :master)
     ]
 
     allocator = RbrunCore::ResourceAllocator.new(
-      server_memory_mb: 4096,
+      node_groups: { master: 4096 },
       workloads:
     )
 
@@ -24,20 +24,20 @@ class ResourceAllocatorTest < Minitest::Test
 
   def test_accounts_for_replicas_in_total_weight
     workloads = [
-      RbrunCore::ResourceAllocator::Workload.new(name: "web", profile: :medium, replicas: 1)
+      RbrunCore::ResourceAllocator::Workload.new(name: "web", profile: :medium, replicas: 1, runs_on: :master)
     ]
 
     single_replica = RbrunCore::ResourceAllocator.new(
-      server_memory_mb: 4096,
+      node_groups: { master: 4096 },
       workloads:
     ).allocate
 
     workloads_double = [
-      RbrunCore::ResourceAllocator::Workload.new(name: "web", profile: :medium, replicas: 2)
+      RbrunCore::ResourceAllocator::Workload.new(name: "web", profile: :medium, replicas: 2, runs_on: :master)
     ]
 
     double_replica = RbrunCore::ResourceAllocator.new(
-      server_memory_mb: 4096,
+      node_groups: { master: 4096 },
       workloads: workloads_double
     ).allocate
 
@@ -46,11 +46,11 @@ class ResourceAllocatorTest < Minitest::Test
 
   def test_reserves_system_memory
     workloads = [
-      RbrunCore::ResourceAllocator::Workload.new(name: "app", profile: :large, replicas: 1)
+      RbrunCore::ResourceAllocator::Workload.new(name: "app", profile: :large, replicas: 1, runs_on: :master)
     ]
 
     allocator = RbrunCore::ResourceAllocator.new(
-      server_memory_mb: 4096,
+      node_groups: { master: 4096 },
       workloads:
     )
 
@@ -62,11 +62,11 @@ class ResourceAllocatorTest < Minitest::Test
 
   def test_allocation_to_kubernetes_format
     workloads = [
-      RbrunCore::ResourceAllocator::Workload.new(name: "app", profile: :medium, replicas: 1)
+      RbrunCore::ResourceAllocator::Workload.new(name: "app", profile: :medium, replicas: 1, runs_on: :master)
     ]
 
     allocator = RbrunCore::ResourceAllocator.new(
-      server_memory_mb: 2048,
+      node_groups: { master: 2048 },
       workloads:
     )
 
@@ -103,34 +103,75 @@ class ResourceAllocatorTest < Minitest::Test
     assert_equal :large, profile
   end
 
-  def test_realistic_staging_allocation_system_components
-    result = realistic_staging_allocations
+  def test_single_node_allocation_system_components
+    result = single_node_allocations
 
     assert_equal 179, result["registry"].memory_mb
     assert_equal 179, result["tunnel"].memory_mb
   end
 
-  def test_realistic_staging_allocation_app_components
-    result = realistic_staging_allocations
+  def test_single_node_allocation_app_components
+    result = single_node_allocations
 
     assert_equal 1433, result["postgres"].memory_mb
     assert_equal 716, result["web"].memory_mb
     assert_equal 358, result["worker"].memory_mb
   end
 
+  def test_multi_node_allocates_per_group
+    workloads = [
+      RbrunCore::ResourceAllocator::Workload.new(name: "postgres", profile: :large, replicas: 1, runs_on: :master),
+      RbrunCore::ResourceAllocator::Workload.new(name: "registry", profile: :minimal, replicas: 1, runs_on: :master),
+      RbrunCore::ResourceAllocator::Workload.new(name: "web", profile: :medium, replicas: 2, runs_on: :worker),
+      RbrunCore::ResourceAllocator::Workload.new(name: "worker", profile: :small, replicas: 1, runs_on: :worker)
+    ]
+
+    allocator = RbrunCore::ResourceAllocator.new(
+      node_groups: { master: 4096, worker: 8192 },
+      workloads:
+    )
+
+    result = allocator.allocate
+
+    master_available = 4096 - 512
+    master_total_weight = 8 + 1
+
+    assert_equal((8.0 / master_total_weight * master_available).floor, result["postgres"].memory_mb)
+
+    worker_available = 8192 - 512
+    worker_total_weight = (4 * 2) + 2
+
+    assert_equal((4.0 / worker_total_weight * worker_available).floor, result["web"].memory_mb)
+  end
+
+  def test_workload_defaults_to_master_when_runs_on_nil
+    workloads = [
+      RbrunCore::ResourceAllocator::Workload.new(name: "app", profile: :medium, replicas: 1, runs_on: nil)
+    ]
+
+    allocator = RbrunCore::ResourceAllocator.new(
+      node_groups: { master: 2048 },
+      workloads:
+    )
+
+    result = allocator.allocate
+
+    assert_predicate result["app"].memory_mb, :positive?
+  end
+
   private
 
-    def realistic_staging_allocations
+    def single_node_allocations
       workloads = [
-        RbrunCore::ResourceAllocator::Workload.new(name: "registry", profile: :minimal, replicas: 1),
-        RbrunCore::ResourceAllocator::Workload.new(name: "tunnel", profile: :minimal, replicas: 1),
-        RbrunCore::ResourceAllocator::Workload.new(name: "postgres", profile: :large, replicas: 1),
-        RbrunCore::ResourceAllocator::Workload.new(name: "web", profile: :medium, replicas: 2),
-        RbrunCore::ResourceAllocator::Workload.new(name: "worker", profile: :small, replicas: 1)
+        RbrunCore::ResourceAllocator::Workload.new(name: "registry", profile: :minimal, replicas: 1, runs_on: :master),
+        RbrunCore::ResourceAllocator::Workload.new(name: "tunnel", profile: :minimal, replicas: 1, runs_on: :master),
+        RbrunCore::ResourceAllocator::Workload.new(name: "postgres", profile: :large, replicas: 1, runs_on: :master),
+        RbrunCore::ResourceAllocator::Workload.new(name: "web", profile: :medium, replicas: 2, runs_on: :master),
+        RbrunCore::ResourceAllocator::Workload.new(name: "worker", profile: :small, replicas: 1, runs_on: :master)
       ]
 
       RbrunCore::ResourceAllocator.new(
-        server_memory_mb: 4096,
+        node_groups: { master: 4096 },
         workloads:
       ).allocate
     end

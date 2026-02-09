@@ -11,13 +11,13 @@ module RbrunCore
       large: 8
     }.freeze
 
-    DEFAULT_PROFILES = {
-      database: :large,
-      registry: :minimal,
-      tunnel: :minimal
-    }.freeze
+    MASTER_GROUP = :master
 
-    Workload = Struct.new(:name, :profile, :replicas, keyword_init: true)
+    Workload = Struct.new(:name, :profile, :replicas, :runs_on, keyword_init: true) do
+      def target_group
+        runs_on || MASTER_GROUP
+      end
+    end
 
     class Allocation
       attr_reader :memory_mb
@@ -34,20 +34,22 @@ module RbrunCore
       end
     end
 
-    def initialize(server_memory_mb:, workloads:)
-      @server_memory_mb = server_memory_mb
+    # node_groups: { master: 4096, worker: 8192 } (memory in MB)
+    # workloads: array of Workload structs with runs_on
+    def initialize(node_groups:, workloads:)
+      @node_groups = node_groups
       @workloads = workloads
     end
 
     def allocate
-      available = @server_memory_mb - SYSTEM_RESERVE_MB
-      total_weight = calculate_total_weight
+      allocations = {}
 
-      @workloads.each_with_object({}) do |workload, result|
-        weight = PROFILE_WEIGHTS.fetch(workload.profile)
-        memory_per_replica = (weight.to_f / total_weight * available).floor
-        result[workload.name] = Allocation.new(memory_per_replica)
+      workloads_by_group.each do |group, group_workloads|
+        group_memory = @node_groups[group] || @node_groups[MASTER_GROUP]
+        allocations.merge!(allocate_group(group_workloads, group_memory))
       end
+
+      allocations
     end
 
     def self.profile_for_process(process)
@@ -66,8 +68,23 @@ module RbrunCore
 
     private
 
-      def calculate_total_weight
-        @workloads.sum do |workload|
+      def workloads_by_group
+        @workloads.group_by(&:target_group)
+      end
+
+      def allocate_group(workloads, server_memory_mb)
+        available = server_memory_mb - SYSTEM_RESERVE_MB
+        total_weight = calculate_total_weight(workloads)
+
+        workloads.each_with_object({}) do |workload, result|
+          weight = PROFILE_WEIGHTS.fetch(workload.profile)
+          memory_per_replica = (weight.to_f / total_weight * available).floor
+          result[workload.name] = Allocation.new(memory_per_replica)
+        end
+      end
+
+      def calculate_total_weight(workloads)
+        workloads.sum do |workload|
           PROFILE_WEIGHTS.fetch(workload.profile) * workload.replicas
         end
       end
