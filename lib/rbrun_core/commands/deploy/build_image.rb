@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "open3"
-require "pty"
 
 module RbrunCore
   module Commands
@@ -79,37 +78,21 @@ module RbrunCore
           end
 
           def run_docker!(*args, chdir: nil)
-            success = execute_docker(*args, chdir:)
+            success = execute_docker(*args, chdir: chdir) { |line| emit_docker_line(line) }
             raise Error::Standard, "docker #{args.first} failed" unless success
           end
 
           def execute_docker(*args, chdir: nil)
-            if $stdout.tty?
-              execute_docker_pty(*args, chdir:)
-            else
-              execute_docker_pipe(*args, chdir:)
-            end
-          end
-
-          def execute_docker_pty(*args, chdir: nil)
-            Dir.chdir(chdir || Dir.pwd) do
-              PTY.spawn("docker", *args) do |stdout, _stdin, pid|
-                stdout.each { |data| $stdout.print data }
-                Process.wait(pid)
-              end
-            end
-            $?.success?
-          rescue PTY::ChildExited => e
-            e.status.success?
-          end
-
-          def execute_docker_pipe(*args, chdir: nil)
             opts = chdir ? { chdir: } : {}
 
             Open3.popen2e("docker", *args, **opts) do |_stdin, stdout_err, wait_thr|
-              stdout_err.each_line { |line| $stdout.print "    #{line}" }
+              stdout_err.each_line { |line| yield line if block_given? }
               wait_thr.value.success?
             end
+          end
+
+          def emit_docker_line(line)
+            $stdout.print "    #{line}"
           end
       end
     end

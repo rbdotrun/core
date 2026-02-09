@@ -114,32 +114,15 @@ module RbrunCore
           assert_equal 4, docker_commands.size
         end
 
-        def test_uses_pty_when_tty
+        def test_docker_output_is_indented
           step = BuildImage.new(@ctx)
+          output = StringIO.new
 
-          $stdout.stub(:tty?, true) do
-            with_fake_ssh_tunnel do
-              step.stub(:execute_docker_pty, true) do
-                step.stub(:execute_docker_pipe, ->(*) { flunk "should use PTY" }) do
-                  step.run
-                end
-              end
-            end
-          end
-        end
+          $stdout = output
+          step.send(:emit_docker_line, "Building layer 1\n")
+          $stdout = STDOUT
 
-        def test_uses_pipe_when_not_tty
-          step = BuildImage.new(@ctx)
-
-          $stdout.stub(:tty?, false) do
-            with_fake_ssh_tunnel do
-              step.stub(:execute_docker_pipe, true) do
-                step.stub(:execute_docker_pty, ->(*) { flunk "should use pipe" }) do
-                  step.run
-                end
-              end
-            end
-          end
+          assert_equal "    Building layer 1\n", output.string
         end
 
         private
