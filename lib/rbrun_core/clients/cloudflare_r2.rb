@@ -7,9 +7,10 @@ require "aws-sigv4"
 module RbrunCore
   module Clients
     class CloudflareR2
-      def initialize(api_token:, account_id:)
+      def initialize(api_token:, account_id:, http: nil)
         @api_token = api_token
         @account_id = account_id
+        @http = http
       end
 
       def ensure_bucket(bucket_name)
@@ -69,7 +70,7 @@ module RbrunCore
         end
 
         def http
-          @http ||= HTTPX
+          @http || HTTPX
         end
 
         def signer
