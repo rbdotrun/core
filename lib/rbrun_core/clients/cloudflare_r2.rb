@@ -30,7 +30,10 @@ module RbrunCore
           ),
           force_path_style: true,
           http_wire_trace: false,
-          ssl_verify_peer: false
+          ssl_verify_peer: false,
+          http_open_timeout: 10,
+          http_read_timeout: 60,
+          ssl_ca_bundle: false
         )
       end
 
