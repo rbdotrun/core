@@ -33,7 +33,7 @@ module RbrunCore
           # ─────────────────────────────────────────────────────────────────────────────
           def deployment(name:, containers:, volumes: [], replicas: 1, host_network: false, node_selector: nil,
                          init_containers: [], anti_affinity: false)
-            spec = build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector,
+            spec = build_deployment_pod_spec(name, containers, init_containers, volumes, host_network, node_selector,
                                              anti_affinity:)
 
             strategy = { type: "RollingUpdate" }
@@ -51,14 +51,14 @@ module RbrunCore
             }
           end
 
-          def build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector,
+          def build_deployment_pod_spec(name, containers, init_containers, volumes, host_network, node_selector,
                                          anti_affinity: false)
             spec = { containers: }
             spec[:initContainers] = init_containers if init_containers.any?
             spec[:volumes] = volumes if volumes.any?
             spec[:hostNetwork] = true if host_network
             spec[:nodeSelector] = node_selector if node_selector
-            spec[:affinity] = build_pod_anti_affinity(node_selector) if anti_affinity && node_selector
+            spec[:affinity] = build_pod_anti_affinity(name) if anti_affinity && name
 
             spec
           end
@@ -158,6 +158,10 @@ module RbrunCore
             { Naming::LABEL_SERVER_GROUP => workload.name.to_s }
           end
 
+          def master_node_selector
+            { Naming::LABEL_SERVER_GROUP => RbrunCore::Naming::MASTER_GROUP }
+          end
+
           # ─────────────────────────────────────────────────────────────────────────────
           # SOFT ANTI-AFFINITY FOR DEDICATED NODES
           # ─────────────────────────────────────────────────────────────────────────────
@@ -195,8 +199,7 @@ module RbrunCore
           # SAME deployment.
           #
           # ─────────────────────────────────────────────────────────────────────────────
-          def build_pod_anti_affinity(node_selector)
-            process_name = node_selector[Naming::LABEL_SERVER_GROUP]
+          def build_pod_anti_affinity(deployment_name)
             {
               podAntiAffinity: {
                 preferredDuringSchedulingIgnoredDuringExecution: [
@@ -207,8 +210,8 @@ module RbrunCore
                         matchExpressions: [
                           {
                             key: Naming::LABEL_APP,
-                            operator: "NotIn",
-                            values: [ process_name ]
+                            operator: "In",
+                            values: [ deployment_name ]
                           }
                         ]
                       },

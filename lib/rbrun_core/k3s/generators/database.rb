@@ -100,10 +100,6 @@ module RbrunCore
           def postgres_database(db_config)
             db_config.database || "app"
           end
-
-          def master_node_selector
-            { Naming::LABEL_SERVER_GROUP => RbrunCore::Naming::MASTER_GROUP }
-          end
       end
     end
   end

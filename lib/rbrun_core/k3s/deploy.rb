@@ -68,7 +68,7 @@ module RbrunCore
         end
 
         def needs_volumes?
-          @ctx.config.database?(:postgres)
+          @ctx.config.database? || @ctx.config.service_configs.any? { |_, svc| svc.mount_path }
         end
 
         def has_app?

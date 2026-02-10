@@ -38,10 +38,6 @@ module RbrunCore
               @tunnel_token
             ]
           end
-
-          def master_node_selector
-            { Naming::LABEL_SERVER_GROUP => RbrunCore::Naming::MASTER_GROUP }
-          end
       end
     end
   end

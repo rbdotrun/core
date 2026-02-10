@@ -148,9 +148,10 @@ module RbrunCore
           def fetch_existing_volume_mounts
             volumes = {}
 
-            @ctx.config.service_configs.each_key do |name|
+            @ctx.config.service_configs.each do |name, svc_config|
               deployment_name = Naming.deployment(@ctx.prefix, name)
-              mount_path = kubectl.get_host_volume_mount(deployment_name)
+              kind = svc_config.mount_path ? "statefulset" : "deployment"
+              mount_path = kubectl.get_host_volume_mount(deployment_name, kind:)
               volumes[name.to_s] = mount_path if mount_path
             end
 
@@ -168,36 +169,39 @@ module RbrunCore
           end
 
           def wait_for_rollout!
-            deployments = collect_deployments
-            return if deployments.empty?
+            workloads = collect_rollout_workloads
+            return if workloads.empty?
 
             if @on_rollout_progress
+              # Pass flat names for compatibility with rollout progress callback
+              deployments = workloads.map { |w| w[:name] }
               @on_rollout_progress.call(:wait, { kubectl:, deployments: })
             else
-              deployments.each do |deployment|
-                kubectl.rollout_status(deployment, timeout: 300)
+              workloads.each do |w|
+                kubectl.rollout_status(w[:name], timeout: 300, kind: w[:kind])
               end
             end
           end
 
-          def collect_deployments
-            deployments = []
+          def collect_rollout_workloads
+            workloads = []
 
             @ctx.config.database_configs.each_key do |type|
-              deployments << "#{@ctx.prefix}-#{type}"
+              workloads << { name: "#{@ctx.prefix}-#{type}", kind: "statefulset" }
             end
 
-            @ctx.config.service_configs.each_key do |name|
-              deployments << "#{@ctx.prefix}-#{name}"
+            @ctx.config.service_configs.each do |name, svc_config|
+              kind = svc_config.mount_path ? "statefulset" : "deployment"
+              workloads << { name: "#{@ctx.prefix}-#{name}", kind: }
             end
 
             if @ctx.config.app?
               @ctx.config.app_config.processes.each_key do |name|
-                deployments << "#{@ctx.prefix}-#{name}"
+                workloads << { name: "#{@ctx.prefix}-#{name}", kind: "deployment" }
               end
             end
 
-            deployments
+            workloads
           end
 
           def kubectl

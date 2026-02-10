@@ -48,8 +48,8 @@ module RbrunCore
         run!(cmd.join(" "))
       end
 
-      def rollout_status(deployment, namespace: "default", timeout: 300)
-        cmd = [ "kubectl", "rollout", "status", "deployment/#{deployment}", "-n", namespace, "--timeout=#{timeout}s" ]
+      def rollout_status(name, namespace: "default", timeout: 300, kind: "deployment")
+        cmd = [ "kubectl", "rollout", "status", "#{kind}/#{name}", "-n", namespace, "--timeout=#{timeout}s" ]
         run!(cmd.join(" "))
       end
 
@@ -90,9 +90,9 @@ module RbrunCore
         run!(cmd.join(" "), raise_on_error: false)
       end
 
-      def get_host_volume_mount(deployment, namespace: "default")
+      def get_host_volume_mount(name, namespace: "default", kind: "deployment")
         cmd = [
-          "kubectl", "get", "deployment", deployment,
+          "kubectl", "get", kind, name,
           "-n", namespace,
           "-o", "jsonpath='{.spec.template.spec.containers[0].volumeMounts[0].mountPath}'"
         ]
