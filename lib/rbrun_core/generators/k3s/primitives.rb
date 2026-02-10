@@ -19,10 +19,14 @@ module RbrunCore
             spec = build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector,
                                              anti_affinity:)
 
-            # Dedicated nodes (anti_affinity set): use Recreate because pods can't spill to other
-            # nodes during rolling update, causing "Insufficient memory" when resource allocations change.
-            # Shared nodes (no anti_affinity): use RollingUpdate for zero-downtime deploys.
-            strategy = anti_affinity ? { type: "Recreate" } : { type: "RollingUpdate" }
+            # Dedicated nodes (anti_affinity): use RollingUpdate with maxSurge: 0 so pods update
+            # one at a time without needing extra node capacity. Kills old pod first, then schedules new.
+            # Shared nodes: standard RollingUpdate with surge for faster deploys.
+            strategy = if anti_affinity
+                         { type: "RollingUpdate", rollingUpdate: { maxSurge: 0, maxUnavailable: 1 } }
+                       else
+                         { type: "RollingUpdate" }
+                       end
 
             {
               apiVersion: "apps/v1",
