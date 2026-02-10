@@ -3,7 +3,7 @@
 module RbrunCore
   module Config
     class Service
-      attr_accessor :subdomain, :env, :runs_on, :port, :mount_path, :setup
+      attr_accessor :subdomain, :env, :port, :mount_path, :setup, :instance_type, :replicas
       attr_reader :name
       attr_writer :image
 
@@ -12,14 +12,19 @@ module RbrunCore
         @subdomain = nil
         @env = {}
         @image = nil
-        @runs_on = nil
         @mount_path = nil
         @port = nil
         @setup = []
+        @instance_type = nil
+        @replicas = nil
       end
 
       def image
         @image
+      end
+
+      def effective_replicas
+        @replicas || 1
       end
     end
   end

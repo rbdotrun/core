@@ -192,20 +192,6 @@ module RbrunCore
         assert_includes manifests, RbrunCore::Naming::MASTER_GROUP
       end
 
-      def test_generates_node_selector_for_process_runs_on
-        @config.app do |a|
-          a.process(:web) do |p|
-            p.port = 3000
-            p.runs_on = %i[web]
-          end
-        end
-        manifests = K3s.new(@config, prefix: "myapp", zone: "example.com",
-                                     registry_tag: "localhost:5000/app:v1").generate
-
-        assert_includes manifests, RbrunCore::Naming::LABEL_SERVER_GROUP
-        assert_includes manifests, "web"
-      end
-
       def test_generates_process_env
         @config.app do |a|
           a.process(:worker) do |p|
@@ -344,6 +330,76 @@ module RbrunCore
         web_value = web_mem.gsub("Mi", "").to_i
 
         assert_operator pg_value, :>, web_value, "Postgres should get more memory than web"
+      end
+
+      # ── Instance Type Node Selector ──
+
+      def test_generates_node_selector_for_process_instance_type
+        @config.app do |a|
+          a.process(:web) do |p|
+            p.port = 3000
+            p.instance_type = "cpx32"
+          end
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        web_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
+
+        node_selector = web_deploy["spec"]["template"]["spec"]["nodeSelector"]
+
+        assert_equal "web", node_selector[RbrunCore::Naming::LABEL_SERVER_GROUP]
+      end
+
+      def test_generates_node_selector_for_service_instance_type
+        @config.service(:meilisearch) do |s|
+          s.image = "getmeili/meilisearch:v1.6"
+          s.port = 7700
+          s.instance_type = "cx22"
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        meili_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-meilisearch" }
+
+        node_selector = meili_deploy["spec"]["template"]["spec"]["nodeSelector"]
+
+        assert_equal "meilisearch", node_selector[RbrunCore::Naming::LABEL_SERVER_GROUP]
+      end
+
+      def test_generates_anti_affinity_for_dedicated_nodes
+        @config.app do |a|
+          a.process(:web) do |p|
+            p.port = 3000
+            p.instance_type = "cpx32"
+          end
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        web_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
+
+        affinity = web_deploy["spec"]["template"]["spec"]["affinity"]
+
+        assert affinity, "Deployment with instance_type should have affinity"
+        assert affinity["podAntiAffinity"], "Should have podAntiAffinity"
+      end
+
+      def test_service_uses_effective_replicas
+        @config.service(:meilisearch) do |s|
+          s.image = "getmeili/meilisearch:v1.6"
+          s.port = 7700
+          s.instance_type = "cx22"
+          s.replicas = 2
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        meili_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-meilisearch" }
+
+        assert_equal 2, meili_deploy["spec"]["replicas"]
       end
     end
   end

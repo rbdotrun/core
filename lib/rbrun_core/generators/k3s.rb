@@ -116,8 +116,8 @@ module RbrunCore
             workloads << ResourceAllocator::Workload.new(
               name: name.to_s,
               profile: ResourceAllocator.profile_for_service(svc),
-              replicas: 1,
-              runs_on: normalize_runs_on(svc.runs_on)
+              replicas: svc.effective_replicas,
+              runs_on: svc.instance_type ? name : :master
             )
           end
 
@@ -126,18 +126,11 @@ module RbrunCore
               name: name.to_s,
               profile: ResourceAllocator.profile_for_process(process),
               replicas: process.effective_replicas,
-              runs_on: normalize_runs_on(process.runs_on)
+              runs_on: process.instance_type ? name : :master
             )
           end
 
           workloads
-        end
-
-        def normalize_runs_on(runs_on)
-          return :master if runs_on.nil? || runs_on.empty?
-
-          # If runs_on is an array, take the first element as the target group
-          Array(runs_on).first
         end
 
         def app_secret

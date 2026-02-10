@@ -99,15 +99,6 @@ class ResourceAllocatorTest < Minitest::Test
     assert_equal :small, profile
   end
 
-  def test_profile_for_process_with_explicit_resources_uses_override
-    process = RbrunCore::Config::Process.new(:worker)
-    process.resources = :large
-
-    profile = RbrunCore::ResourceAllocator.profile_for_process(process)
-
-    assert_equal :large, profile
-  end
-
   def test_single_node_allocation_system_components
     result = single_node_allocations
 

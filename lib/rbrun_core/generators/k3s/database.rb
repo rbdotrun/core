@@ -89,8 +89,8 @@ module RbrunCore
             headless_service(name: postgres_name, port: 5432)
           end
 
-          def postgres_node_selector(db_config)
-            node_selector_for(db_config.runs_on) || master_node_selector
+          def postgres_node_selector(_db_config)
+            master_node_selector
           end
 
           def postgres_name

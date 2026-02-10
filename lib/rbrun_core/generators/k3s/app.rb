@@ -78,7 +78,7 @@ module RbrunCore
             deployment(
               name: deployment_name,
               replicas: process.effective_replicas,
-              node_selector: node_selector_for_process(process.runs_on),
+              node_selector: node_selector_for_instance_type(process),
               containers: [ container ],
               init_containers: build_init_containers(process)
             )

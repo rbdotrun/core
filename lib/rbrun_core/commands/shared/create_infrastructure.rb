@@ -106,7 +106,11 @@ module RbrunCore
             desired = {}
 
             add_master_servers!(desired, compute.master)
-            add_worker_servers!(desired, compute.servers)
+            add_process_servers!(desired)
+            add_service_servers!(desired)
+
+            # Legacy: still support compute.servers if present (deprecated)
+            add_worker_servers!(desired, compute.servers) if compute.servers.any?
 
             desired
           end
@@ -122,6 +126,26 @@ module RbrunCore
               (1..group.count).each do |i|
                 desired["#{group_name}-#{i}"] = group
               end
+            end
+          end
+
+          def add_process_servers!(desired)
+            @ctx.config.app_config&.processes&.each do |name, process|
+              next unless process.instance_type
+
+              replicas = process.replicas || 1
+              group = Config::Compute::ServerGroup.new(name: name, type: process.instance_type, count: 1)
+              (1..replicas).each { |i| desired["#{name}-#{i}"] = group }
+            end
+          end
+
+          def add_service_servers!(desired)
+            @ctx.config.service_configs.each do |name, service|
+              next unless service.instance_type
+
+              replicas = service.replicas || 1
+              group = Config::Compute::ServerGroup.new(name: name, type: service.instance_type, count: 1)
+              (1..replicas).each { |i| desired["#{name}-#{i}"] = group }
             end
           end
 

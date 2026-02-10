@@ -50,18 +50,10 @@ module RbrunCore
             mount_volume(server, volume, type)
           end
 
-          def find_target_server(db_config)
-            if db_config.runs_on
-              # Find server in specific group
-              server_name = "#{@ctx.prefix}-#{db_config.runs_on}-1"
-              compute_client.find_server(server_name) ||
-                raise(Error::Standard, "Server #{server_name} not found for database")
-            else
-              # Use master server
-              master_name = "#{@ctx.prefix}-master-1"
-              compute_client.find_server(master_name) ||
-                raise(Error::Standard, "Master server not found")
-            end
+          def find_target_server(_db_config)
+            master_name = "#{@ctx.prefix}-master-1"
+            compute_client.find_server(master_name) ||
+              raise(Error::Standard, "Master server not found")
           end
 
           def mount_volume(server, volume, type)

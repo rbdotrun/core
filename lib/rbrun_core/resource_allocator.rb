@@ -92,9 +92,7 @@ module RbrunCore
     end
 
     def self.profile_for_process(process)
-      if process.respond_to?(:resources) && process.resources
-        process.resources.to_sym
-      elsif process.subdomain && !process.subdomain.to_s.empty?
+      if process.subdomain && !process.subdomain.to_s.empty?
         :medium
       else
         :small

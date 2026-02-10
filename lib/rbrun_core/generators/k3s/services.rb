@@ -39,8 +39,8 @@ module RbrunCore
 
             deployment(
               name: deployment_name,
-              replicas: 1,
-              node_selector: node_selector_for(svc_config.runs_on),
+              replicas: svc_config.effective_replicas,
+              node_selector: node_selector_for_instance_type(svc_config),
               containers: [ container.compact ],
               volumes:
             )
