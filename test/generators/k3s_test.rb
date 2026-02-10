@@ -63,6 +63,50 @@ module RbrunCore
         assert_includes manifests, "/mnt/data/test-meilisearch"
       end
 
+      def test_service_with_mount_path_uses_statefulset
+        @config.service(:meilisearch) do |s|
+          s.image = "getmeili/meilisearch:latest"
+          s.port = 7700
+          s.mount_path = "/meili_data"
+        end
+        gen = K3s.new(@config, prefix: "test", zone: "example.com")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+
+        meili = parsed.find { |r| r["metadata"]["name"] == "test-meilisearch" && r["kind"] }
+
+        assert_equal "StatefulSet", meili["kind"]
+      end
+
+      def test_service_with_mount_path_uses_headless_service
+        @config.service(:meilisearch) do |s|
+          s.image = "getmeili/meilisearch:latest"
+          s.port = 7700
+          s.mount_path = "/meili_data"
+        end
+        gen = K3s.new(@config, prefix: "test", zone: "example.com")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+
+        svc = parsed.find { |r| r["kind"] == "Service" && r["metadata"]["name"] == "test-meilisearch" }
+
+        assert_equal "None", svc["spec"]["clusterIP"]
+      end
+
+      def test_service_without_mount_path_uses_deployment
+        @config.service(:redis) do |s|
+          s.image = "redis:7-alpine"
+          s.port = 6379
+        end
+        gen = K3s.new(@config, prefix: "test", zone: "example.com")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+
+        redis = parsed.find { |r| r["metadata"]["name"] == "test-redis" && r["kind"] }
+
+        assert_equal "Deployment", redis["kind"]
+      end
+
       def test_service_without_mount_path_has_no_volume
         @config.service(:custom) { |s| s.image = "custom:latest" }
         manifests = K3s.new(@config, prefix: "test", zone: "example.com").generate

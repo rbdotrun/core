@@ -421,4 +421,53 @@ class ConfigurationTest < Minitest::Test
 
     assert_nil @config.validate!
   end
+
+  def test_validate_raises_when_service_has_mount_path_with_replicas
+    @config.target = :production
+    @config.name = "myapp"
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+    @config.service(:meilisearch) do |s|
+      s.image = "getmeili/meilisearch:v1.6"
+      s.mount_path = "/meili_data"
+      s.replicas = 2
+    end
+
+    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
+    assert_match(/mount_path with replicas/, error.message)
+  end
+
+  def test_validate_raises_when_service_has_mount_path_with_instance_type
+    @config.target = :production
+    @config.name = "myapp"
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+    @config.service(:meilisearch) do |s|
+      s.image = "getmeili/meilisearch:v1.6"
+      s.mount_path = "/meili_data"
+      s.instance_type = "cx22"
+    end
+
+    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
+    assert_match(/mount_path with instance_type/, error.message)
+  end
+
+  def test_validate_passes_when_service_has_mount_path_without_replicas_or_instance_type
+    @config.target = :production
+    @config.name = "myapp"
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+    @config.service(:meilisearch) do |s|
+      s.image = "getmeili/meilisearch:v1.6"
+      s.mount_path = "/meili_data"
+    end
+
+    assert_nil @config.validate!
+  end
 end

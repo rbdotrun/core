@@ -166,6 +166,24 @@ module RbrunCore
 
       def validate_instance_type!
         @service_configs.each do |name, svc|
+          if svc.mount_path && svc.replicas && svc.replicas > 1
+            raise(
+              Error::Configuration,
+              "Service #{name} has mount_path with replicas > 1. " \
+              "Stateful services cannot scale horizontally."
+            )
+          end
+
+          if svc.mount_path && svc.instance_type
+            raise(
+              Error::Configuration,
+              "Service #{name} has mount_path with instance_type. " \
+              "Stateful services must run on master node."
+            )
+          end
+
+          next if svc.mount_path # stateful services don't need instance_type check
+
           if svc.replicas && !svc.instance_type
             raise(
               Error::Configuration,

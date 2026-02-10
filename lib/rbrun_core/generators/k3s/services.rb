@@ -37,13 +37,22 @@ module RbrunCore
             container = build_service_container(name, svc_config, secret_name)
             volumes = build_service_volumes(deployment_name, svc_config, container)
 
-            deployment(
-              name: deployment_name,
-              replicas: svc_config.effective_replicas,
-              node_selector: node_selector_for_instance_type(svc_config),
-              containers: [ container.compact ],
-              volumes:
-            )
+            if svc_config.mount_path
+              statefulset(
+                name: deployment_name,
+                node_selector: master_node_selector,
+                containers: [ container.compact ],
+                volumes:
+              )
+            else
+              deployment(
+                name: deployment_name,
+                replicas: svc_config.effective_replicas,
+                node_selector: node_selector_for_instance_type(svc_config),
+                containers: [ container.compact ],
+                volumes:
+              )
+            end
           end
 
           def build_service_container(name, svc_config, secret_name)
@@ -81,7 +90,11 @@ module RbrunCore
           def service_k8s_service(deployment_name, svc_config)
             return unless svc_config.port
 
-            service(name: deployment_name, port: svc_config.port)
+            if svc_config.mount_path
+              headless_service(name: deployment_name, port: svc_config.port)
+            else
+              service(name: deployment_name, port: svc_config.port)
+            end
           end
 
           def service_ingress(deployment_name, svc_config)
