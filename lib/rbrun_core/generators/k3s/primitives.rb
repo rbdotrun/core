@@ -19,14 +19,9 @@ module RbrunCore
             spec = build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector,
                                              anti_affinity:)
 
-            # Dedicated nodes (anti_affinity): use RollingUpdate with maxSurge: 0 so pods update
-            # one at a time without needing extra node capacity. Kills old pod first, then schedules new.
-            # Shared nodes: standard RollingUpdate with surge for faster deploys.
-            strategy = if anti_affinity
-                         { type: "RollingUpdate", rollingUpdate: { maxSurge: 0, maxUnavailable: 1 } }
-                       else
-                         { type: "RollingUpdate" }
-                       end
+            # RollingUpdate for all deployments. Soft anti-affinity allows temporary co-location
+            # during updates, so surge works even on dedicated nodes.
+            strategy = { type: "RollingUpdate" }
 
             {
               apiVersion: "apps/v1",
@@ -149,18 +144,21 @@ module RbrunCore
             process_name = node_selector[Naming::LABEL_SERVER_GROUP]
             {
               podAntiAffinity: {
-                requiredDuringSchedulingIgnoredDuringExecution: [
+                preferredDuringSchedulingIgnoredDuringExecution: [
                   {
-                    labelSelector: {
-                      matchExpressions: [
-                        {
-                          key: Naming::LABEL_APP,
-                          operator: "NotIn",
-                          values: [ process_name ]
-                        }
-                      ]
-                    },
-                    topologyKey: "kubernetes.io/hostname"
+                    weight: 100,
+                    podAffinityTerm: {
+                      labelSelector: {
+                        matchExpressions: [
+                          {
+                            key: Naming::LABEL_APP,
+                            operator: "NotIn",
+                            values: [ process_name ]
+                          }
+                        ]
+                      },
+                      topologyKey: "kubernetes.io/hostname"
+                    }
                   }
                 ]
               }
