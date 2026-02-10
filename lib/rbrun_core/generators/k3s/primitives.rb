@@ -14,13 +14,28 @@ module RbrunCore
             }
           end
 
+          # ─────────────────────────────────────────────────────────────────────────────
+          # ROLLING UPDATE STRATEGY
+          # ─────────────────────────────────────────────────────────────────────────────
+          #
+          # All deployments use RollingUpdate with default surge settings. This enables
+          # zero-downtime deploys:
+          #
+          #   1. New pod starts alongside old pod (surge)
+          #   2. New pod becomes Ready (passes readiness probe)
+          #   3. Old pod terminates gracefully
+          #   4. Repeat for remaining replicas
+          #
+          # This works even on dedicated nodes because we use SOFT anti-affinity
+          # (preferredDuringScheduling), which allows temporary co-location during
+          # updates. See build_pod_anti_affinity for details.
+          #
+          # ─────────────────────────────────────────────────────────────────────────────
           def deployment(name:, containers:, volumes: [], replicas: 1, host_network: false, node_selector: nil,
                          init_containers: [], anti_affinity: false)
             spec = build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector,
                                              anti_affinity:)
 
-            # RollingUpdate for all deployments. Soft anti-affinity allows temporary co-location
-            # during updates, so surge works even on dedicated nodes.
             strategy = { type: "RollingUpdate" }
 
             {
@@ -134,12 +149,52 @@ module RbrunCore
             { name:, hostPath: { path:, type: "DirectoryOrCreate" } }
           end
 
+          # NODE SELECTOR: Hard constraint that pins pods to labeled nodes.
+          # Workloads with instance_type get dedicated servers labeled with their name.
+          # This provides HARD isolation between different processes (web vs worker).
           def node_selector_for_instance_type(workload)
             return nil unless workload.instance_type
 
             { Naming::LABEL_SERVER_GROUP => workload.name.to_s }
           end
 
+          # ─────────────────────────────────────────────────────────────────────────────
+          # SOFT ANTI-AFFINITY FOR DEDICATED NODES
+          # ─────────────────────────────────────────────────────────────────────────────
+          #
+          # Pods with instance_type get SOFT anti-affinity (preferredDuringScheduling).
+          # This provides two benefits:
+          #
+          # 1. CRASH ISOLATION (normal operation):
+          #    Scheduler spreads pods across nodes. If web-1 node dies, web-2 keeps
+          #    serving traffic. Weight 100 = strongest preference.
+          #
+          # 2. ZERO-DOWNTIME DEPLOYS (rolling updates):
+          #    During updates, new pod can temporarily co-locate with old pod on same
+          #    node. Once new pod is Ready, old pod terminates. This allows surge
+          #    without requiring extra node capacity.
+          #
+          #    Timeline:
+          #      web-1: [old-pod] + [new-pod starting]  ← temporary co-location OK
+          #      web-2: [old-pod serving traffic]
+          #             ↓
+          #      web-1: [new-pod Ready, old-pod terminating]
+          #      web-2: [old-pod serving traffic]
+          #             ↓
+          #      web-1: [new-pod serving]
+          #      web-2: [new-pod starting alongside old-pod]
+          #             ... repeat
+          #
+          # Why not HARD anti-affinity (requiredDuringScheduling)?
+          #   - Would block surge: new pod can't schedule if old pod still running
+          #   - Would require maxSurge: 0 (kill first, then start)
+          #   - Risk: if new pod fails to start, gap in service
+          #
+          # NODE ISOLATION between different processes (web vs worker) is enforced by
+          # nodeSelector, not anti-affinity. Anti-affinity only affects pods of the
+          # SAME deployment.
+          #
+          # ─────────────────────────────────────────────────────────────────────────────
           def build_pod_anti_affinity(node_selector)
             process_name = node_selector[Naming::LABEL_SERVER_GROUP]
             {
