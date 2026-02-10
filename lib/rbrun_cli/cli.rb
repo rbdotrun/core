@@ -10,9 +10,6 @@ module RbrunCli
     desc "sandbox SUBCOMMAND", "Manage development sandboxes"
     subcommand "sandbox", Sandbox
 
-    desc "kamal SUBCOMMAND", "Deploy with Kamal (Hetzner + Cloudflare)"
-    subcommand "kamal", Kamal
-
     desc "backup SUBCOMMAND", "Manage database backups"
     subcommand "backup", Backup
 

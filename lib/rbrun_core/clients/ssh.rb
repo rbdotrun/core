@@ -133,7 +133,6 @@ module RbrunCore
       end
 
       # Establish an SSH local port forward and yield while the tunnel is active.
-      # Follows Kamal's pattern for SSH tunneling.
       def with_local_forward(local_port:, remote_host:, remote_port:)
         ready = Concurrent::CountDownLatch.new(1)
         @forward_done = false

@@ -13,8 +13,6 @@ module RbrunCore
                 find_or_create_server find_server list_servers delete_server wait_for_server wait_for_server_deletion
                 find_or_create_firewall find_firewall delete_firewall
                 find_or_create_network find_network delete_network
-                find_or_create_load_balancer find_load_balancer list_load_balancers delete_load_balancer
-                attach_load_balancer_to_network add_load_balancer_target add_load_balancer_service
                 validate_credentials
               ]
             end
@@ -77,36 +75,6 @@ module RbrunCore
 
         def delete_network(id)
           raise NotImplementedError, "#{self.class}#delete_network not implemented"
-        end
-
-        # Load balancer methods
-        def find_or_create_load_balancer(name:, type:, location:, network_id: nil, firewall_ids: [], labels: {})
-          raise NotImplementedError, "#{self.class}#find_or_create_load_balancer not implemented"
-        end
-
-        def find_load_balancer(name)
-          raise NotImplementedError, "#{self.class}#find_load_balancer not implemented"
-        end
-
-        def list_load_balancers(**filters)
-          raise NotImplementedError, "#{self.class}#list_load_balancers not implemented"
-        end
-
-        def delete_load_balancer(id)
-          raise NotImplementedError, "#{self.class}#delete_load_balancer not implemented"
-        end
-
-        def attach_load_balancer_to_network(load_balancer_id:, network_id:)
-          raise NotImplementedError, "#{self.class}#attach_load_balancer_to_network not implemented"
-        end
-
-        def add_load_balancer_target(load_balancer_id:, server_id:, use_private_ip: true)
-          raise NotImplementedError, "#{self.class}#add_load_balancer_target not implemented"
-        end
-
-        def add_load_balancer_service(load_balancer_id:, protocol: "tcp", listen_port: 443,
-                                      destination_port: 443, health_check: {})
-          raise NotImplementedError, "#{self.class}#add_load_balancer_service not implemented"
         end
 
         # Validation

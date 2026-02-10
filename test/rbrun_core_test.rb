@@ -18,7 +18,6 @@ class RbrunCoreTest < Minitest::Test
   def test_exposes_strategy_modules
     assert_kind_of Module, RbrunCore::K3s
     assert_kind_of Module, RbrunCore::Sandbox
-    assert_kind_of Module, RbrunCore::Kamal
   end
 
   def test_exposes_clients_module

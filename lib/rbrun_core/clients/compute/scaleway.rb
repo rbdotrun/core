@@ -304,85 +304,11 @@ module RbrunCore
           end
         end
 
-        # Load Balancer Management
-        # Scaleway LB API: /lb/v1/zones/{zone}/lbs
-        # Architecture: LB → backends (server IPs + health check) → frontends (listen port → backend)
-
-        def find_or_create_load_balancer(name:, type: "lb-s", location: nil, network_id: nil, firewall_ids: [], labels: {})
-          existing = find_load_balancer(name)
-          return existing if existing
-
-          payload = {
-            name:, type:, project_id: @project_id,
-            tags: labels_to_tags(labels),
-            assign_flexible_ip: true
-          }
-
-          response = post(lb_path("/lbs"), payload)
-          lb = to_load_balancer(response)
-
-          wait_for_load_balancer(lb.id)
-        end
-
-        def find_load_balancer(name)
-          response = get(lb_path("/lbs"), name:, project_id: @project_id)
-          lb = response["lbs"]&.find { |l| l["name"] == name }
-          lb ? to_load_balancer(lb) : nil
-        end
-
-        def list_load_balancers(**filters)
-          params = { project_id: @project_id }
-          response = get(lb_path("/lbs"), params)
-          (response["lbs"] || []).map { |lb| to_load_balancer(lb) }
-        end
-
-        def delete_load_balancer(id)
-          delete("#{lb_path("/lbs/#{id}")}?release_ip=true")
-        rescue Error::Api => e
-          raise unless e.not_found?
-
-          nil
-        end
-
-        def attach_load_balancer_to_network(load_balancer_id:, network_id:)
-          post(lb_path("/lbs/#{load_balancer_id}/private-networks"), { private_network_id: network_id })
-        rescue Error::Api => e
-          raise unless e.message.include?("already") || e.message.include?("attached")
-        end
-
-        def add_load_balancer_target(load_balancer_id:, server_id:, use_private_ip: true)
-          server = get_server(server_id)
-          raise Error::Standard, "Server not found: #{server_id}" unless server
-
-          ip = use_private_ip ? server.private_ipv4 : server.public_ipv4
-          raise Error::Standard, "No IP available for server #{server_id}" unless ip
-
-          backend = find_or_create_default_backend(load_balancer_id)
-          add_servers_to_backend(backend["id"], [ ip ])
-        end
-
-        def add_load_balancer_service(load_balancer_id:, protocol: "tcp", listen_port: 443,
-                                      destination_port: 443, health_check: {})
-          backend = find_or_create_default_backend(load_balancer_id, port: destination_port,
-                                                   protocol: protocol, health_check: health_check)
-
-          # Check if frontend already exists on this port
-          existing = list_frontends(load_balancer_id)
-          return if existing.any? { |f| f["inbound_port"] == listen_port }
-
-          post(lb_path("/lbs/#{load_balancer_id}/frontends"), {
-            name: "frontend-#{listen_port}",
-            backend_id: backend["id"],
-            inbound_port: listen_port
-          })
-        end
-
         def inventory
           {
             servers: list_servers,
             firewalls: list_firewalls,
-            networks: list_networks,
-            load_balancers: list_load_balancers
+            networks: list_networks
           }
         end
 
@@ -415,7 +341,6 @@ module RbrunCore
           def instance_path(path) = "/instance/v1/zones/#{@zone}#{path}"
           def iam_path(path) = "/iam/v1alpha1#{path}"
           def block_path(path) = "/block/v1alpha1/zones/#{@zone}#{path}"
-          def lb_path(path) = "/lb/v1/zones/#{@zone}#{path}"
 
           def vpc_path(path)
             region = zone_to_region(@zone)
@@ -558,69 +483,6 @@ module RbrunCore
             )
           end
 
-          # Load balancer helpers
-
-          def wait_for_load_balancer(id, max_attempts: 30, interval: 3)
-            Waiter.poll(max_attempts:, interval:, message: "Load balancer #{id} did not become ready") do
-              response = get(lb_path("/lbs/#{id}"))
-              to_load_balancer(response) if response["status"] == "ready"
-            end
-          end
-
-          def find_or_create_default_backend(load_balancer_id, port: 443, protocol: "tcp", health_check: {})
-            backends = list_backends(load_balancer_id)
-            existing = backends.find { |b| b["forward_port"] == port }
-            return existing if existing
-
-            hc = {
-              port: health_check[:port] || port,
-              check_delay: ((health_check[:interval] || 15) * 1000).to_s,
-              check_timeout: ((health_check[:timeout] || 10) * 1000).to_s,
-              check_max_retries: health_check[:retries] || 3,
-              tcp_config: {}
-            }
-
-            response = post(lb_path("/lbs/#{load_balancer_id}/backends"), {
-              name: "backend-#{port}",
-              forward_protocol: protocol,
-              forward_port: port,
-              forward_port_algorithm: "roundrobin",
-              sticky_sessions: "none",
-              health_check: hc
-            })
-            response
-          end
-
-          def list_backends(load_balancer_id)
-            response = get(lb_path("/lbs/#{load_balancer_id}/backends"))
-            response["backends"] || []
-          end
-
-          def list_frontends(load_balancer_id)
-            response = get(lb_path("/lbs/#{load_balancer_id}/frontends"))
-            response["frontends"] || []
-          end
-
-          def add_servers_to_backend(backend_id, server_ips)
-            post(lb_path("/backends/#{backend_id}/servers"), { server_ip: server_ips })
-          rescue Error::Api => e
-            raise unless e.message.include?("already")
-          end
-
-          def to_load_balancer(data)
-            ip = data.dig("ip", 0, "ip_address") || data["ip_address"]
-            Types::LoadBalancer.new(
-              id: data["id"],
-              name: data["name"],
-              public_ipv4: ip,
-              type: data["type"],
-              location: data["zone"],
-              targets: [],
-              services: [],
-              labels: tags_to_labels(data["tags"]),
-              created_at: data["created_at"]
-            )
-          end
       end
     end
   end

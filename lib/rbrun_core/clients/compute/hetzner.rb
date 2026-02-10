@@ -288,104 +288,6 @@ module RbrunCore
           end
         end
 
-        # Load Balancer Management
-
-        def find_or_create_load_balancer(name:, type: "lb11", location:, network_id: nil, firewall_ids: [], labels: {})
-          existing = find_load_balancer(name)
-          return existing if existing
-
-          payload = {
-            name:, load_balancer_type: type, location:,
-            labels: labels || {}
-          }
-          payload[:network] = network_id.to_i if network_id
-
-          response = post("/load_balancers", payload)
-          to_load_balancer(response["load_balancer"])
-        end
-
-        def get_load_balancer(id)
-          response = get("/load_balancers/#{id.to_i}")
-          to_load_balancer(response["load_balancer"])
-        rescue Error::Api => e
-          raise unless e.not_found?
-
-          nil
-        end
-
-        def find_load_balancer(name)
-          response = get("/load_balancers", name:)
-          lb = response["load_balancers"]&.first
-          lb ? to_load_balancer(lb) : nil
-        end
-
-        def list_load_balancers(label_selector: nil)
-          params = {}
-          params[:label_selector] = label_selector if label_selector
-          response = get("/load_balancers", params)
-          response["load_balancers"].map { |lb| to_load_balancer(lb) }
-        end
-
-        def delete_load_balancer(id)
-          delete("/load_balancers/#{id.to_i}")
-        rescue Error::Api => e
-          raise unless e.not_found?
-
-          nil
-        end
-
-        def add_load_balancer_target(load_balancer_id:, server_id:, use_private_ip: true)
-          response = post(
-            "/load_balancers/#{load_balancer_id.to_i}/actions/add_target",
-            { type: "server", server: { id: server_id.to_i }, use_private_ip: }
-          )
-          wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
-        end
-
-        def remove_load_balancer_target(load_balancer_id:, server_id:)
-          response = post(
-            "/load_balancers/#{load_balancer_id.to_i}/actions/remove_target",
-            { type: "server", server: { id: server_id.to_i } }
-          )
-          wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
-        end
-
-        def add_load_balancer_service(load_balancer_id:, protocol: "https", listen_port: 443,
-                                      destination_port: 443, http: {}, health_check: {})
-          payload = {
-            protocol:, listen_port:, destination_port:,
-            http:, health_check:
-          }
-          response = post("/load_balancers/#{load_balancer_id.to_i}/actions/add_service", payload)
-          wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
-        end
-
-        def update_load_balancer_service(load_balancer_id:, protocol: "https", listen_port: 443,
-                                         destination_port: 443, http: {}, health_check: {})
-          payload = {
-            protocol:, listen_port:, destination_port:,
-            http:, health_check:
-          }
-          response = post("/load_balancers/#{load_balancer_id.to_i}/actions/update_service", payload)
-          wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
-        end
-
-        def delete_load_balancer_service(load_balancer_id:, listen_port:)
-          response = post(
-            "/load_balancers/#{load_balancer_id.to_i}/actions/delete_service",
-            { listen_port: }
-          )
-          wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
-        end
-
-        def attach_load_balancer_to_network(load_balancer_id:, network_id:)
-          response = post(
-            "/load_balancers/#{load_balancer_id.to_i}/actions/attach_to_network",
-            { network: network_id.to_i }
-          )
-          wait_for_action(response.dig("action", "id")) if response.dig("action", "id")
-        end
-
         # Firewall Rule Management
 
         def set_firewall_rules(firewall_id, rules)
@@ -489,21 +391,6 @@ module RbrunCore
               id: data["id"].to_s, name: data["name"],
               size: data["size"], server_id: data["server"]&.to_s,
               location: data.dig("location", "name"),
-              labels: data["labels"] || {},
-              created_at: data["created"]
-            )
-          end
-
-          def to_load_balancer(data)
-            Types::LoadBalancer.new(
-              id: data["id"].to_s, name: data["name"],
-              public_ipv4: data.dig("public_net", "ipv4", "ip"),
-              type: data.dig("load_balancer_type", "name") || data["load_balancer_type"],
-              location: data.dig("location", "name"),
-              targets: (data["targets"] || []).map { |t|
-                { server_id: t.dig("server", "id")&.to_s, health_status: t["health_status"] }
-              },
-              services: data["services"] || [],
               labels: data["labels"] || {},
               created_at: data["created"]
             )

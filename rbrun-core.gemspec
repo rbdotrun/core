@@ -23,7 +23,6 @@ Gem::Specification.new do |s|
   s.add_dependency 'faraday-multipart', '~> 1.0'
   s.add_dependency 'sshkey', '~> 3.0'
   s.add_dependency 'aws-sdk-ec2', '~> 1.0'
-  s.add_dependency 'aws-sdk-elasticloadbalancingv2', '~> 1.0'
   s.add_dependency 'aws-sigv4', '~> 1.0'
   s.add_dependency 'httpx', '~> 1.0'
   s.add_dependency 'rexml', '~> 3.0'
