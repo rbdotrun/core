@@ -35,7 +35,7 @@ module RbrunCore
           def postgres_statefulset(db_config)
             statefulset(
               name: postgres_name,
-              node_selector: postgres_node_selector(db_config),
+              node_selector: master_node_selector,
               containers: [ postgres_container(db_config) ],
               volumes: [ postgres_volume ]
             )
@@ -87,10 +87,6 @@ module RbrunCore
 
           def postgres_service
             headless_service(name: postgres_name, port: 5432)
-          end
-
-          def postgres_node_selector(_db_config)
-            master_node_selector
           end
 
           def postgres_name

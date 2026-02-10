@@ -134,7 +134,7 @@ module RbrunCore
               next unless process.instance_type
 
               replicas = process.replicas || 1
-              group = Config::Compute::ServerGroup.new(name: name, type: process.instance_type, count: 1)
+              group = Config::Compute::ServerGroup.new(name:, type: process.instance_type, count: 1)
               (1..replicas).each { |i| desired["#{name}-#{i}"] = group }
             end
           end
@@ -144,7 +144,7 @@ module RbrunCore
               next unless service.instance_type
 
               replicas = service.replicas || 1
-              group = Config::Compute::ServerGroup.new(name: name, type: service.instance_type, count: 1)
+              group = Config::Compute::ServerGroup.new(name:, type: service.instance_type, count: 1)
               (1..replicas).each { |i| desired["#{name}-#{i}"] = group }
             end
           end
