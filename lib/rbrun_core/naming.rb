@@ -133,9 +133,14 @@ module RbrunCore
         "#{app_name}-#{environment}-#{bucket_name}"
       end
 
-      # Database volume name for K8s.
+      # Volume name for cloud block storage.
+      def volume(prefix, name)
+        "#{prefix}-#{name}-data"
+      end
+
+      # Database volume name for K8s (alias for volume).
       def database_volume(prefix, type)
-        "#{prefix}-#{type}-data"
+        volume(prefix, type)
       end
 
       # Docker Compose volume name (local development).

@@ -177,6 +177,10 @@ module RbrunCore
             return unless processes_data
 
             processes_data.each do |name_str, proc_data|
+              if proc_data["mount_path"]
+                raise Error::Configuration, "Process #{name_str} cannot have mount_path. Use a service instead."
+              end
+
               app.process(name_str) do |p|
                 p.command = proc_data["command"] if proc_data["command"]
                 p.port = proc_data["port"] if proc_data["port"]

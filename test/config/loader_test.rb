@@ -511,6 +511,28 @@ module RbrunCore
         assert_equal [ "rails db:prepare", "bundle exec rake imports:all" ], config.app_config.processes[:web].setup
       end
 
+      def test_raises_when_process_has_mount_path
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          app:
+            processes:
+              web:
+                port: 80
+                mount_path: /data
+        YAML
+
+        error = assert_raises(Error::Configuration) { load_yaml(yaml) }
+        assert_match(/cannot have mount_path/, error.message)
+        assert_match(/web/, error.message)
+      end
+
       def test_loads_env
         yaml = <<~YAML
           name: testapp
