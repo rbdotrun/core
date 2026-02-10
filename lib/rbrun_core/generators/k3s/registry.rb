@@ -78,15 +78,8 @@ module RbrunCore
               image: "registry:3.0",
               ports: [ { containerPort: 5000 } ],
               envFrom: [ { secretRef: { name: registry_secret_name } } ],
-              resources: registry_resources
+              resources: { limits: { memory: "512Mi" } }
             }
-          end
-
-          def registry_resources
-            allocation = @allocations["registry"]
-            return { requests: { memory: "128Mi", cpu: "50m" }, limits: { memory: "512Mi" } } unless allocation
-
-            allocation.to_kubernetes
           end
 
           def registry_service

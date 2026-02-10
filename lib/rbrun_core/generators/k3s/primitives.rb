@@ -42,43 +42,12 @@ module RbrunCore
             spec[:volumes] = volumes if volumes.any?
             spec[:hostNetwork] = true if host_network
 
-            if node_selector == :affinity
-              affinity = build_node_affinity
-              spec[:affinity] = affinity if affinity
-            elsif node_selector
+            if node_selector
               spec[:nodeSelector] = node_selector
+              spec[:affinity] = build_pod_anti_affinity(node_selector)
             end
 
             spec
-          end
-
-          def build_node_affinity
-            process = find_multi_node_process
-            return nil unless process
-
-            {
-              nodeAffinity: {
-                requiredDuringSchedulingIgnoredDuringExecution: {
-                  nodeSelectorTerms: [
-                    {
-                      matchExpressions: [
-                        {
-                          key: Naming::LABEL_SERVER_GROUP,
-                          operator: "In",
-                          values: process.runs_on.map(&:to_s)
-                        }
-                      ]
-                    }
-                  ]
-                }
-              }
-            }
-          end
-
-          def find_multi_node_process
-            @config.app_config&.processes&.values&.find do |p|
-              p.runs_on.is_a?(Array) && p.runs_on.length > 1
-            end
           end
 
           def service(name:, port:)
@@ -167,22 +136,32 @@ module RbrunCore
             { name:, hostPath: { path:, type: "DirectoryOrCreate" } }
           end
 
-          def node_selector_for(runs_on)
-            return nil unless runs_on
+          def node_selector_for_instance_type(workload)
+            return nil unless workload.instance_type
 
-            { Naming::LABEL_SERVER_GROUP => runs_on.to_s }
+            { Naming::LABEL_SERVER_GROUP => workload.name.to_s }
           end
 
-          def node_selector_for_process(runs_on)
-            return nil unless runs_on
-
-            if runs_on.is_a?(Array) && runs_on.length > 1
-              :affinity
-            elsif runs_on.is_a?(Array)
-              { Naming::LABEL_SERVER_GROUP => runs_on.first.to_s }
-            else
-              { Naming::LABEL_SERVER_GROUP => runs_on.to_s }
-            end
+          def build_pod_anti_affinity(node_selector)
+            process_name = node_selector[Naming::LABEL_SERVER_GROUP]
+            {
+              podAntiAffinity: {
+                requiredDuringSchedulingIgnoredDuringExecution: [
+                  {
+                    labelSelector: {
+                      matchExpressions: [
+                        {
+                          key: Naming::LABEL_APP,
+                          operator: "NotIn",
+                          values: [ process_name ]
+                        }
+                      ]
+                    },
+                    topologyKey: "kubernetes.io/hostname"
+                  }
+                ]
+              }
+            }
           end
       end
     end

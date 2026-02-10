@@ -434,7 +434,7 @@ module RbrunCore
         assert_equal "bin/jobs", config.app_config.processes[:worker].command
       end
 
-      def test_loads_process_runs_on
+      def test_loads_process_instance_type
         yaml = <<~YAML
           name: testapp
           target: production
@@ -443,30 +443,48 @@ module RbrunCore
             api_key: test-key
             ssh_key_path: #{TEST_SSH_KEY_PATH}
             master:
-              instance_type: cpx21
-            servers:
-              web:
-                type: cpx21
-                count: 2
-              worker:
-                type: cpx11
+              instance_type: cpx11
           app:
             processes:
               web:
                 command: bin/rails server
                 port: 3000
-                runs_on:
-                  - web
+                instance_type: cpx32
+                replicas: 2
               worker:
                 command: bin/jobs
-                runs_on:
-                  - worker
+                instance_type: cx23
         YAML
 
         config = load_yaml(yaml)
 
-        assert_equal %i[web], config.app_config.processes[:web].runs_on
-        assert_equal %i[worker], config.app_config.processes[:worker].runs_on
+        assert_equal "cpx32", config.app_config.processes[:web].instance_type
+        assert_equal 2, config.app_config.processes[:web].replicas
+        assert_equal "cx23", config.app_config.processes[:worker].instance_type
+      end
+
+      def test_loads_service_instance_type
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          services:
+            meilisearch:
+              image: getmeili/meilisearch:v1.6
+              port: 7700
+              instance_type: cx22
+              replicas: 2
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal "cx22", config.service_configs[:meilisearch].instance_type
+        assert_equal 2, config.service_configs[:meilisearch].replicas
       end
 
       def test_loads_process_setup
@@ -555,87 +573,6 @@ module RbrunCore
 
         assert_predicate config, :claude_configured?
         assert_equal "anthropic-key", config.claude_config.auth_token
-      end
-
-      def test_raises_runs_on_service_with_master_only
-        yaml = <<~YAML
-          name: testapp
-          target: production
-          compute:
-            provider: hetzner
-            api_key: test-key
-            ssh_key_path: #{TEST_SSH_KEY_PATH}
-            master:
-              instance_type: cpx11
-          services:
-            redis:
-              image: redis:7-alpine
-              runs_on: worker
-        YAML
-
-        err = assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
-
-        assert_match(/runs_on.*multi-server/, err.message)
-        assert_match(/service/, err.message)
-      end
-
-      def test_raises_runs_on_process_with_master_only
-        yaml = <<~YAML
-          name: testapp
-          target: production
-          compute:
-            provider: hetzner
-            api_key: test-key
-            ssh_key_path: #{TEST_SSH_KEY_PATH}
-            master:
-              instance_type: cpx11
-          app:
-            processes:
-              web:
-                command: bin/rails server
-                runs_on:
-                  - web
-        YAML
-
-        err = assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
-
-        assert_match(/runs_on.*multi-server/, err.message)
-        assert_match(/process/, err.message)
-      end
-
-      def test_allows_runs_on_with_multi_server
-        yaml = <<~YAML
-          name: testapp
-          target: production
-          compute:
-            provider: hetzner
-            api_key: test-key
-            ssh_key_path: #{TEST_SSH_KEY_PATH}
-            master:
-              instance_type: cpx21
-            servers:
-              web:
-                type: cpx21
-                count: 2
-              worker:
-                type: cpx11
-          services:
-            redis:
-              image: redis:7-alpine
-              runs_on: worker
-          app:
-            processes:
-              web:
-                command: bin/rails server
-                runs_on:
-                  - web
-        YAML
-
-        config = load_yaml(yaml)
-
-        # Note: database runs_on is no longer supported (databases always run on master)
-        assert_equal :worker, config.service_configs[:redis].runs_on
-        assert_equal %i[web], config.app_config.processes[:web].runs_on
       end
 
       def test_loads_process_replicas
@@ -951,60 +888,6 @@ module RbrunCore
         config = load_yaml(yaml)
 
         refute_predicate config.storage_config.buckets[:uploads], :cors?
-      end
-
-      # ─── Sandbox Mode Validation ───
-
-      def test_raises_sandbox_with_service_runs_on
-        yaml = <<~YAML
-          name: testapp
-          target: sandbox
-          compute:
-            provider: hetzner
-            api_key: test-key
-            ssh_key_path: #{TEST_SSH_KEY_PATH}
-            master:
-              instance_type: cpx21
-            servers:
-              worker:
-                type: cpx11
-          services:
-            redis:
-              image: redis:7
-              runs_on: worker
-        YAML
-
-        err = assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
-
-        assert_match(/runs_on is not supported in sandbox mode/, err.message)
-        assert_match(/service: redis/, err.message)
-      end
-
-      def test_raises_sandbox_with_process_runs_on
-        yaml = <<~YAML
-          name: testapp
-          target: sandbox
-          compute:
-            provider: hetzner
-            api_key: test-key
-            ssh_key_path: #{TEST_SSH_KEY_PATH}
-            master:
-              instance_type: cpx21
-            servers:
-              worker:
-                type: cpx11
-          app:
-            processes:
-              worker:
-                command: bin/jobs
-                runs_on:
-                  - worker
-        YAML
-
-        err = assert_raises(RbrunCore::Error::Configuration) { load_yaml(yaml) }
-
-        assert_match(/runs_on is not supported in sandbox mode/, err.message)
-        assert_match(/process: worker/, err.message)
       end
 
       private

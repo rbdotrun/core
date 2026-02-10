@@ -200,16 +200,6 @@ class ConfigurationTest < Minitest::Test
     assert_equal 3000, @config.app_config.processes[:web].port
   end
 
-  def test_process_runs_on
-    @config.app do |a|
-      a.process(:web) { |p| p.runs_on = %i[web] }
-      a.process(:worker) { |p| p.runs_on = %i[worker] }
-    end
-
-    assert_equal %i[web], @config.app_config.processes[:web].runs_on
-    assert_equal %i[worker], @config.app_config.processes[:worker].runs_on
-  end
-
   # ── Cloudflare ──
 
   def test_cloudflare_yields_and_stores
@@ -382,74 +372,102 @@ class ConfigurationTest < Minitest::Test
     assert_nil @config.validate!
   end
 
-  # ── Sandbox Mode Validation ──
+  # ── Instance Type Validation ──
 
-  def test_validate_sandbox_mode_raises_when_service_has_runs_on
-    @config.target = :sandbox
-    @config.compute(:hetzner) do |c|
-      c.api_key = "k"
-      c.ssh_key_path = TEST_SSH_KEY_PATH
-      c.add_server_group(:worker, type: "cpx11", count: 1)
-    end
-    @config.service(:redis) do |s|
-      s.image = "redis:7"
-      s.runs_on = :worker
-    end
-
-    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate_sandbox_mode! }
-    assert_match(/runs_on is not supported in sandbox mode/, error.message)
-    assert_match(/service: redis/, error.message)
-  end
-
-  def test_validate_sandbox_mode_raises_when_process_has_runs_on
-    @config.target = :sandbox
-    @config.compute(:hetzner) do |c|
-      c.api_key = "k"
-      c.ssh_key_path = TEST_SSH_KEY_PATH
-      c.add_server_group(:worker, type: "cpx11", count: 1)
-    end
-    @config.app do |a|
-      a.process(:worker) do |p|
-        p.command = "bin/jobs"
-        p.runs_on = %i[worker]
-      end
-    end
-
-    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate_sandbox_mode! }
-    assert_match(/runs_on is not supported in sandbox mode/, error.message)
-    assert_match(/process: worker/, error.message)
-  end
-
-  def test_validate_sandbox_mode_passes_without_runs_on
-    @config.target = :sandbox
-    @config.compute(:hetzner) do |c|
-      c.api_key = "k"
-      c.ssh_key_path = TEST_SSH_KEY_PATH
-    end
-    @config.service(:redis) { |s| s.image = "redis:7" }
-    @config.app do |a|
-      a.process(:web) { |p| p.command = "bin/rails server" }
-    end
-
-    # Should not raise
-    @config.validate_sandbox_mode!
-  end
-
-  def test_validate_sandbox_mode_is_no_op_for_non_sandbox
+  def test_validate_raises_when_service_has_replicas_without_instance_type
     @config.target = :production
+    @config.name = "myapp"
     @config.compute(:hetzner) do |c|
       c.api_key = "k"
       c.ssh_key_path = TEST_SSH_KEY_PATH
-      c.add_server_group(:worker, type: "cpx11", count: 1)
     end
-    @config.app do |a|
-      a.process(:worker) do |p|
-        p.command = "bin/jobs"
-        p.runs_on = %i[worker]
-      end
+    @config.service(:meilisearch) do |s|
+      s.image = "getmeili/meilisearch:v1.6"
+      s.replicas = 2
     end
 
-    # Should not raise - runs_on is valid for non-sandbox
-    @config.validate_sandbox_mode!
+    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
+    assert_match(/replicas but no instance_type/, error.message)
+    assert_match(/meilisearch/, error.message)
+  end
+
+  def test_validate_passes_when_service_has_instance_type_with_replicas
+    @config.target = :production
+    @config.name = "myapp"
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+    @config.service(:meilisearch) do |s|
+      s.image = "getmeili/meilisearch:v1.6"
+      s.instance_type = "cx22"
+      s.replicas = 2
+    end
+
+    assert_nil @config.validate!
+  end
+
+  def test_validate_passes_when_service_has_instance_type_without_replicas
+    @config.target = :production
+    @config.name = "myapp"
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+    @config.service(:meilisearch) do |s|
+      s.image = "getmeili/meilisearch:v1.6"
+      s.instance_type = "cx22"
+    end
+
+    assert_nil @config.validate!
+  end
+
+  def test_validate_raises_when_service_has_mount_path_with_replicas
+    @config.target = :production
+    @config.name = "myapp"
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+    @config.service(:meilisearch) do |s|
+      s.image = "getmeili/meilisearch:v1.6"
+      s.mount_path = "/meili_data"
+      s.replicas = 2
+    end
+
+    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
+    assert_match(/mount_path with replicas/, error.message)
+  end
+
+  def test_validate_raises_when_service_has_mount_path_with_instance_type
+    @config.target = :production
+    @config.name = "myapp"
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+    @config.service(:meilisearch) do |s|
+      s.image = "getmeili/meilisearch:v1.6"
+      s.mount_path = "/meili_data"
+      s.instance_type = "cx22"
+    end
+
+    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
+    assert_match(/mount_path with instance_type/, error.message)
+  end
+
+  def test_validate_passes_when_service_has_mount_path_without_replicas_or_instance_type
+    @config.target = :production
+    @config.name = "myapp"
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+    @config.service(:meilisearch) do |s|
+      s.image = "getmeili/meilisearch:v1.6"
+      s.mount_path = "/meili_data"
+    end
+
+    assert_nil @config.validate!
   end
 end

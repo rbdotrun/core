@@ -63,6 +63,50 @@ module RbrunCore
         assert_includes manifests, "/mnt/data/test-meilisearch"
       end
 
+      def test_service_with_mount_path_uses_statefulset
+        @config.service(:meilisearch) do |s|
+          s.image = "getmeili/meilisearch:latest"
+          s.port = 7700
+          s.mount_path = "/meili_data"
+        end
+        gen = K3s.new(@config, prefix: "test", zone: "example.com")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+
+        meili = parsed.find { |r| r["metadata"]["name"] == "test-meilisearch" && r["kind"] }
+
+        assert_equal "StatefulSet", meili["kind"]
+      end
+
+      def test_service_with_mount_path_uses_headless_service
+        @config.service(:meilisearch) do |s|
+          s.image = "getmeili/meilisearch:latest"
+          s.port = 7700
+          s.mount_path = "/meili_data"
+        end
+        gen = K3s.new(@config, prefix: "test", zone: "example.com")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+
+        svc = parsed.find { |r| r["kind"] == "Service" && r["metadata"]["name"] == "test-meilisearch" }
+
+        assert_equal "None", svc["spec"]["clusterIP"]
+      end
+
+      def test_service_without_mount_path_uses_deployment
+        @config.service(:redis) do |s|
+          s.image = "redis:7-alpine"
+          s.port = 6379
+        end
+        gen = K3s.new(@config, prefix: "test", zone: "example.com")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+
+        redis = parsed.find { |r| r["metadata"]["name"] == "test-redis" && r["kind"] }
+
+        assert_equal "Deployment", redis["kind"]
+      end
+
       def test_service_without_mount_path_has_no_volume
         @config.service(:custom) { |s| s.image = "custom:latest" }
         manifests = K3s.new(@config, prefix: "test", zone: "example.com").generate
@@ -192,20 +236,6 @@ module RbrunCore
         assert_includes manifests, RbrunCore::Naming::MASTER_GROUP
       end
 
-      def test_generates_node_selector_for_process_runs_on
-        @config.app do |a|
-          a.process(:web) do |p|
-            p.port = 3000
-            p.runs_on = %i[web]
-          end
-        end
-        manifests = K3s.new(@config, prefix: "myapp", zone: "example.com",
-                                     registry_tag: "localhost:5000/app:v1").generate
-
-        assert_includes manifests, RbrunCore::Naming::LABEL_SERVER_GROUP
-        assert_includes manifests, "web"
-      end
-
       def test_generates_process_env
         @config.app do |a|
           a.process(:worker) do |p|
@@ -290,60 +320,91 @@ module RbrunCore
         assert_includes manifests, "STORAGE_ASSETS_BUCKET"
       end
 
-      def test_app_process_includes_resource_limits
-        @config.app do |a|
-          a.process(:web) do |p|
-            p.port = 3000
-            p.subdomain = "www"
-          end
-        end
-        gen = K3s.new(@config, prefix: "myapp", zone: "example.com", registry_tag: "localhost:5000/app:v1")
-        manifests = gen.generate
-        parsed = YAML.load_stream(manifests).compact
-        web_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
-        container = web_deploy["spec"]["template"]["spec"]["containers"].first
-
-        assert container["resources"], "Container should have resources"
-        assert container["resources"]["requests"]["memory"]
-        assert container["resources"]["limits"]["memory"]
-      end
-
-      def test_database_includes_resource_limits
+      def test_master_workloads_have_memory_limits
         @config.database(:postgres)
-        gen = K3s.new(@config, prefix: "myapp", zone: "example.com", db_password: "pw")
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com", db_password: "pw",
+                               r2_credentials: { bucket: "b", access_key_id: "a", secret_access_key: "s", endpoint: "e" },
+                               tunnel_token: "token")
         manifests = gen.generate
         parsed = YAML.load_stream(manifests).compact
+
         pg_sts = parsed.find { |r| r["kind"] == "StatefulSet" && r["metadata"]["name"] == "myapp-postgres" }
-        container = pg_sts["spec"]["template"]["spec"]["containers"].first
+        registry = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "registry" }
+        tunnel = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-cloudflared" }
 
-        assert container["resources"], "Postgres container should have resources"
-        assert container["resources"]["requests"]["memory"]
-        assert container["resources"]["limits"]["memory"]
+        assert_equal "2Gi", pg_sts["spec"]["template"]["spec"]["containers"].first["resources"]["limits"]["memory"]
+        assert_equal "512Mi", registry["spec"]["template"]["spec"]["containers"].first["resources"]["limits"]["memory"]
+        assert_equal "256Mi", tunnel["spec"]["template"]["spec"]["containers"].first["resources"]["limits"]["memory"]
       end
 
-      def test_database_gets_larger_allocation_than_app
-        @config.database(:postgres)
+      # ── Instance Type Node Selector ──
+
+      def test_generates_node_selector_for_process_instance_type
         @config.app do |a|
           a.process(:web) do |p|
             p.port = 3000
-            p.subdomain = "www"
+            p.instance_type = "cpx32"
           end
         end
         gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
-                               registry_tag: "localhost:5000/app:v1", db_password: "pw")
+                               registry_tag: "localhost:5000/app:v1")
         manifests = gen.generate
         parsed = YAML.load_stream(manifests).compact
-
-        pg_sts = parsed.find { |r| r["kind"] == "StatefulSet" && r["metadata"]["name"] == "myapp-postgres" }
         web_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
 
-        pg_mem = pg_sts["spec"]["template"]["spec"]["containers"].first["resources"]["limits"]["memory"]
-        web_mem = web_deploy["spec"]["template"]["spec"]["containers"].first["resources"]["limits"]["memory"]
+        node_selector = web_deploy["spec"]["template"]["spec"]["nodeSelector"]
 
-        pg_value = pg_mem.gsub("Mi", "").to_i
-        web_value = web_mem.gsub("Mi", "").to_i
+        assert_equal "web", node_selector[RbrunCore::Naming::LABEL_SERVER_GROUP]
+      end
 
-        assert_operator pg_value, :>, web_value, "Postgres should get more memory than web"
+      def test_generates_node_selector_for_service_instance_type
+        @config.service(:meilisearch) do |s|
+          s.image = "getmeili/meilisearch:v1.6"
+          s.port = 7700
+          s.instance_type = "cx22"
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        meili_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-meilisearch" }
+
+        node_selector = meili_deploy["spec"]["template"]["spec"]["nodeSelector"]
+
+        assert_equal "meilisearch", node_selector[RbrunCore::Naming::LABEL_SERVER_GROUP]
+      end
+
+      def test_generates_anti_affinity_for_dedicated_nodes
+        @config.app do |a|
+          a.process(:web) do |p|
+            p.port = 3000
+            p.instance_type = "cpx32"
+          end
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        web_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
+
+        affinity = web_deploy["spec"]["template"]["spec"]["affinity"]
+
+        assert affinity, "Deployment with instance_type should have affinity"
+        assert affinity["podAntiAffinity"], "Should have podAntiAffinity"
+      end
+
+      def test_service_uses_effective_replicas
+        @config.service(:meilisearch) do |s|
+          s.image = "getmeili/meilisearch:v1.6"
+          s.port = 7700
+          s.instance_type = "cx22"
+          s.replicas = 2
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        meili_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-meilisearch" }
+
+        assert_equal 2, meili_deploy["spec"]["replicas"]
       end
     end
   end
