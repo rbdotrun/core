@@ -406,6 +406,45 @@ module RbrunCore
 
         assert_equal 2, meili_deploy["spec"]["replicas"]
       end
+
+      def test_tunnel_has_no_anti_affinity
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com", tunnel_token: "token123")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        tunnel = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-cloudflared" }
+
+        affinity = tunnel["spec"]["template"]["spec"]["affinity"]
+        refute affinity, "Tunnel should not have anti-affinity"
+      end
+
+      def test_process_without_instance_type_has_no_anti_affinity
+        @config.app do |a|
+          a.process(:web) do |p|
+            p.port = 3000
+          end
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com", registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        web_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
+
+        affinity = web_deploy["spec"]["template"]["spec"]["affinity"]
+        refute affinity, "Process without instance_type should not have anti-affinity"
+      end
+
+      def test_service_without_instance_type_has_no_anti_affinity
+        @config.service(:redis) do |s|
+          s.image = "redis:7-alpine"
+          s.port = 6379
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        redis_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-redis" }
+
+        affinity = redis_deploy["spec"]["template"]["spec"]["affinity"]
+        refute affinity, "Service without instance_type should not have anti-affinity"
+      end
     end
   end
 end

@@ -15,13 +15,14 @@ module RbrunCore
           end
 
           def deployment(name:, containers:, volumes: [], replicas: 1, host_network: false, node_selector: nil,
-                         init_containers: [])
-            spec = build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector)
+                         init_containers: [], anti_affinity: false)
+            spec = build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector,
+                                             anti_affinity:)
 
-            # Dedicated nodes (node_selector set): use Recreate because pods can't spill to other
+            # Dedicated nodes (anti_affinity set): use Recreate because pods can't spill to other
             # nodes during rolling update, causing "Insufficient memory" when resource allocations change.
-            # Shared nodes (no node_selector): use RollingUpdate for zero-downtime deploys.
-            strategy = node_selector ? { type: "Recreate" } : { type: "RollingUpdate" }
+            # Shared nodes (no anti_affinity): use RollingUpdate for zero-downtime deploys.
+            strategy = anti_affinity ? { type: "Recreate" } : { type: "RollingUpdate" }
 
             {
               apiVersion: "apps/v1",
@@ -36,16 +37,14 @@ module RbrunCore
             }
           end
 
-          def build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector)
+          def build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector,
+                                         anti_affinity: false)
             spec = { containers: }
             spec[:initContainers] = init_containers if init_containers.any?
             spec[:volumes] = volumes if volumes.any?
             spec[:hostNetwork] = true if host_network
-
-            if node_selector
-              spec[:nodeSelector] = node_selector
-              spec[:affinity] = build_pod_anti_affinity(node_selector)
-            end
+            spec[:nodeSelector] = node_selector if node_selector
+            spec[:affinity] = build_pod_anti_affinity(node_selector) if anti_affinity && node_selector
 
             spec
           end

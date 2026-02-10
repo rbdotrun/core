@@ -50,7 +50,8 @@ module RbrunCore
                 replicas: svc_config.effective_replicas,
                 node_selector: node_selector_for_instance_type(svc_config),
                 containers: [ container.compact ],
-                volumes:
+                volumes:,
+                anti_affinity: !!svc_config.instance_type
               )
             end
           end
