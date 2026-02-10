@@ -24,17 +24,16 @@ module RbrunCore
           def detach_volumes!
             return unless compute_client.respond_to?(:list_volumes)
 
-            @on_step&.call("Volumes", :in_progress)
-            detach_matching_volumes!
-            @on_step&.call("Volumes", :done)
-          end
+            volumes = matching_volumes
+            return if volumes.empty?
 
-          def detach_matching_volumes!
-            matching_volumes.each do |volume|
+            @on_step&.call("Detaching volumes", :in_progress)
+            volumes.each do |volume|
               compute_client.detach_volume(volume_id: volume.id)
             rescue StandardError
               # best effort
             end
+            @on_step&.call("Detaching volumes", :done)
           end
 
           def matching_volumes
