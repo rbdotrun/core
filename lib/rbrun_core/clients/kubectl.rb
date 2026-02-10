@@ -90,6 +90,19 @@ module RbrunCore
         run!(cmd.join(" "), raise_on_error: false)
       end
 
+      def get_host_volume_mount(deployment, namespace: "default")
+        cmd = [
+          "kubectl", "get", "deployment", deployment,
+          "-n", namespace,
+          "-o", "jsonpath='{.spec.template.spec.containers[0].volumeMounts[0].mountPath}'"
+        ]
+        result = run!(cmd.join(" "), raise_on_error: false)
+        return nil unless result[:exit_code].zero?
+
+        path = result[:output].strip.delete("'")
+        path.empty? ? nil : path
+      end
+
       def create_job_from_cronjob(cronjob_name, namespace: "default")
         job_name = Naming.manual_job(cronjob_name)
         cmd = [ "kubectl", "create", "job", job_name, "--from=cronjob/#{cronjob_name}", "-n", namespace ]

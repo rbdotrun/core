@@ -49,9 +49,6 @@ module RbrunCore
               container[:readinessProbe] = build_readiness_probe(process)
             end
 
-            allocation = @allocations[name.to_s]
-            container[:resources] = allocation.to_kubernetes if allocation
-
             container
           end
 

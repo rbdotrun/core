@@ -59,9 +59,6 @@ module RbrunCore
               ]
             end
 
-            allocation = @allocations[name.to_s]
-            container[:resources] = allocation.to_kubernetes if allocation
-
             container
           end
 
