@@ -93,6 +93,39 @@ module RbrunCore
         assert_equal "None", svc["spec"]["clusterIP"]
       end
 
+      def test_service_with_mount_path_and_instance_type_uses_dedicated_node
+        @config.service(:meilisearch) do |s|
+          s.image = "getmeili/meilisearch:latest"
+          s.port = 7700
+          s.mount_path = "/meili_data"
+          s.instance_type = "cx22"
+        end
+        gen = K3s.new(@config, prefix: "test", zone: "example.com")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+
+        meili = parsed.find { |r| r["metadata"]["name"] == "test-meilisearch" && r["kind"] == "StatefulSet" }
+
+        assert_equal "StatefulSet", meili["kind"]
+        assert_equal "meilisearch", meili.dig("spec", "template", "spec", "nodeSelector", "rb.run/server-group")
+      end
+
+      def test_service_with_mount_path_without_instance_type_uses_master
+        @config.service(:meilisearch) do |s|
+          s.image = "getmeili/meilisearch:latest"
+          s.port = 7700
+          s.mount_path = "/meili_data"
+        end
+        gen = K3s.new(@config, prefix: "test", zone: "example.com")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+
+        meili = parsed.find { |r| r["metadata"]["name"] == "test-meilisearch" && r["kind"] == "StatefulSet" }
+
+        assert_equal "StatefulSet", meili["kind"]
+        assert_equal "master", meili.dig("spec", "template", "spec", "nodeSelector", "rb.run/server-group")
+      end
+
       def test_service_without_mount_path_uses_deployment
         @config.service(:redis) do |s|
           s.image = "redis:7-alpine"

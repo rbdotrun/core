@@ -439,7 +439,7 @@ class ConfigurationTest < Minitest::Test
     assert_match(/mount_path with replicas/, error.message)
   end
 
-  def test_validate_raises_when_service_has_mount_path_with_instance_type
+  def test_validate_passes_when_service_has_mount_path_with_instance_type
     @config.target = :production
     @config.name = "myapp"
     @config.compute(:hetzner) do |c|
@@ -452,8 +452,7 @@ class ConfigurationTest < Minitest::Test
       s.instance_type = "cx22"
     end
 
-    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
-    assert_match(/mount_path with instance_type/, error.message)
+    assert_nil @config.validate!
   end
 
   def test_validate_passes_when_service_has_mount_path_without_replicas_or_instance_type

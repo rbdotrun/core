@@ -40,7 +40,7 @@ module RbrunCore
             if svc_config.mount_path
               statefulset(
                 name: deployment_name,
-                node_selector: master_node_selector,
+                node_selector: node_selector_for_instance_type(svc_config) || master_node_selector,
                 containers: [ container.compact ],
                 volumes:
               )
