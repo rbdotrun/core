@@ -417,7 +417,109 @@ module RbrunCore
           assert_equal "10.0.0.40", ctx.servers["worker-1"][:ip]
         end
 
+        # ── Per-process server provisioning ──
+
+        def test_process_instance_type_creates_servers
+          ctx = build_process_instance_type_context
+          stub_all_existing_for!(ctx)
+          stub_request(:get, /servers/).to_return(
+            status: 200, body: { servers: [] }.to_json, headers: json_headers
+          )
+          stub_request(:post, /servers/).to_return(lambda { |_req|
+            { status: 201, body: { server: multi_server_response(1) }.to_json, headers: json_headers }
+          })
+
+          with_mocked_ssh(output: "ok", exit_code: 0) do
+            CreateInfrastructure.new(ctx).run
+          end
+
+          # master-1 + web-1 + web-2 + worker-1 = 4 servers
+          assert_equal 4, ctx.servers.size
+          assert_includes ctx.servers.keys, "master-1"
+          assert_includes ctx.servers.keys, "web-1"
+          assert_includes ctx.servers.keys, "web-2"
+          assert_includes ctx.servers.keys, "worker-1"
+        end
+
+        def test_service_instance_type_creates_servers
+          ctx = build_service_instance_type_context
+          stub_all_existing_for!(ctx)
+          stub_request(:get, /servers/).to_return(
+            status: 200, body: { servers: [] }.to_json, headers: json_headers
+          )
+          stub_request(:post, /servers/).to_return(lambda { |_req|
+            { status: 201, body: { server: multi_server_response(1) }.to_json, headers: json_headers }
+          })
+
+          with_mocked_ssh(output: "ok", exit_code: 0) do
+            CreateInfrastructure.new(ctx).run
+          end
+
+          # master-1 + meilisearch-1 = 2 servers
+          assert_equal 2, ctx.servers.size
+          assert_includes ctx.servers.keys, "master-1"
+          assert_includes ctx.servers.keys, "meilisearch-1"
+        end
+
         private
+
+          def build_process_instance_type_context
+            config = RbrunCore::Configuration.new
+            config.target = :production
+            config.name = "testapp"
+            config.compute(:hetzner) do |c|
+              c.api_key = "test-hetzner-key"
+              c.ssh_key_path = TEST_SSH_KEY_PATH
+              c.master.instance_type = "cpx21"
+            end
+            config.cloudflare do |cf|
+              cf.api_token = "test-cloudflare-key"
+              cf.account_id = "test-account-id"
+              cf.domain = "test.dev"
+            end
+            config.app do |a|
+              a.process(:web) do |p|
+                p.port = 3000
+                p.instance_type = "cpx32"
+                p.replicas = 2
+              end
+              a.process(:worker) do |p|
+                p.command = "bin/jobs"
+                p.instance_type = "cx23"
+              end
+            end
+
+            ctx = RbrunCore::Context.new(config:)
+            ctx.ssh_public_key = TEST_SSH_KEY.ssh_public_key
+            ctx.ssh_private_key = TEST_SSH_KEY.private_key
+            ctx
+          end
+
+          def build_service_instance_type_context
+            config = RbrunCore::Configuration.new
+            config.target = :production
+            config.name = "testapp"
+            config.compute(:hetzner) do |c|
+              c.api_key = "test-hetzner-key"
+              c.ssh_key_path = TEST_SSH_KEY_PATH
+              c.master.instance_type = "cpx21"
+            end
+            config.cloudflare do |cf|
+              cf.api_token = "test-cloudflare-key"
+              cf.account_id = "test-account-id"
+              cf.domain = "test.dev"
+            end
+            config.service(:meilisearch) do |s|
+              s.image = "getmeili/meilisearch:v1.6"
+              s.port = 7700
+              s.instance_type = "cx22"
+            end
+
+            ctx = RbrunCore::Context.new(config:)
+            ctx.ssh_public_key = TEST_SSH_KEY.ssh_public_key
+            ctx.ssh_private_key = TEST_SSH_KEY.private_key
+            ctx
+          end
 
           def sandbox_master_server(ctx)
             { "id" => 456, "name" => "#{ctx.prefix}-master-1", "status" => "running",

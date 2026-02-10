@@ -16,8 +16,15 @@ module RbrunCore
 
           @on_step&.call("Volumes", :in_progress)
 
-          @ctx.config.database_configs.each do |type, db_config|
-            provision_database_volume(type, db_config)
+          @ctx.config.database_configs.each do |type, _db_config|
+            provision_volume(type, find_master_server)
+          end
+
+          @ctx.config.service_configs.each do |name, svc_config|
+            next unless svc_config.mount_path
+
+            server = find_service_server(name, svc_config)
+            provision_volume(name, server)
           end
 
           @on_step&.call("Volumes", :done)
@@ -26,36 +33,44 @@ module RbrunCore
         private
 
           def needs_volumes?
-            @ctx.config.database?
+            @ctx.config.database? || services_with_mount_path?
           end
 
-          def provision_database_volume(type, db_config)
-            volume_name = Naming.database_volume(@ctx.prefix, type)
-            server = find_target_server(db_config)
+          def services_with_mount_path?
+            @ctx.config.service_configs.any? { |_, svc| svc.mount_path }
+          end
+
+          def provision_volume(name, server)
+            volume_name = Naming.volume(@ctx.prefix, name)
 
             volume = compute_client.find_or_create_volume(
               name: volume_name,
               size: DEFAULT_VOLUME_SIZE,
               location: server.location,
-              labels: { Naming::LABEL_INSTANCE => @ctx.prefix, Naming::LABEL_APP => "#{@ctx.prefix}-#{type}" }
+              labels: { Naming::LABEL_INSTANCE => @ctx.prefix, Naming::LABEL_APP => "#{@ctx.prefix}-#{name}" }
             )
 
             if volume.server_id.nil? || volume.server_id.to_s != server.id.to_s
               volume = compute_client.attach_volume(volume_id: volume.id, server_id: server.id)
             end
 
-            mount_volume(server, volume, type)
+            # Mount volume on server
+            mount_volume(server, volume, name)
           end
 
-          def find_target_server(db_config)
-            if db_config.runs_on
-              server_name = "#{@ctx.prefix}-#{db_config.runs_on}-1"
+          def find_master_server
+            master_name = "#{@ctx.prefix}-master-1"
+            compute_client.find_server(master_name) ||
+              raise(Error::Standard, "Master server not found")
+          end
+
+          def find_service_server(name, svc_config)
+            if svc_config.instance_type
+              server_name = "#{@ctx.prefix}-#{name}-1"
               compute_client.find_server(server_name) ||
-                raise(Error::Standard, "Server #{server_name} not found for database")
+                raise(Error::Standard, "Service server #{server_name} not found")
             else
-              master_name = "#{@ctx.prefix}-master-1"
-              compute_client.find_server(master_name) ||
-                raise(Error::Standard, "Master server not found")
+              find_master_server
             end
           end
 

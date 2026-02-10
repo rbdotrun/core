@@ -3,7 +3,7 @@
 module RbrunCore
   module Config
     class Database
-      attr_accessor :password, :username, :database, :runs_on
+      attr_accessor :password, :username, :database
       attr_reader :type
       attr_writer :image
 
@@ -18,7 +18,6 @@ module RbrunCore
         @password = nil
         @username = "app"
         @database = "app"
-        @runs_on = nil
       end
 
       def image

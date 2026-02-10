@@ -49,9 +49,6 @@ module RbrunCore
               container[:readinessProbe] = build_readiness_probe(process)
             end
 
-            allocation = @allocations[name.to_s]
-            container[:resources] = allocation.to_kubernetes if allocation
-
             container
           end
 
@@ -78,9 +75,10 @@ module RbrunCore
             deployment(
               name: deployment_name,
               replicas: process.effective_replicas,
-              node_selector: node_selector_for_process(process.runs_on),
+              node_selector: node_selector_for_instance_type(process),
               containers: [ container ],
-              init_containers: build_init_containers(process)
+              init_containers: build_init_containers(process),
+              anti_affinity: !!process.instance_type
             )
           end
 

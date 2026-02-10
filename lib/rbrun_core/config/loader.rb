@@ -43,7 +43,6 @@ module RbrunCore
             apply_services!(config, data["services"]) if data["services"]
             apply_app!(config, data["app"]) if data["app"]
             apply_env!(config, data["env"]) if data["env"]
-            validate_runs_on!(config)
 
             config
           end
@@ -157,8 +156,9 @@ module RbrunCore
                 s.port = svc_data["port"] if svc_data["port"]
                 s.mount_path = svc_data["mount_path"] if svc_data["mount_path"]
                 s.subdomain = svc_data["subdomain"] if svc_data["subdomain"]
-                s.runs_on = svc_data["runs_on"]&.to_sym if svc_data["runs_on"]
                 s.setup = svc_data["setup"] || []
+                s.instance_type = svc_data["instance_type"] if svc_data["instance_type"]
+                s.replicas = svc_data["replicas"] if svc_data["replicas"]
                 if svc_data["env"]
                   s.env = svc_data["env"].transform_keys(&:to_sym)
                 end
@@ -177,45 +177,24 @@ module RbrunCore
             return unless processes_data
 
             processes_data.each do |name_str, proc_data|
+              if proc_data["mount_path"]
+                raise Error::Configuration, "Process #{name_str} cannot have mount_path. Use a service instead."
+              end
+
               app.process(name_str) do |p|
                 p.command = proc_data["command"] if proc_data["command"]
                 p.port = proc_data["port"] if proc_data["port"]
                 p.subdomain = proc_data["subdomain"] if proc_data["subdomain"]
                 p.replicas = proc_data["replicas"] if proc_data["replicas"]
-                p.resources = proc_data["resources"]&.to_sym if proc_data["resources"]
                 p.env = proc_data["env"] if proc_data["env"]
                 p.setup = proc_data["setup"] || []
-                p.runs_on = Array(proc_data["runs_on"]).map(&:to_sym) if proc_data["runs_on"]
+                p.instance_type = proc_data["instance_type"] if proc_data["instance_type"]
               end
             end
           end
 
           def apply_env!(config, env_data)
             config.env(env_data.transform_keys(&:to_sym))
-          end
-
-          def validate_runs_on!(config)
-            if config.target == :sandbox
-              validate_no_runs_on!(config, "runs_on is not supported in sandbox mode")
-              return
-            end
-
-            return if config.compute_config&.respond_to?(:multi_server?) && config.compute_config.multi_server?
-
-            validate_no_runs_on!(config, "runs_on is only valid with multi-server mode")
-          end
-
-          def validate_no_runs_on!(config, message_prefix)
-            config.service_configs.each do |name, svc|
-              raise Error::Configuration, "#{message_prefix} (service: #{name})" if svc.runs_on
-            end
-
-            processes = config.app_config&.processes
-            return unless processes
-
-            processes.each do |name, proc|
-              raise Error::Configuration, "#{message_prefix} (process: #{name})" if proc.runs_on
-            end
           end
       end
     end

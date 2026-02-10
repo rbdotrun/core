@@ -2,7 +2,7 @@
 
 module RbrunCore
   # Shared naming conventions used across strategies.
-  # Strategy-specific naming lives in Commands::K3s::Naming and Commands::Sandbox::Naming.
+  # Strategy-specific naming lives in K3s::Naming and Sandbox::Naming.
   module Naming
     MASTER_GROUP = "master"
 
@@ -23,6 +23,17 @@ module RbrunCore
         "#{app_name}-#{environment}-#{bucket_name}"
       end
 
+      # Volume name for cloud block storage.
+      def volume(prefix, name)
+        "#{prefix}-#{name}-data"
+      end
+
+      # Database volume name for K8s (alias for volume).
+      def database_volume(prefix, type)
+        volume(prefix, type)
+      end
+
+      # Docker Compose volume name (local development).
       def compose_volume(name)
         "#{name}_data"
       end

@@ -119,25 +119,8 @@ module RbrunCore
       @cloudflare_config&.validate!
       validate_cloudflare_required!
       validate_replicas!
+      validate_instance_type!
       nil
-    end
-
-    def validate_sandbox_mode!
-      return unless @target == :sandbox
-
-      @service_configs.each do |name, svc|
-        if svc.runs_on
-          raise Error::Configuration, "runs_on is not supported in sandbox mode (service: #{name})"
-        end
-      end
-
-      return unless @app_config&.processes
-
-      @app_config.processes.each do |name, proc|
-        if proc.runs_on
-          raise Error::Configuration, "runs_on is not supported in sandbox mode (process: #{name})"
-        end
-      end
     end
 
     def cloudflare_configured?
@@ -178,6 +161,28 @@ module RbrunCore
             Error::Configuration,
             "Cloudflare configuration required when processes or services have subdomains"
           )
+        end
+      end
+
+      def validate_instance_type!
+        @service_configs.each do |name, svc|
+          if svc.mount_path && svc.replicas && svc.replicas > 1
+            raise(
+              Error::Configuration,
+              "Service #{name} has mount_path with replicas > 1. " \
+              "Stateful services cannot scale horizontally."
+            )
+          end
+
+          next if svc.mount_path # stateful services don't need instance_type check
+
+          if svc.replicas && !svc.instance_type
+            raise(
+              Error::Configuration,
+              "Service #{name} has replicas but no instance_type. " \
+              "Set instance_type to provision dedicated servers, or remove replicas."
+            )
+          end
         end
       end
   end

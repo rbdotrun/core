@@ -60,8 +60,12 @@ module RbrunCore
           "#{subdomain}.#{zone}"
         end
 
+        def volume(prefix, name)
+          "#{prefix}-#{name}-data"
+        end
+
         def database_volume(prefix, type)
-          "#{prefix}-#{type}-data"
+          volume(prefix, type)
         end
 
         def manual_job(cronjob_name)

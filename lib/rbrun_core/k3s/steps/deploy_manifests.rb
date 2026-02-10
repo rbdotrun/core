@@ -15,6 +15,8 @@ module RbrunCore
         def run
           @on_step&.call("Manifests", :in_progress)
 
+          validate_no_volume_removal!
+
           r2_credentials = setup_backend_bucket
           storage_credentials = setup_storage_buckets
 
@@ -123,6 +125,46 @@ module RbrunCore
             pw.empty? ? nil : pw
           rescue Clients::Ssh::Error
             nil
+          end
+
+          def validate_no_volume_removal!
+            return unless @ctx.server_ip && @ctx.ssh_private_key
+
+            existing_volumes = fetch_existing_volume_mounts
+            return if existing_volumes.empty?
+
+            configured_volumes = collect_configured_volume_mounts
+
+            existing_volumes.each do |name, mount_path|
+              next if configured_volumes[name]
+
+              raise Error::Standard,
+                    "Cannot remove volume from #{name}. " \
+                    "It was deployed with mount_path: #{mount_path}. " \
+                    "Removing volumes risks data loss. Use 'destroy' to fully remove."
+            end
+          end
+
+          def fetch_existing_volume_mounts
+            volumes = {}
+
+            @ctx.config.service_configs.each_key do |name|
+              deployment_name = Naming.deployment(@ctx.prefix, name)
+              mount_path = kubectl.get_host_volume_mount(deployment_name)
+              volumes[name.to_s] = mount_path if mount_path
+            end
+
+            volumes
+          end
+
+          def collect_configured_volume_mounts
+            volumes = {}
+
+            @ctx.config.service_configs.each do |name, svc|
+              volumes[name.to_s] = svc.mount_path if svc.mount_path
+            end
+
+            volumes
           end
 
           def wait_for_rollout!

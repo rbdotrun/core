@@ -21,16 +21,12 @@ module RbrunCore
           end
 
           def tunnel_container
-            container = {
+            {
               name: "cloudflared",
               image: "cloudflare/cloudflared:latest",
-              args: tunnel_args
+              args: tunnel_args,
+              resources: { limits: { memory: "256Mi" } }
             }
-
-            allocation = @allocations["tunnel"]
-            container[:resources] = allocation.to_kubernetes if allocation
-
-            container
           end
 
           def tunnel_args
