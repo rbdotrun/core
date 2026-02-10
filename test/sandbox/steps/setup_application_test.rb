@@ -92,9 +92,11 @@ module RbrunCore
         end
 
         def test_gh_auth_login_runs_when_pat_present
-          cmds = with_capturing_ssh(exit_code_for: { "test -d" => 1, "command -v node" => 1, "command -v claude" => 1,
-                                                     "command -v gh" => 1, "command -v docker" => 1 }) do
-            SetupApplication.new(@ctx).run
+          cmds = LocalGit.stub(:gh_auth_token, "ghp_faketoken123") do
+            with_capturing_ssh(exit_code_for: { "test -d" => 1, "command -v node" => 1, "command -v claude" => 1,
+                                                       "command -v gh" => 1, "command -v docker" => 1 }) do
+              SetupApplication.new(@ctx).run
+            end
           end
 
           assert(cmds.any? { |cmd| cmd.include?("gh auth login --with-token") })
