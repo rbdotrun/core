@@ -482,7 +482,6 @@ module RbrunCore
               created_at: data["created_at"]
             )
           end
-
       end
     end
   end

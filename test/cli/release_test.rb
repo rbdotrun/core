@@ -28,6 +28,7 @@ class ReleaseTest < Minitest::Test
     end
 
     with_captured_stdout { release.exec("echo hi") }
+
     assert_equal [ "testapp-production-redis", "echo hi" ], called_with
   end
 
@@ -41,6 +42,7 @@ class ReleaseTest < Minitest::Test
     end
 
     out = with_captured_stdout { release.exec("rails c") }
+
     assert_equal "testapp-production-web", called_with[0]
     assert_includes out, "done"
   end
@@ -54,6 +56,7 @@ class ReleaseTest < Minitest::Test
     end
 
     out = with_captured_stdout { release.exec("ls") }
+
     assert_includes out, "line1"
     assert_includes out, "line2"
   end
@@ -162,6 +165,7 @@ class ReleaseTest < Minitest::Test
     end
 
     out = with_captured_stdout { release.logs }
+
     assert_equal "testapp-production-web", called_with[:deployment]
     assert_equal 50, called_with[:tail]
     assert_includes out, "log output"
@@ -177,7 +181,8 @@ class ReleaseTest < Minitest::Test
     end
 
     out = with_captured_stdout { release.logs }
-    assert_equal true, called_with[:follow]
+
+    assert called_with[:follow]
     assert_includes out, "streaming line"
   end
 
@@ -191,6 +196,7 @@ class ReleaseTest < Minitest::Test
     end
 
     with_captured_stdout { release.logs }
+
     assert_equal "testapp-production-redis", called_with
   end
 

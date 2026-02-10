@@ -447,6 +447,7 @@ module RbrunCore
         tunnel = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-cloudflared" }
 
         affinity = tunnel["spec"]["template"]["spec"]["affinity"]
+
         refute affinity, "Tunnel should not have anti-affinity"
       end
 
@@ -462,6 +463,7 @@ module RbrunCore
         web_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
 
         affinity = web_deploy["spec"]["template"]["spec"]["affinity"]
+
         refute affinity, "Process without instance_type should not have anti-affinity"
       end
 
@@ -476,6 +478,7 @@ module RbrunCore
         redis_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-redis" }
 
         affinity = redis_deploy["spec"]["template"]["spec"]["affinity"]
+
         refute affinity, "Service without instance_type should not have anti-affinity"
       end
     end

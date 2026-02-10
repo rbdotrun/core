@@ -137,7 +137,7 @@ module RbrunCore
             @ctx.define_singleton_method(:ssh_client) { fake_ssh }
 
             # Stub sleep to speed up tests
-            Waiter.stub(:sleep, ->(_) {}) do
+            Waiter.stub(:sleep, ->(_) { }) do
               yield
             end
           end

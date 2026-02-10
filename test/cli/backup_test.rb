@@ -11,6 +11,7 @@ module RbrunCli
 
     def test_uses_backend_bucket_method
       bucket = RbrunCore::Naming.backend_bucket("myapp", "staging")
+
       assert_equal "myapp-staging-backend", bucket
     end
   end

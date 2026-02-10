@@ -99,6 +99,7 @@ class SandboxTest < Minitest::Test
     sandbox.instance_variable_set(:@runner, runner)
 
     with_captured_stdout { sandbox.exec("ls") }
+
     assert_equal [ "rbrun-sandbox-ab12cd-web", "ls" ], called_with
   end
 
@@ -123,6 +124,7 @@ class SandboxTest < Minitest::Test
     sandbox.instance_variable_set(:@runner, runner)
 
     with_captured_stdout { sandbox.exec("ping") }
+
     assert_equal [ "rbrun-sandbox-ab12cd-redis", "ping" ], called_with
   end
 
@@ -207,6 +209,7 @@ class SandboxTest < Minitest::Test
     sandbox.instance_variable_set(:@runner, runner)
 
     out = with_captured_stdout { sandbox.logs }
+
     assert_equal "rbrun-sandbox-ab12cd-web", called_with[:deployment]
     assert_includes out, "sandbox logs"
   end
@@ -232,7 +235,8 @@ class SandboxTest < Minitest::Test
     sandbox.instance_variable_set(:@runner, runner)
 
     out = with_captured_stdout { sandbox.logs }
-    assert_equal true, called_with[:follow]
+
+    assert called_with[:follow]
     assert_includes out, "streaming log"
   end
 
