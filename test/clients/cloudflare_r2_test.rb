@@ -105,7 +105,7 @@ module RbrunCore
 
         @client.list_objects(bucket: "bucket", prefix: "docker/")
 
-        assert_includes @http.requests[0][:url], "prefix=docker/"
+        assert_includes @http.requests[0][:url], "prefix=docker%2F"
       end
 
       def test_set_cors_sends_xml_config

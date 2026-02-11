@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "digest"
+require "erb"
 require "httpx"
 require "aws-sigv4"
 
@@ -38,7 +39,7 @@ module RbrunCore
 
       def list_objects(bucket:, prefix: nil)
         path = "/#{bucket}?list-type=2"
-        path += "&prefix=#{prefix}" if prefix
+        path += "&prefix=#{ERB::Util.url_encode(prefix)}" if prefix
         resp = request(:get, path)
         parse_list_objects(resp.body.to_s)
       end
