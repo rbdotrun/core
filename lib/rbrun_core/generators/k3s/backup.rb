@@ -73,8 +73,9 @@ module RbrunCore
 
           def backup_script
             prefix = Naming::POSTGRES_BACKUPS_PREFIX
+            # Only update debian repos, skip postgres repo (already has pg_dump, and repo can be flaky)
             <<~SH.strip
-              apt-get update && apt-get install -y curl unzip &&
+              rm -f /etc/apt/sources.list.d/pgdg.list && apt-get update && apt-get install -y curl unzip &&
               curl -sL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip &&
               unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install &&
               TIMESTAMP=$(date +%Y%m%d-%H%M%S) &&
