@@ -29,17 +29,17 @@ module RbrunCore
 
         # Server methods
         def find_or_create_server(name:, instance_type:, location:, image:, user_data: nil, labels: {},
-                                  firewall_ids: [], network_ids: [])
+                                  firewall_ids: [], network_ids: [], public_ip: true)
           existing = find_server(name)
           return existing if existing
 
           create_server(name:, instance_type:, location:, image:, user_data:, labels:,
-                        firewall_ids:, network_ids:)
+                        firewall_ids:, network_ids:, public_ip:)
         end
 
         def create_server(name:, instance_type:, location:, image:, user_data: nil, labels: {},
-                          firewall_ids: [], network_ids: [])
-          ami_id = resolve_ubuntu_ami(image)
+                          firewall_ids: [], network_ids: [], public_ip: true)
+          ami_id = resolve_ami(image)
 
           tags = labels.map { |k, v| { key: k.to_s, value: v.to_s } }
           tags << { key: "Name", value: name }
@@ -59,14 +59,23 @@ module RbrunCore
 
           if network_ids&.any?
             subnet_id = find_subnet_for_network(network_ids.first)
-            params[:subnet_id] = subnet_id if subnet_id
+            if subnet_id
+              # Use network interface for fine-grained control over public IP
+              params[:network_interfaces] = [ {
+                device_index: 0,
+                subnet_id:,
+                associate_public_ip_address: public_ip,
+                groups: firewall_ids || []
+              } ]
+              params.delete(:security_group_ids) # Can't use both
+            end
           end
 
           response = @ec2.run_instances(params)
           instance = response.instances.first
 
-          # Wait for instance to be running with public IP
-          wait_for_server(instance.instance_id)
+          # Wait for instance to be running (with public IP if requested)
+          wait_for_server(instance.instance_id, require_public_ip: public_ip)
         end
 
         def find_server(name)
@@ -89,10 +98,14 @@ module RbrunCore
           response.reservations.flat_map(&:instances).map { |i| to_server(i) }
         end
 
-        def wait_for_server(id, max_attempts: 60, interval: 5)
+        def wait_for_server(id, max_attempts: 60, interval: 5, require_public_ip: true)
           Waiter.poll(max_attempts:, interval:, message: "Server #{id} did not become running after #{max_attempts} attempts") do
             server = get_server(id)
-            server if server&.status == "running" && server&.public_ipv4
+            if require_public_ip
+              server if server&.status == "running" && server&.public_ipv4
+            else
+              server if server&.status == "running"
+            end
           end
         end
 
@@ -195,6 +208,85 @@ module RbrunCore
             firewalls: list_firewalls,
             networks: list_networks
           }
+        end
+
+        # Image Management (AMIs)
+        def create_image_from_server(server_id:, name:, description: nil, labels: {})
+          # Stop instance before creating AMI for consistency
+          @ec2.stop_instances(instance_ids: [ server_id ])
+          wait_for_server_stopped(server_id)
+
+          tags = labels.map { |k, v| { key: k.to_s, value: v.to_s } }
+          tags << { key: "Name", value: name }
+          tags << { key: Naming::LABEL_BUILDER, value: "true" }
+
+          response = @ec2.create_image(
+            instance_id: server_id,
+            name:,
+            description: description || "Builder image for #{name}",
+            tag_specifications: [
+              { resource_type: "image", tags: }
+            ]
+          )
+
+          image_id = response.image_id
+          wait_for_image(image_id)
+          get_image(image_id)
+        end
+
+        def get_image(id)
+          response = @ec2.describe_images(image_ids: [ id ])
+          image = response.images.first
+          image ? to_image(image) : nil
+        rescue ::Aws::EC2::Errors::InvalidAMIIDNotFound
+          nil
+        end
+
+        def find_image(name)
+          response = @ec2.describe_images(
+            owners: [ "self" ],
+            filters: [
+              { name: "tag:#{Naming::LABEL_BUILDER}", values: [ "true" ] },
+              { name: "tag:Name", values: [ name ] }
+            ]
+          )
+          image = response.images.first
+          image ? to_image(image) : nil
+        end
+
+        def list_images(label_selector: nil)
+          filters = [ { name: "tag:#{Naming::LABEL_BUILDER}", values: [ "true" ] } ]
+          response = @ec2.describe_images(owners: [ "self" ], filters:)
+          response.images.map { |i| to_image(i) }
+        end
+
+        def delete_image(id)
+          # Get image to find associated snapshots
+          image = get_image(id)
+          return nil unless image
+
+          # Deregister AMI
+          @ec2.deregister_image(image_id: id)
+
+          # Delete associated snapshots
+          response = @ec2.describe_images(image_ids: [ id ])
+          image_data = response.images.first
+          image_data&.block_device_mappings&.each do |mapping|
+            next unless mapping.ebs&.snapshot_id
+
+            @ec2.delete_snapshot(snapshot_id: mapping.ebs.snapshot_id)
+          rescue ::Aws::EC2::Errors::InvalidSnapshotNotFound
+            # Already deleted
+          end
+        rescue ::Aws::EC2::Errors::InvalidAMIIDNotFound
+          nil
+        end
+
+        def wait_for_image(id, max_attempts: 120, interval: 5)
+          Waiter.poll(max_attempts:, interval:, message: "Image #{id} did not become available") do
+            image = get_image(id)
+            image if image&.status == "available"
+          end
         end
 
         def list_firewalls
@@ -361,7 +453,22 @@ module RbrunCore
             end
           end
 
+          def wait_for_server_stopped(id, max_attempts: 30, interval: 5)
+            Waiter.poll(max_attempts:, interval:, message: "Server #{id} did not stop") do
+              server = get_server(id)
+              server if server&.status == "stopped"
+            end
+          end
+
           # AMI helpers
+          def resolve_ami(image_hint)
+            # If it's an AMI ID, use it directly
+            return image_hint if image_hint.to_s.start_with?("ami-")
+
+            # Otherwise resolve Ubuntu AMI
+            resolve_ubuntu_ami(image_hint)
+          end
+
           def resolve_ubuntu_ami(image_hint)
             return image_hint if image_hint.start_with?("ami-")
 
@@ -464,6 +571,21 @@ module RbrunCore
               subnets: [],
               location: nil,
               created_at: nil
+            )
+          end
+
+          def to_image(image)
+            name_tag = image.tags&.find { |t| t.key == "Name" }&.value
+            labels = image.tags&.reject { |t| t.key == "Name" }&.to_h { |t| [ t.key, t.value ] } || {}
+
+            Types::Image.new(
+              id: image.image_id,
+              name: name_tag || image.name,
+              status: image.state,
+              description: image.description,
+              size_gb: nil, # AWS doesn't expose this directly
+              labels:,
+              created_at: image.creation_date
             )
           end
       end

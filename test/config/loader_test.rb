@@ -912,6 +912,103 @@ module RbrunCore
         refute_predicate config.storage_config.buckets[:uploads], :cors?
       end
 
+      # ─── Builder Configuration ───
+
+      def test_loads_builder_config
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          builder:
+            enabled: true
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_predicate config, :builder?
+      end
+
+      def test_loads_builder_machine_type
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          builder:
+            enabled: true
+            machine_type: cpx41
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal "cpx41", config.builder_config.machine_type
+      end
+
+      def test_loads_builder_volume_size
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          builder:
+            enabled: true
+            volume: 100
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal 100, config.builder_config.volume_size
+      end
+
+      def test_builder_defaults_when_not_specified
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+        YAML
+
+        config = load_yaml(yaml)
+
+        refute_predicate config, :builder?
+      end
+
+      def test_builder_not_enabled_when_enabled_is_false
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          builder:
+            enabled: false
+        YAML
+
+        config = load_yaml(yaml)
+
+        refute_predicate config, :builder?
+      end
+
       private
 
         def load_yaml(yaml, env: {})

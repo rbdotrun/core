@@ -21,6 +21,7 @@ module RbrunCore
     LABEL_INSTANCE = "app.kubernetes.io/instance"
     LABEL_MANAGED_BY = "app.kubernetes.io/managed-by"
     LABEL_SERVER_GROUP = "rb.run/server-group"
+    LABEL_BUILDER = "rb.run/builder"
 
     class << self
       # Generate a new slug for sandbox identification.
@@ -199,6 +200,19 @@ module RbrunCore
 
       def fqdn(subdomain, zone)
         "#{subdomain}.#{zone}"
+      end
+
+      # Builder resource names
+      def builder_server(prefix)
+        "#{prefix}-builder"
+      end
+
+      def builder_image(prefix)
+        "#{prefix}-builder-image"
+      end
+
+      def builder_volume(prefix)
+        "#{prefix}-builder-cache"
       end
     end
   end

@@ -120,4 +120,22 @@ class NamingTest < Minitest::Test
 
     assert_equal slug, extracted
   end
+
+  # ── Builder Naming ──
+
+  def test_builder_server_returns_prefixed_name
+    assert_equal "myapp-production-builder", RbrunCore::Naming.builder_server("myapp-production")
+  end
+
+  def test_builder_image_returns_prefixed_name
+    assert_equal "myapp-production-builder-image", RbrunCore::Naming.builder_image("myapp-production")
+  end
+
+  def test_builder_volume_returns_prefixed_name
+    assert_equal "myapp-production-builder-cache", RbrunCore::Naming.builder_volume("myapp-production")
+  end
+
+  def test_label_builder_constant
+    assert_equal "rb.run/builder", RbrunCore::Naming::LABEL_BUILDER
+  end
 end

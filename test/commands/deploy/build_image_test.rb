@@ -117,7 +117,118 @@ module RbrunCore
           assert_equal %w[buildx pull tag tag], docker_commands.map(&:first)
         end
 
+        # ── Remote Build Tests ──
+
+        def test_remote_build_sets_registry_tag
+          builder_context = build_builder_context
+          step = BuildImage.new(@ctx, builder_context:)
+
+          Dir.stub(:mktmpdir, ->(&block) { block.call("/tmp/test") }) do
+            File.stub(:exist?, true) do
+              Dir.stub(:chdir, nil) do
+                step.stub(:system, true) do
+                  step.run
+                end
+              end
+            end
+          end
+
+          refute_nil @ctx.registry_tag
+          assert_includes @ctx.registry_tag, "localhost:30500/"
+        end
+
+        def test_remote_build_uses_builder_ssh_client
+          builder_context = build_builder_context
+          step = BuildImage.new(@ctx, builder_context:)
+
+          Dir.stub(:mktmpdir, ->(&block) { block.call("/tmp/test") }) do
+            File.stub(:exist?, true) do
+              Dir.stub(:chdir, nil) do
+                step.stub(:system, true) do
+                  step.run
+                end
+              end
+            end
+          end
+
+          # Verify builder SSH client was used (not local SSH)
+          assert builder_context.ssh_client.commands.any? { |cmd| cmd.include?("docker buildx") }
+        end
+
+        def test_remote_build_uploads_source_to_builder
+          builder_context = build_builder_context
+          step = BuildImage.new(@ctx, builder_context:)
+
+          Dir.stub(:mktmpdir, ->(&block) { block.call("/tmp/test") }) do
+            File.stub(:exist?, true) do
+              Dir.stub(:chdir, nil) do
+                step.stub(:system, true) do
+                  step.run
+                end
+              end
+            end
+          end
+
+          # Verify upload was called
+          assert builder_context.ssh_client.commands.any? { |cmd| cmd.include?("upload:") }
+        end
+
+        def test_remote_build_uses_master_private_ip_for_registry
+          builder_context = build_builder_context
+          step = BuildImage.new(@ctx, builder_context:)
+
+          Dir.stub(:mktmpdir, ->(&block) { block.call("/tmp/test") }) do
+            File.stub(:exist?, true) do
+              Dir.stub(:chdir, nil) do
+                step.stub(:system, true) do
+                  step.run
+                end
+              end
+            end
+          end
+
+          # Registry URL should use master private IP
+          build_cmd = builder_context.ssh_client.commands.find { |c| c.include?("docker buildx") }
+
+          assert_includes build_cmd, "10.0.0.1:30500"
+        end
+
+        def test_remote_build_reports_image_step
+          builder_context = build_builder_context
+          steps = TestStepCollector.new
+          step = BuildImage.new(@ctx, on_step: steps, builder_context:)
+
+          Dir.stub(:mktmpdir, ->(&block) { block.call("/tmp/test") }) do
+            File.stub(:exist?, true) do
+              Dir.stub(:chdir, nil) do
+                step.stub(:system, true) do
+                  step.run
+                end
+              end
+            end
+          end
+
+          assert_includes steps, "Image"
+          assert_includes steps.done_steps, "Image"
+        end
+
         private
+
+          def build_builder_context
+            mock_ssh = MockSshClient.new(
+              host: "10.0.0.2",
+              private_key: TEST_SSH_KEY.private_key,
+              user: "deploy",
+              commands: []
+            )
+
+            RbrunCore::Commands::Deploy::SetupBuilder::BuilderContext.new(
+              server: Struct.new(:id, :private_ipv4).new("123", "10.0.0.2"),
+              volume: Struct.new(:id).new("456"),
+              ssh_client: mock_ssh,
+              master_private_ip: "10.0.0.1"
+            )
+          end
 
           def with_fake_ssh_tunnel(&block)
             fake_client = Object.new

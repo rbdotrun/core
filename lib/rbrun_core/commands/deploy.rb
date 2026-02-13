@@ -26,13 +26,26 @@ module RbrunCore
       rescue StandardError
         change_state(:failed)
         raise
+      ensure
+        cleanup_builder!
       end
 
       private
 
         def deploy_app!
-          BuildImage.new(@ctx, on_step: @on_step).run
-          CleanupImages.new(@ctx, on_step: @on_step).run
+          @builder_context = SetupBuilder.new(@ctx, on_step: @on_step).run if use_builder?
+          BuildImage.new(@ctx, on_step: @on_step, builder_context: @builder_context).run
+          CleanupImages.new(@ctx, on_step: @on_step).run unless @builder_context
+        end
+
+        def cleanup_builder!
+          return unless @builder_context
+
+          SetupBuilder.new(@ctx, on_step: @on_step).cleanup(@builder_context)
+        end
+
+        def use_builder?
+          @ctx.config.builder?
         end
 
         def remove_excess_servers!

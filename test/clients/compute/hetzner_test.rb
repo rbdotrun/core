@@ -155,7 +155,139 @@ module RbrunCore
           assert_nil result
         end
 
+        # ── Server Creation with public_ip ──
+
+        def test_create_server_with_public_ip_true_enables_ipv4
+          stub_request(:post, %r{/servers}).to_return(
+            status: 201, body: { server: hetzner_server_data }.to_json, headers: json_headers
+          )
+
+          @client.create_server(name: "test", instance_type: "cpx11", public_ip: true)
+
+          assert_requested(:post, %r{/servers}) do |req|
+            body = JSON.parse(req.body)
+            body.dig("public_net", "enable_ipv4") == true
+          end
+        end
+
+        def test_create_server_with_public_ip_false_disables_ipv4
+          stub_request(:post, %r{/servers}).to_return(
+            status: 201, body: { server: hetzner_server_data }.to_json, headers: json_headers
+          )
+
+          @client.create_server(name: "test", instance_type: "cpx11", public_ip: false)
+
+          assert_requested(:post, %r{/servers}) do |req|
+            body = JSON.parse(req.body)
+            body.dig("public_net", "enable_ipv4") == false
+          end
+        end
+
+        # ── Image Management ──
+
+        def test_find_image_returns_nil_when_not_found
+          stub_request(:get, %r{/images}).to_return(
+            status: 200, body: { images: [] }.to_json, headers: json_headers
+          )
+
+          assert_nil @client.find_image("nonexistent-image")
+        end
+
+        def test_find_image_returns_image_by_description
+          stub_request(:get, %r{/images}).to_return(
+            status: 200, body: { images: [ hetzner_image_data ] }.to_json, headers: json_headers
+          )
+
+          image = @client.find_image("myapp-builder-image")
+
+          assert_equal "456", image.id
+          # name is "snapshot-456" from API, description is used for matching
+          assert_equal "snapshot-456", image.name
+        end
+
+        def test_get_image_returns_image
+          stub_request(:get, %r{/images/456$}).to_return(
+            status: 200, body: { image: hetzner_image_data }.to_json, headers: json_headers
+          )
+
+          image = @client.get_image(456)
+
+          assert_equal "456", image.id
+          assert_equal "available", image.status
+        end
+
+        def test_get_image_returns_nil_when_not_found
+          stub_request(:get, %r{/images/999$}).to_return(
+            status: 404, body: { error: { message: "not found" } }.to_json, headers: json_headers
+          )
+
+          assert_nil @client.get_image(999)
+        end
+
+        def test_delete_image_succeeds
+          stub_request(:delete, %r{/images/456$}).to_return(status: 204)
+
+          @client.delete_image(456)
+
+          assert_requested :delete, %r{/images/456}
+        end
+
+        def test_delete_image_returns_nil_when_not_found
+          stub_request(:delete, %r{/images/999$}).to_return(
+            status: 404, body: { error: { message: "not found" } }.to_json, headers: json_headers
+          )
+
+          result = @client.delete_image(999)
+
+          assert_nil result
+        end
+
+        def test_create_image_from_server_powers_off_first
+          stub_request(:post, %r{/servers/123/actions/poweroff}).to_return(
+            status: 201, body: { action: { id: 1, status: "running" } }.to_json, headers: json_headers
+          )
+          stub_server_off_sequence
+          stub_create_image_sequence
+
+          @client.create_image_from_server(server_id: 123, name: "test-image")
+
+          assert_requested :post, %r{/servers/123/actions/poweroff}
+        end
+
+        def test_create_image_from_server_returns_image
+          stub_request(:post, %r{/servers/123/actions/poweroff}).to_return(
+            status: 201, body: { action: { id: 1, status: "success" } }.to_json, headers: json_headers
+          )
+          stub_server_off_sequence
+          stub_create_image_sequence
+
+          image = @client.create_image_from_server(server_id: 123, name: "test-image")
+
+          assert_equal "456", image.id
+        end
+
         private
+
+          def stub_server_off_sequence
+            stub_request(:get, %r{/servers/123$}).to_return(
+              status: 200, body: { server: hetzner_server_data.merge("status" => "off") }.to_json, headers: json_headers
+            )
+          end
+
+          def stub_create_image_sequence
+            stub_request(:post, %r{/servers/123/actions/create_image}).to_return(
+              status: 201, body: { image: hetzner_image_data, action: { id: 2, status: "running" } }.to_json, headers: json_headers
+            )
+            stub_request(:get, %r{/actions/2$}).to_return(
+              status: 200, body: { action: { id: 2, status: "success" } }.to_json, headers: json_headers
+            )
+            stub_request(:get, %r{/images/456$}).to_return(
+              status: 200, body: { image: hetzner_image_data }.to_json, headers: json_headers
+            )
+            stub_request(:patch, %r{/images/456$}).to_return(
+              status: 200, body: { image: hetzner_image_data }.to_json, headers: json_headers
+            )
+          end
 
           def hetzner_server_data
             { "id" => 123, "name" => "test-server", "status" => "running",
@@ -163,6 +295,14 @@ module RbrunCore
               "server_type" => { "name" => "cpx11" },
               "datacenter" => { "name" => "ash-dc1", "location" => { "name" => "ash" } },
               "labels" => {} }
+          end
+
+          def hetzner_image_data
+            { "id" => 456, "name" => "snapshot-456", "status" => "available",
+              "description" => "myapp-builder-image",
+              "image_size" => 2.5,
+              "labels" => { "rb.run/builder" => "true" },
+              "created" => "2024-01-01T00:00:00Z" }
           end
       end
     end

@@ -24,6 +24,46 @@ module RbrunCore
         assert_equal "deploy", client.user
       end
 
+      def test_initializes_with_proxy
+        proxy = Object.new
+        client = Ssh.new(host: @host, private_key: @private_key, proxy:)
+
+        # Verify client was created (proxy is internal)
+        assert_equal @host, client.host
+      end
+
+      def test_proxy_is_included_in_ssh_options
+        proxy = Object.new
+        client = Ssh.new(host: @host, private_key: @private_key, proxy:)
+
+        # We can't directly test private method, but we can verify via execute
+        # that the proxy is passed through to Net::SSH.start
+        captured_opts = nil
+
+        Net::SSH.stub(:start, ->(host, user, **opts) {
+          captured_opts = opts
+          raise Errno::ECONNREFUSED, "test"
+        }) do
+          client.available? rescue nil
+        end
+
+        assert_equal proxy, captured_opts[:proxy]
+      end
+
+      def test_proxy_is_nil_when_not_provided
+        client = Ssh.new(host: @host, private_key: @private_key)
+        captured_opts = nil
+
+        Net::SSH.stub(:start, ->(host, user, **opts) {
+          captured_opts = opts
+          raise Errno::ECONNREFUSED, "test"
+        }) do
+          client.available? rescue nil
+        end
+
+        refute_includes captured_opts.keys, :proxy
+      end
+
       def test_command_error_stores_exit_code_and_output
         error = Ssh::CommandError.new("failed", exit_code: 127, output: "not found")
 

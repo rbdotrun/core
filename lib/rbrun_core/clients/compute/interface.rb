@@ -13,6 +13,7 @@ module RbrunCore
                 find_or_create_server find_server delete_server wait_for_server wait_for_server_deletion
                 find_or_create_firewall find_firewall delete_firewall
                 find_or_create_network find_network delete_network
+                create_image_from_server find_image delete_image wait_for_image
                 validate_credentials
               ]
             end
@@ -20,7 +21,7 @@ module RbrunCore
         end
 
         # Server methods
-        def find_or_create_server(name:, instance_type:, location:, image:, user_data: nil, labels: {}, firewall_ids: [], network_ids: [])
+        def find_or_create_server(name:, instance_type:, location:, image:, user_data: nil, labels: {}, firewall_ids: [], network_ids: [], public_ip: true)
           raise NotImplementedError, "#{self.class}#find_or_create_server not implemented"
         end
 
@@ -81,6 +82,23 @@ module RbrunCore
         # Server type info
         def server_type_memory_mb(instance_type)
           raise NotImplementedError, "#{self.class}#server_type_memory_mb not implemented"
+        end
+
+        # Image methods
+        def create_image_from_server(server_id:, name:, description: nil, labels: {})
+          raise NotImplementedError, "#{self.class}#create_image_from_server not implemented"
+        end
+
+        def find_image(name)
+          raise NotImplementedError, "#{self.class}#find_image not implemented"
+        end
+
+        def delete_image(id)
+          raise NotImplementedError, "#{self.class}#delete_image not implemented"
+        end
+
+        def wait_for_image(id, max_attempts: 120, interval: 5)
+          raise NotImplementedError, "#{self.class}#wait_for_image not implemented"
         end
       end
     end

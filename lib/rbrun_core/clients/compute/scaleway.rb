@@ -23,23 +23,24 @@ module RbrunCore
 
         # Servers
         def find_or_create_server(name:, instance_type:, image:, location: nil, user_data: nil, labels: {},
-                                  firewall_ids: [], network_ids: [])
+                                  firewall_ids: [], network_ids: [], public_ip: true)
           existing = find_server(name)
           return existing if existing
 
           create_server(name:, instance_type:, image:, location:, user_data:, labels:,
-                        firewall_ids:, network_ids:)
+                        firewall_ids:, network_ids:, public_ip:)
         end
 
         def create_server(name:, instance_type:, image:, location: nil, user_data: nil, labels: {},
-                          firewall_ids: [], network_ids: [])
+                          firewall_ids: [], network_ids: [], public_ip: true)
           tags = labels_to_tags(labels)
-          image_id = resolve_image(image, instance_type)
+          image_id = resolve_image_id(image, instance_type)
           payload = {
             name:, commercial_type: instance_type, image: image_id, project: @project_id, tags:,
             volumes: { "0" => { size: @root_volume_size * 1_000_000_000, volume_type: "l_ssd" } }
           }
           payload[:security_group] = firewall_ids.first if firewall_ids&.any?
+          payload[:dynamic_ip_required] = public_ip
 
           response = post(instance_path("/servers"), payload)
           server = to_server(response["server"])
@@ -52,8 +53,8 @@ module RbrunCore
           # Power on immediately (don't wait for stopped state)
           power_on(server.id)
 
-          # Wait for server to be running with public IP
-          server = wait_for_server(server.id, max_attempts: 60, interval: 3)
+          # Wait for server to be running (with public IP if requested)
+          server = wait_for_server(server.id, max_attempts: 60, interval: 3, require_public_ip: public_ip)
 
           # Attach to private network if provided
           if network_ids&.any?
@@ -85,10 +86,14 @@ module RbrunCore
           response["servers"].map { |s| to_server(s) }
         end
 
-        def wait_for_server(id, max_attempts: 60, interval: 5)
+        def wait_for_server(id, max_attempts: 60, interval: 5, require_public_ip: true)
           Waiter.poll(max_attempts:, interval:, message: "Server #{id} did not become running after #{max_attempts} attempts") do
             server = get_server(id)
-            server if server&.status == "running" && server&.public_ipv4
+            if require_public_ip
+              server if server&.status == "running" && server&.public_ipv4
+            else
+              server if server&.status == "running"
+            end
           end
         end
 
@@ -312,6 +317,66 @@ module RbrunCore
           }
         end
 
+        # Image Management
+        def create_image_from_server(server_id:, name:, description: nil, labels: {})
+          # Power off server before creating image
+          power_off(server_id)
+          wait_for_server_stopped(server_id)
+
+          # Get server's root volume
+          response = get(instance_path("/servers/#{server_id}"))
+          server_data = response["server"]
+          root_volume_id = server_data.dig("volumes", "0", "id")
+          raise Error::Standard, "Server has no root volume" unless root_volume_id
+
+          # Create image from root volume
+          tags = labels_to_tags(labels.merge(Naming::LABEL_BUILDER => "true"))
+          payload = {
+            name:,
+            root_volume: root_volume_id,
+            arch: server_data["arch"] || "x86_64",
+            project: @project_id,
+            tags:
+          }
+
+          response = post(instance_path("/images"), payload)
+          image_id = response.dig("image", "id")
+          wait_for_scaleway_image(image_id)
+          get_scaleway_image(image_id)
+        end
+
+        def get_scaleway_image(id)
+          response = get(instance_path("/images/#{id}"))
+          to_scaleway_image(response["image"])
+        rescue Error::Api => e
+          raise unless e.not_found?
+
+          nil
+        end
+
+        def find_image(name)
+          response = get(instance_path("/images"), project: @project_id)
+          image = response["images"]&.find { |i| i["name"] == name }
+          image ? to_scaleway_image(image) : nil
+        end
+
+        def list_scaleway_images
+          response = get(instance_path("/images"), project: @project_id)
+          (response["images"] || []).map { |i| to_scaleway_image(i) }
+        end
+
+        def delete_image(id)
+          delete(instance_path("/images/#{id}"))
+        rescue Error::Api => e
+          raise unless e.not_found?
+
+          nil
+        end
+
+        def wait_for_image(id, max_attempts: 120, interval: 5)
+          wait_for_scaleway_image(id, max_attempts:, interval:)
+        end
+
         # Validation
         def validate_credentials
           get(instance_path("/servers"), project: @project_id)
@@ -351,6 +416,20 @@ module RbrunCore
 
           def auth_headers
             { "X-Auth-Token" => @api_key }
+          end
+
+          def wait_for_scaleway_image(id, max_attempts: 120, interval: 5)
+            Waiter.poll(max_attempts:, interval:, message: "Image #{id} did not become available") do
+              image = get_scaleway_image(id)
+              image if image&.status == "available"
+            end
+          end
+
+          def resolve_image_id(image, instance_type)
+            # If it's a UUID (our custom image), use it directly
+            return image if image =~ /^[a-f0-9-]{36}$/i
+
+            resolve_image(image, instance_type)
           end
 
           def resolve_image(image, instance_type)
@@ -480,6 +559,18 @@ module RbrunCore
               status: data["status"],
               labels: {},
               created_at: data["created_at"]
+            )
+          end
+
+          def to_scaleway_image(data)
+            Types::Image.new(
+              id: data["id"],
+              name: data["name"],
+              status: data["state"],
+              description: data["name"],
+              size_gb: (data.dig("root_volume", "size") || 0) / 1_000_000_000,
+              labels: tags_to_labels(data["tags"]),
+              created_at: data["creation_date"]
             )
           end
       end

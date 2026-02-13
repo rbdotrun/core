@@ -469,4 +469,53 @@ class ConfigurationTest < Minitest::Test
 
     assert_nil @config.validate!
   end
+
+  # ── Builder ──
+
+  def test_builder_returns_config_object
+    @config.builder
+
+    assert_kind_of RbrunCore::Config::Builder, @config.builder_config
+  end
+
+  def test_builder_yields_config
+    yielded = nil
+    @config.builder { |b| yielded = b }
+
+    assert_kind_of RbrunCore::Config::Builder, yielded
+  end
+
+  def test_builder_configures_enabled
+    @config.builder { |b| b.enabled = true }
+
+    assert_predicate @config.builder_config, :enabled?
+  end
+
+  def test_builder_configures_machine_type
+    @config.builder { |b| b.machine_type = "cpx41" }
+
+    assert_equal "cpx41", @config.builder_config.machine_type
+  end
+
+  def test_builder_configures_volume_size
+    @config.builder { |b| b.volume_size = 100 }
+
+    assert_equal 100, @config.builder_config.volume_size
+  end
+
+  def test_builder_query_returns_false_when_not_enabled
+    refute_predicate @config, :builder?
+  end
+
+  def test_builder_query_returns_false_when_enabled_is_false
+    @config.builder { |b| b.enabled = false }
+
+    refute_predicate @config, :builder?
+  end
+
+  def test_builder_query_returns_true_when_enabled
+    @config.builder { |b| b.enabled = true }
+
+    assert_predicate @config, :builder?
+  end
 end

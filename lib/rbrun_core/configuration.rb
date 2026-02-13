@@ -3,7 +3,7 @@
 module RbrunCore
   class Configuration
     attr_reader :compute_config, :cloudflare_config, :claude_config, :database_configs, :service_configs,
-                :app_config, :env_vars, :storage_config
+                :app_config, :env_vars, :storage_config, :builder_config
     attr_accessor :target, :name
 
     def initialize
@@ -103,6 +103,20 @@ module RbrunCore
 
     def env(vars = {})
       @env_vars = vars
+    end
+
+    # ─────────────────────────────────────────────────────────────
+    # Builder DSL
+    # ─────────────────────────────────────────────────────────────
+
+    def builder
+      @builder_config ||= Config::Builder.new
+      yield @builder_config if block_given?
+      @builder_config
+    end
+
+    def builder?
+      @builder_config&.enabled?
     end
 
     # ─────────────────────────────────────────────────────────────
