@@ -1,0 +1,41 @@
+target: production
+name: pgscaling
+
+compute:
+  provider: hetzner
+  api_key: ${HETZNER_API_TOKEN}
+  location: ash
+  image: ubuntu-22.04
+  ssh_key_path: ~/.ssh/id_ed25519
+  master:
+    type: cpx21
+  servers:
+    db:
+      type: cpx21
+
+cloudflare:
+  api_token: ${CLOUDFLARE_API_TOKEN}
+  account_id: ${CLOUDFLARE_ACCOUNT_ID}
+  domain: example.com
+
+databases:
+  postgres:
+    image: postgres:16-alpine
+    username: app
+    password: ${DB_PASSWORD}
+    database: pgscaling
+    runs_on: db
+
+app:
+  dockerfile: Dockerfile
+  processes:
+    web:
+      command: bundle exec puma -C puma.rb
+      port: 3000
+      subdomain: pg-demo
+
+builder:
+  enabled: true
+
+env:
+  RACK_ENV: production
