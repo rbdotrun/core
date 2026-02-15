@@ -27,12 +27,13 @@ module RbrunCore
 
       attr_reader :host, :user
 
-      def initialize(host:, private_key:, user: "root", port: 22, strict_host_key_checking: false)
+      def initialize(host:, private_key:, user: "root", port: 22, strict_host_key_checking: false, proxy: nil)
         @host = host
         @private_key = private_key
         @user = user
         @port = port
         @strict_mode = strict_host_key_checking
+        @proxy = proxy # Net::SSH::Proxy::Jump or nil
       end
 
       # Execute a command on the remote server.
@@ -171,13 +172,15 @@ module RbrunCore
         end
 
         def ssh_options
-          {
+          opts = {
             keys_only: true,
             keys: [],
             key_data: [ @private_key ],
             verify_host_key: @strict_mode ? :accept_new : :never,
             logger: ::Logger.new(IO::NULL)
           }
+          opts[:proxy] = @proxy if @proxy
+          opts
         end
 
         def with_connection(timeout: nil)

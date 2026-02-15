@@ -25,6 +25,11 @@ module RbrunCore
           :id, :name, :size, :server_id, :location, :labels, :created_at, :device_path, :status,
           keyword_init: true
         )
+
+        Image = Struct.new(
+          :id, :name, :status, :description, :size_gb, :labels, :created_at,
+          keyword_init: true
+        )
       end
     end
   end

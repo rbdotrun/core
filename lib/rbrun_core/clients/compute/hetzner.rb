@@ -28,19 +28,23 @@ module RbrunCore
         end
 
         def find_or_create_server(name:, instance_type:, image: "ubuntu-22.04", location: nil, ssh_keys: [],
-                                  user_data: nil, labels: {}, firewall_ids: [], network_ids: [])
+                                  user_data: nil, labels: {}, firewall_ids: [], network_ids: [], public_ip: true)
           existing = find_server(name)
           return existing if existing
 
           create_server(name:, instance_type:, image:, location:, ssh_keys:, user_data:, labels:,
-                        firewall_ids:, network_ids:)
+                        firewall_ids:, network_ids:, public_ip:)
         end
 
         def create_server(name:, instance_type:, image: "ubuntu-22.04", location: nil, ssh_keys: [], user_data: nil,
-                          labels: {}, firewall_ids: [], network_ids: [])
+                          labels: {}, firewall_ids: [], network_ids: [], public_ip: true)
           payload = {
             name:, server_type: instance_type, image:, location:,
-            start_after_create: true, labels: labels || {}
+            start_after_create: true, labels: labels || {},
+            public_net: {
+              enable_ipv4: public_ip,
+              enable_ipv6: false
+            }
           }
           payload[:ssh_keys] = ssh_keys if ssh_keys.any?
           payload[:user_data] = user_data if user_data && !user_data.empty?
@@ -73,10 +77,14 @@ module RbrunCore
           response["servers"].map { |s| to_server(s) }
         end
 
-        def wait_for_server(id, max_attempts: 60, interval: 5)
+        def wait_for_server(id, max_attempts: 60, interval: 5, require_public_ip: true)
           Waiter.poll(max_attempts:, interval:, message: "Server #{id} did not become running after #{max_attempts} attempts") do
             server = get_server(id)
-            server if server&.status == "running"
+            if require_public_ip
+              server if server&.status == "running" && server&.public_ipv4
+            else
+              server if server&.status == "running"
+            end
           end
         end
 
@@ -288,7 +296,75 @@ module RbrunCore
           end
         end
 
+        # Image Management
+        def create_image_from_server(server_id:, name:, description: nil, labels: {})
+          # Power off server before creating image
+          power_off(server_id)
+          wait_for_server_stopped(server_id)
+
+          payload = {
+            type: "snapshot",
+            description: description || "Builder image for #{name}",
+            labels: labels.merge(Naming::LABEL_BUILDER => "true")
+          }
+
+          response = post("/servers/#{server_id}/actions/create_image", payload)
+          image_id = response.dig("image", "id")
+          action_id = response.dig("action", "id")
+
+          wait_for_action(action_id) if action_id
+          wait_for_image(image_id)
+
+          # Rename the image
+          patch("/images/#{image_id}", { description: name, labels: payload[:labels] })
+          get_image(image_id)
+        end
+
+        def get_image(id)
+          response = get("/images/#{id}")
+          to_image(response["image"])
+        rescue Error::Api => e
+          raise unless e.not_found?
+
+          nil
+        end
+
+        def find_image(name)
+          response = get("/images", label_selector: "#{Naming::LABEL_BUILDER}=true")
+          image = response["images"]&.find { |i| i["description"] == name }
+          image ? to_image(image) : nil
+        end
+
+        def list_images(label_selector: nil)
+          params = { type: "snapshot" }
+          params[:label_selector] = label_selector if label_selector
+          response = get("/images", params)
+          response["images"].map { |i| to_image(i) }
+        end
+
+        def delete_image(id)
+          delete("/images/#{id}")
+        rescue Error::Api => e
+          raise unless e.not_found?
+
+          nil
+        end
+
+        def wait_for_image(id, max_attempts: 120, interval: 5)
+          Waiter.poll(max_attempts:, interval:, message: "Image #{id} did not become available") do
+            image = get_image(id)
+            image if image&.status == "available"
+          end
+        end
+
         private
+
+          def wait_for_server_stopped(id, max_attempts: 30, interval: 3)
+            Waiter.poll(max_attempts:, interval:, message: "Server #{id} did not stop") do
+              server = get_server(id)
+              server if server&.status == "off"
+            end
+          end
 
           def auth_headers
             { "Authorization" => "Bearer #{@api_key}", "Content-Type" => "application/json" }
@@ -327,6 +403,18 @@ module RbrunCore
               id: data["id"].to_s, name: data["name"],
               size: data["size"], server_id: data["server"]&.to_s,
               location: data.dig("location", "name"),
+              labels: data["labels"] || {},
+              created_at: data["created"]
+            )
+          end
+
+          def to_image(data)
+            Types::Image.new(
+              id: data["id"].to_s,
+              name: data["name"] || data["description"],
+              status: data["status"],
+              description: data["description"],
+              size_gb: data["image_size"]&.to_f&.round(2),
               labels: data["labels"] || {},
               created_at: data["created"]
             )

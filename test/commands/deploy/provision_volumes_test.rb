@@ -106,13 +106,13 @@ module RbrunCore
               .to_return(
                 status: 200,
                 body: {
-                  servers: [{
-                    id: id,
-                    name: name,
+                  servers: [ {
+                    id:,
+                    name:,
                     public_net: { ipv4: { ip: "1.2.3.4" } },
                     datacenter: { location: { name: "hel1" } },
                     server_type: { name: "cx22" }
-                  }]
+                  } ]
                 }.to_json,
                 headers: { "Content-Type" => "application/json" }
               )

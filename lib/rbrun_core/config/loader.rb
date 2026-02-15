@@ -43,6 +43,7 @@ module RbrunCore
             apply_services!(config, data["services"]) if data["services"]
             apply_app!(config, data["app"]) if data["app"]
             apply_env!(config, data["env"]) if data["env"]
+            apply_builder!(config, data["builder"]) if data["builder"]
 
             config
           end
@@ -195,6 +196,16 @@ module RbrunCore
 
           def apply_env!(config, env_data)
             config.env(env_data.transform_keys(&:to_sym))
+          end
+
+          def apply_builder!(config, builder_data)
+            return unless builder_data
+
+            config.builder do |b|
+              b.enabled = builder_data["enabled"] == true
+              b.machine_type = builder_data["machine_type"] if builder_data["machine_type"]
+              b.volume_size = builder_data["volume"] if builder_data["volume"]
+            end
           end
       end
     end
