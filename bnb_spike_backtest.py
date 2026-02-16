@@ -1,37 +1,38 @@
 #!/usr/bin/env python3
 """
-BNB/USDT 5m Spike Analysis & DCA-on-Dip Backtest
+BNB/USDT 5m Weekly Drawdown Backtest
 
-1. Loads 1 year of 5m candles (from Binance data archive CSVs)
-2. Detects "hiccups": sudden drops >= 5% within 30 minutes
-3. Reports all hiccups sorted by magnitude
-4. Backtests a DCA strategy:
-   - Trigger: -5% within 30 min
-   - Buy $10 at -5%, then $10 more at each -0.5% step (-5.5%, -6%, -6.5%...)
-   - STRICT thresholds: only fills if price actually reaches the level
-   - Sell when price recovers to pre-drop level
+1. Loads 2 years of 5m candles (from Binance data archive CSVs)
+2. Detects drawdowns: price drops >= 10% from its 7-day rolling high
+3. Backtests a simple buy-the-dip strategy:
+   - Trigger: close is >= 10% below the 7-day high
+   - Buy $10 once at the trigger candle's close
+   - Sell when price recovers to the 7-day high (the ref price)
    - Starting capital: $100
 """
 
 import csv
 import os
 import sys
+from collections import deque
 from datetime import datetime, timezone
 
 
 DATA_DIR = "/tmp/bnb_5m"
 CANDLE_MINUTES = 5
-WINDOW_CANDLES = 6   # 30 min / 5 min = 6 candles
+WINDOW_DAYS = 7
+WINDOW_CANDLES = WINDOW_DAYS * 24 * 60 // CANDLE_MINUTES  # 2016
 
 # Binance data archive CSV columns (no header):
 # open_time, open, high, low, close, volume, close_time,
 # quote_volume, num_trades, taker_buy_vol, taker_buy_quote_vol, ignore
-# Timestamps are in microseconds (divide by 1000 for ms)
 
-TRIGGER_PCT = 5.0
-STEP_PCT = 0.5
+TRIGGER_PCT = 10.0
 ORDER_SIZE = 10.0
 INITIAL_CAPITAL = 100.0
+TAKE_PROFIT_PCT = 10.0   # sell when position is +10%
+STOP_LOSS_PCT = 5.0      # sell when position is -5%
+MAX_HOLD_DAYS = 60       # max hold before forced exit
 
 
 def load_candles_from_csv(data_dir):
@@ -50,7 +51,6 @@ def load_candles_from_csv(data_dir):
             for row in reader:
                 if len(row) < 6:
                     continue
-                # 2024 CSVs use ms (13 digits), 2025+ use us (16 digits)
                 raw_open = int(row[0])
                 raw_close = int(row[6])
                 open_ts = raw_open // 1000 if raw_open > 9_999_999_999_999 else raw_open
@@ -74,135 +74,143 @@ def ts_str(ms):
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
 
 
-def detect_hiccups(candles, min_drop_pct=TRIGGER_PCT):
+def compute_rolling_high(candles, window):
+    """Compute rolling max high over trailing `window` candles using a deque."""
+    n = len(candles)
+    rolling_high = [0.0] * n
+    dq = deque()  # stores indices, front = index of current max
+
+    for i in range(n):
+        # Remove elements outside window
+        while dq and dq[0] < i - window + 1:
+            dq.popleft()
+        # Remove smaller elements from back
+        while dq and candles[dq[-1]]["high"] <= candles[i]["high"]:
+            dq.pop()
+        dq.append(i)
+        rolling_high[i] = candles[dq[0]]["high"]
+
+    return rolling_high
+
+
+def detect_drawdowns(candles, rolling_high, min_drop_pct=TRIGGER_PCT):
     """
-    Detect sudden drops >= min_drop_pct within a 30-min rolling window.
-    30 min = WINDOW_CANDLES candles at CANDLE_MINUTES per candle.
+    Detect when close drops >= min_drop_pct below the 7-day rolling high.
+    Exit: +TAKE_PROFIT_PCT% from buy (TP) or -STOP_LOSS_PCT% from buy (SL).
     """
-    hiccups = []
+    events = []
     cooldown_until = -1
     n = len(candles)
-    max_recovery = int(1440 / CANDLE_MINUTES)  # 24h in candles
+    max_hold_candles = MAX_HOLD_DAYS * 24 * 60 // CANDLE_MINUTES
 
-    for i in range(n - WINDOW_CANDLES):
+    for i in range(WINDOW_CANDLES, n):
         if i <= cooldown_until:
             continue
 
-        ref_price = candles[i]["close"]
+        peak = rolling_high[i - 1]  # 7-day high as of previous candle
+        close = candles[i]["close"]
+        drop_pct = ((peak - close) / peak) * 100
 
-        # Find lowest low in the next WINDOW_CANDLES candles (30 min)
-        window_low = ref_price
-        window_low_idx = i
-        for j in range(i + 1, i + 1 + WINDOW_CANDLES):
-            if candles[j]["low"] < window_low:
-                window_low = candles[j]["low"]
-                window_low_idx = j
-
-        trigger_drop = ((ref_price - window_low) / ref_price) * 100
-        if trigger_drop < min_drop_pct:
+        if drop_pct < min_drop_pct:
             continue
 
-        # Track full spike depth and recovery (max 24h)
-        bottom_price = window_low
-        bottom_idx = window_low_idx
-        recovery_idx = None
+        # Found a trigger
+        buy_price = close
+        tp_price = buy_price * (1 + TAKE_PROFIT_PCT / 100)
+        sl_price = buy_price * (1 - STOP_LOSS_PCT / 100)
 
-        scan_end = min(i + max_recovery + 1, n)
+        bottom_price = close
+        bottom_idx = i
+        exit_idx = None
+        exit_reason = None
+
+        scan_end = min(i + max_hold_candles + 1, n)
         for k in range(i + 1, scan_end):
             if candles[k]["low"] < bottom_price:
                 bottom_price = candles[k]["low"]
                 bottom_idx = k
-            if candles[k]["close"] >= ref_price:
-                recovery_idx = k
+            # Check stop loss first (worst case within candle)
+            if candles[k]["low"] <= sl_price:
+                exit_idx = k
+                exit_reason = "SL"
+                break
+            # Check take profit
+            if candles[k]["high"] >= tp_price:
+                exit_idx = k
+                exit_reason = "TP"
                 break
 
-        if recovery_idx is None:
-            recovery_idx = min(i + max_recovery, n - 1)
+        if exit_idx is None:
+            exit_idx = min(i + max_hold_candles, n - 1)
+            exit_reason = "TIMEOUT"
 
-        total_drop = ((ref_price - bottom_price) / ref_price) * 100
-        recovered = candles[recovery_idx]["close"] >= ref_price
+        # Determine sell price based on exit reason
+        if exit_reason == "TP":
+            sell_price = tp_price
+        elif exit_reason == "SL":
+            sell_price = sl_price
+        else:
+            sell_price = candles[exit_idx]["close"]
 
-        hiccups.append({
+        total_drop = ((peak - bottom_price) / peak) * 100
+
+        events.append({
             "idx": i,
-            "time": ts_str(candles[i]["close_ts"]),
-            "ref_price": ref_price,
+            "time": ts_str(candles[i]["ts"]),
+            "peak_price": peak,
+            "buy_price": buy_price,
             "bottom_price": bottom_price,
             "bottom_idx": bottom_idx,
             "bottom_time": ts_str(candles[bottom_idx]["ts"]),
-            "recovery_idx": recovery_idx,
-            "recovery_time": ts_str(candles[recovery_idx]["ts"]),
-            "recovery_price": candles[recovery_idx]["close"],
-            "recovered": recovered,
-            "drop_pct": total_drop,
-            "duration_min": (recovery_idx - i) * CANDLE_MINUTES,
+            "exit_idx": exit_idx,
+            "exit_time": ts_str(candles[exit_idx]["ts"]),
+            "sell_price": sell_price,
+            "exit_reason": exit_reason,
+            "trigger_drop_pct": drop_pct,
+            "max_drop_pct": total_drop,
+            "hold_days": (exit_idx - i) * CANDLE_MINUTES / 1440,
         })
 
-        cooldown_until = recovery_idx
+        cooldown_until = exit_idx
 
-    return hiccups
+    return events
 
 
-def backtest(candles, hiccups):
+def backtest(events):
     """
-    Backtest DCA-on-dip: buy $10 at trigger, $10 more at each -0.5% step.
-    Sell when price recovers to ref or at partial recovery after 24h.
+    Simple backtest: buy $10 at trigger, exit at TP/SL/timeout.
     """
     capital = INITIAL_CAPITAL
     trades = []
 
-    for h in hiccups:
-        ref = h["ref_price"]
-        bottom = h["bottom_price"]
+    for e in events:
+        if capital < ORDER_SIZE:
+            break
 
-        buys = []
-        level_pct = TRIGGER_PCT
+        buy_price = e["buy_price"]
+        sell_price = e["sell_price"]
+        qty = ORDER_SIZE / buy_price
 
-        while True:
-            buy_price = ref * (1 - level_pct / 100)
-            if buy_price < bottom:
-                break
-            if capital < ORDER_SIZE:
-                break
-
-            qty = ORDER_SIZE / buy_price
-            buys.append({
-                "level": f"-{level_pct:.1f}%",
-                "price": buy_price,
-                "qty": qty,
-                "cost": ORDER_SIZE,
-            })
-            capital -= ORDER_SIZE
-            level_pct += STEP_PCT
-
-        if not buys:
-            continue
-
-        sell_price = ref if h["recovered"] else h["recovery_price"]
-        total_qty = sum(b["qty"] for b in buys)
-        total_cost = sum(b["cost"] for b in buys)
-        avg_buy = total_cost / total_qty
-        revenue = total_qty * sell_price
-        profit = revenue - total_cost
-        pnl_pct = (profit / total_cost) * 100
-
+        capital -= ORDER_SIZE
+        revenue = qty * sell_price
+        profit = revenue - ORDER_SIZE
+        pnl_pct = (profit / ORDER_SIZE) * 100
         capital += revenue
 
         trades.append({
-            "time": h["time"],
-            "ref_price": ref,
-            "bottom": bottom,
-            "drop_pct": h["drop_pct"],
-            "num_buys": len(buys),
-            "invested": total_cost,
-            "avg_buy": avg_buy,
+            "time": e["time"],
+            "peak": e["peak_price"],
+            "buy_price": buy_price,
             "sell_price": sell_price,
+            "trigger_drop": e["trigger_drop_pct"],
+            "max_drop": e["max_drop_pct"],
+            "qty": qty,
             "revenue": revenue,
             "profit": profit,
             "pnl_pct": pnl_pct,
             "capital_after": capital,
-            "recovered": h["recovered"],
-            "buys": buys,
-            "duration_min": h["duration_min"],
+            "exit_reason": e["exit_reason"],
+            "hold_days": e["hold_days"],
         })
 
     return trades, capital
@@ -210,8 +218,8 @@ def backtest(candles, hiccups):
 
 def main():
     print("=" * 80)
-    print(f"  BNB/USDT {CANDLE_MINUTES}m SPIKE ANALYSIS & DCA-ON-DIP BACKTEST")
-    print(f"  Trigger: -{TRIGGER_PCT}% within 30 min | DCA step: -{STEP_PCT}%")
+    print(f"  BNB/USDT {CANDLE_MINUTES}m WEEKLY DRAWDOWN BACKTEST")
+    print(f"  Trigger: -{TRIGGER_PCT}% from {WINDOW_DAYS}-day high | Buy ${ORDER_SIZE:.0f} once")
     print("=" * 80)
 
     print(f"\nLoading candle data from {DATA_DIR}...")
@@ -224,57 +232,61 @@ def main():
     bnh = ((price_end - price_start) / price_start) * 100
     print(f"  BNB price: ${price_start:.2f} -> ${price_end:.2f} ({bnh:+.1f}% buy & hold)")
 
-    # ── Phase 1: Detect Hiccups ──
+    # ── Compute rolling high ──
+    print(f"\n  Computing {WINDOW_DAYS}-day rolling high...")
+    rolling_high = compute_rolling_high(candles, WINDOW_CANDLES)
+
+    # ── Phase 1: Detect Drawdowns ──
     print("\n" + "=" * 80)
-    print(f"  PHASE 1: HICCUP DETECTION (>= {TRIGGER_PCT}% drop within 30 min)")
+    print(f"  PHASE 1: DRAWDOWN DETECTION (>= {TRIGGER_PCT}% below {WINDOW_DAYS}-day high)")
     print("=" * 80)
 
-    hiccups = detect_hiccups(candles)
-    by_drop = sorted(hiccups, key=lambda h: h["drop_pct"], reverse=True)
+    events = detect_drawdowns(candles, rolling_high)
+    by_drop = sorted(events, key=lambda e: e["max_drop_pct"], reverse=True)
 
-    print(f"\n  Found {len(by_drop)} hiccup events\n")
+    print(f"\n  Found {len(by_drop)} drawdown events\n")
 
-    hdr = (f"{'#':>3} | {'Date':>16} | {'Ref $':>9} | {'Bottom $':>9} | "
-           f"{'Drop':>7} | {'Duration':>8} | {'Recov':>7}")
+    hdr = (f"{'#':>3} | {'Trigger Date':>16} | {'7d High':>9} | {'Buy @':>9} | "
+           f"{'Bottom':>9} | {'MaxDrop':>7} | {'Hold':>7} | {'Exit':>7}")
     print(hdr)
     print("-" * len(hdr))
 
-    for i, h in enumerate(by_drop, 1):
-        rec = "FULL" if h["recovered"] else "PARTIAL"
-        print(f"{i:>3} | {h['time']:>16} | "
-              f"${h['ref_price']:>8.2f} | ${h['bottom_price']:>8.2f} | "
-              f"{h['drop_pct']:>5.1f}%  | {h['duration_min']:>5}min | {rec:>7}")
+    for i, e in enumerate(by_drop, 1):
+        print(f"{i:>3} | {e['time']:>16} | "
+              f"${e['peak_price']:>8.2f} | ${e['buy_price']:>8.2f} | "
+              f"${e['bottom_price']:>8.2f} | {e['max_drop_pct']:>5.1f}%  | "
+              f"{e['hold_days']:>5.1f}d | {e['exit_reason']:>7}")
 
     # ── Phase 2: Backtest ──
     print("\n" + "=" * 80)
-    print("  PHASE 2: DCA-ON-DIP BACKTEST")
+    print("  PHASE 2: BUY-THE-DIP BACKTEST")
     print("=" * 80)
     print(f"""
   Strategy Rules:
     Capital:     ${INITIAL_CAPITAL:.0f}
-    Trigger:     price drops >= {TRIGGER_PCT}% within 30 minutes
-    1st buy:     ${ORDER_SIZE:.0f} at the -{TRIGGER_PCT}% level
-    DCA steps:   ${ORDER_SIZE:.0f} more at each -{STEP_PCT}% (-{TRIGGER_PCT+STEP_PCT}%, -{TRIGGER_PCT+2*STEP_PCT}%, ...)
-    Threshold:   STRICT (price must actually reach the level to fill)
-    Exit:        sell all when price recovers to pre-drop level
+    Trigger:     close >= {TRIGGER_PCT}% below {WINDOW_DAYS}-day rolling high
+    Buy:         ${ORDER_SIZE:.0f} once at trigger candle close
+    Take profit: +{TAKE_PROFIT_PCT}% from buy price
+    Stop loss:   -{STOP_LOSS_PCT}% from buy price
+    Max hold:    {MAX_HOLD_DAYS} days (forced exit at market price)
     """)
 
-    by_time = sorted(hiccups, key=lambda h: h["idx"])
-    trades, final_capital = backtest(candles, by_time)
+    by_time = sorted(events, key=lambda e: e["idx"])
+    trades, final_capital = backtest(by_time)
 
-    hdr2 = (f"{'#':>3} | {'Date':>16} | {'Drop':>6} | {'Buys':>4} | "
-            f"{'Invested':>9} | {'Avg Buy':>9} | {'Sell @':>9} | "
+    hdr2 = (f"{'#':>3} | {'Date':>16} | {'7d Hi':>9} | {'Buy @':>9} | "
+            f"{'Sell @':>9} | {'Drop':>6} | {'Hold':>6} | {'Exit':>4} | "
             f"{'Profit':>9} | {'P&L':>7} | {'Capital':>9}")
     print(hdr2)
     print("-" * len(hdr2))
 
     for i, t in enumerate(trades, 1):
-        flag = " " if t["recovered"] else "*"
-        print(f"{i:>3} | {t['time']:>16} | {t['drop_pct']:>5.1f}% | "
-              f"{t['num_buys']:>4} | ${t['invested']:>8.2f} | "
-              f"${t['avg_buy']:>8.2f} | ${t['sell_price']:>8.2f} | "
+        print(f"{i:>3} | {t['time']:>16} | ${t['peak']:>8.2f} | "
+              f"${t['buy_price']:>8.2f} | ${t['sell_price']:>8.2f} | "
+              f"{t['trigger_drop']:>5.1f}% | {t['hold_days']:>4.1f}d | "
+              f"{t['exit_reason']:>4} | "
               f"${t['profit']:>+8.2f} | {t['pnl_pct']:>+5.1f}%  | "
-              f"${t['capital_after']:>8.2f}{flag}")
+              f"${t['capital_after']:>8.2f}")
 
     # ── Summary ──
     total_profit = final_capital - INITIAL_CAPITAL
@@ -285,8 +297,8 @@ def main():
     print("=" * 80)
     print(f"  Period:              {ts_str(candles[0]['ts'])} -> {ts_str(candles[-1]['close_ts'])}")
     print(f"  BNB price:           ${price_start:.2f} -> ${price_end:.2f} ({bnh:+.1f}% buy & hold)")
-    print(f"  Trigger threshold:   -{TRIGGER_PCT}% within 30 min")
-    print(f"  Total hiccups found: {len(hiccups)}")
+    print(f"  Trigger threshold:   -{TRIGGER_PCT}% from {WINDOW_DAYS}-day high")
+    print(f"  Total events found:  {len(events)}")
     print(f"  Trades executed:     {len(trades)}")
     print(f"  Initial capital:     ${INITIAL_CAPITAL:.2f}")
     print(f"  Final capital:       ${final_capital:.2f}")
@@ -308,26 +320,31 @@ def main():
                   f"${sum(t['profit'] for t in losers)/len(losers):+.2f}")
         print(f"  Best trade:          ${max(t['profit'] for t in trades):+.2f}")
         print(f"  Worst trade:         ${min(t['profit'] for t in trades):+.2f}")
-        total_invested = sum(t["invested"] for t in trades)
+        total_invested = sum(ORDER_SIZE for _ in trades)
         total_rev = sum(t["revenue"] for t in trades)
         print(f"  Total $ deployed:    ${total_invested:.2f}")
         print(f"  Total $ returned:    ${total_rev:.2f}")
+        avg_hold = sum(t["hold_days"] for t in trades) / len(trades)
+        print(f"  Avg hold time:       {avg_hold:.1f} days")
 
-        partial = [t for t in trades if not t["recovered"]]
-        if partial:
-            print(f"\n  * {len(partial)} trade(s) did not fully recover (marked with *)")
-            print(f"    These were sold at partial recovery price")
+        tp_count = sum(1 for t in trades if t["exit_reason"] == "TP")
+        sl_count = sum(1 for t in trades if t["exit_reason"] == "SL")
+        to_count = sum(1 for t in trades if t["exit_reason"] == "TIMEOUT")
+        print(f"\n  Exit breakdown:")
+        print(f"    Take profit (+{TAKE_PROFIT_PCT}%): {tp_count}")
+        print(f"    Stop loss (-{STOP_LOSS_PCT}%):   {sl_count}")
+        if to_count:
+            print(f"    Timeout ({MAX_HOLD_DAYS}d):       {to_count}")
 
         # Top trades
         by_profit = sorted(trades, key=lambda t: t["profit"], reverse=True)
         print(f"\n  TOP 5 MOST PROFITABLE TRADES:")
         for i, t in enumerate(by_profit[:5], 1):
-            print(f"    {i}. {t['time']} | drop {t['drop_pct']:.1f}% | "
-                  f"{t['num_buys']} buys | profit ${t['profit']:+.2f} "
-                  f"({t['pnl_pct']:+.1f}%)")
-            for b in t["buys"]:
-                print(f"       {b['level']:>7} @ ${b['price']:.2f} "
-                      f"-> {b['qty']:.6f} BNB (${b['cost']:.0f})")
+            print(f"    {i}. {t['time']} | bought ${t['buy_price']:.2f} "
+                  f"(7d hi ${t['peak']:.2f}, -{t['trigger_drop']:.1f}%) "
+                  f"| sold ${t['sell_price']:.2f} [{t['exit_reason']}] "
+                  f"| held {t['hold_days']:.1f}d "
+                  f"| profit ${t['profit']:+.2f} ({t['pnl_pct']:+.1f}%)")
 
         # Worst trades
         by_loss = sorted(trades, key=lambda t: t["profit"])
@@ -335,9 +352,11 @@ def main():
         if worst:
             print(f"\n  WORST {len(worst)} TRADES (losses):")
             for i, t in enumerate(worst, 1):
-                print(f"    {i}. {t['time']} | drop {t['drop_pct']:.1f}% | "
-                      f"{t['num_buys']} buys | P&L ${t['profit']:+.2f} "
-                      f"({t['pnl_pct']:+.1f}%)")
+                print(f"    {i}. {t['time']} | bought ${t['buy_price']:.2f} "
+                      f"(7d hi ${t['peak']:.2f}, -{t['trigger_drop']:.1f}%) "
+                      f"| sold ${t['sell_price']:.2f} [{t['exit_reason']}] "
+                      f"| held {t['hold_days']:.1f}d "
+                      f"| P&L ${t['profit']:+.2f} ({t['pnl_pct']:+.1f}%)")
 
         # Capital curve
         capitals = [INITIAL_CAPITAL] + [t["capital_after"] for t in trades]
