@@ -48,8 +48,11 @@ def load_candles_from_csv(data_dir):
             for row in reader:
                 if len(row) < 6:
                     continue
-                open_ts = int(row[0]) // 1000
-                close_ts = int(row[6]) // 1000
+                # 2024 CSVs use ms (13 digits), 2025+ use us (16 digits)
+                raw_open = int(row[0])
+                raw_close = int(row[6])
+                open_ts = raw_open // 1000 if raw_open > 9_999_999_999_999 else raw_open
+                close_ts = raw_close // 1000 if raw_close > 9_999_999_999_999 else raw_close
                 all_candles.append({
                     "ts": open_ts,
                     "open": float(row[1]),
