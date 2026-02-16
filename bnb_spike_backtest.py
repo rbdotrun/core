@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-BNB/USDT 15m Spike Analysis & DCA-on-Dip Backtest
+BNB/USDT 5m Spike Analysis & DCA-on-Dip Backtest
 
-1. Loads 1 year of 15m candles (from Binance data archive CSVs)
+1. Loads 1 year of 5m candles (from Binance data archive CSVs)
 2. Detects "hiccups": sudden drops >= 5% within 30 minutes
 3. Reports all hiccups sorted by magnitude
 4. Backtests a DCA strategy:
@@ -19,7 +19,9 @@ import sys
 from datetime import datetime, timezone
 
 
-DATA_DIR = "/tmp/bnb_data"
+DATA_DIR = "/tmp/bnb_5m"
+CANDLE_MINUTES = 5
+WINDOW_CANDLES = 6   # 30 min / 5 min = 6 candles
 
 # Binance data archive CSV columns (no header):
 # open_time, open, high, low, close, volume, close_time,
@@ -75,29 +77,37 @@ def ts_str(ms):
 def detect_hiccups(candles, min_drop_pct=TRIGGER_PCT):
     """
     Detect sudden drops >= min_drop_pct within a 30-min rolling window.
-    30 min = 2 candles of 15m.
+    30 min = WINDOW_CANDLES candles at CANDLE_MINUTES per candle.
     """
     hiccups = []
     cooldown_until = -1
     n = len(candles)
+    max_recovery = int(1440 / CANDLE_MINUTES)  # 24h in candles
 
-    for i in range(n - 2):
+    for i in range(n - WINDOW_CANDLES):
         if i <= cooldown_until:
             continue
 
         ref_price = candles[i]["close"]
-        window_low = min(candles[i + 1]["low"], candles[i + 2]["low"])
-        trigger_drop = ((ref_price - window_low) / ref_price) * 100
 
+        # Find lowest low in the next WINDOW_CANDLES candles (30 min)
+        window_low = ref_price
+        window_low_idx = i
+        for j in range(i + 1, i + 1 + WINDOW_CANDLES):
+            if candles[j]["low"] < window_low:
+                window_low = candles[j]["low"]
+                window_low_idx = j
+
+        trigger_drop = ((ref_price - window_low) / ref_price) * 100
         if trigger_drop < min_drop_pct:
             continue
 
-        # Track full spike depth and recovery (max 96 candles = 24h)
+        # Track full spike depth and recovery (max 24h)
         bottom_price = window_low
-        bottom_idx = i + 1 if candles[i + 1]["low"] <= candles[i + 2]["low"] else i + 2
+        bottom_idx = window_low_idx
         recovery_idx = None
 
-        scan_end = min(i + 97, n)
+        scan_end = min(i + max_recovery + 1, n)
         for k in range(i + 1, scan_end):
             if candles[k]["low"] < bottom_price:
                 bottom_price = candles[k]["low"]
@@ -107,7 +117,7 @@ def detect_hiccups(candles, min_drop_pct=TRIGGER_PCT):
                 break
 
         if recovery_idx is None:
-            recovery_idx = min(i + 96, n - 1)
+            recovery_idx = min(i + max_recovery, n - 1)
 
         total_drop = ((ref_price - bottom_price) / ref_price) * 100
         recovered = candles[recovery_idx]["close"] >= ref_price
@@ -124,7 +134,7 @@ def detect_hiccups(candles, min_drop_pct=TRIGGER_PCT):
             "recovery_price": candles[recovery_idx]["close"],
             "recovered": recovered,
             "drop_pct": total_drop,
-            "duration_min": (recovery_idx - i) * 15,
+            "duration_min": (recovery_idx - i) * CANDLE_MINUTES,
         })
 
         cooldown_until = recovery_idx
@@ -200,7 +210,7 @@ def backtest(candles, hiccups):
 
 def main():
     print("=" * 80)
-    print("  BNB/USDT 15m SPIKE ANALYSIS & DCA-ON-DIP BACKTEST")
+    print(f"  BNB/USDT {CANDLE_MINUTES}m SPIKE ANALYSIS & DCA-ON-DIP BACKTEST")
     print(f"  Trigger: -{TRIGGER_PCT}% within 30 min | DCA step: -{STEP_PCT}%")
     print("=" * 80)
 
