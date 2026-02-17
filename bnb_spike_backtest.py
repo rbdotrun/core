@@ -18,7 +18,15 @@ from collections import deque
 from datetime import datetime, timezone
 
 
-DATA_DIR = "/tmp/bnb_5m"
+PAIRS = {
+    "BNB":  "/tmp/bnb_5m",
+    "ETH":  "/tmp/eth_5m",
+    "SOL":  "/tmp/sol_5m",
+    "XRP":  "/tmp/xrp_5m",
+}
+
+PAIR = sys.argv[1].upper() if len(sys.argv) > 1 else "BNB"
+DATA_DIR = PAIRS.get(PAIR, f"/tmp/{PAIR.lower()}_5m")
 CANDLE_MINUTES = 5
 WINDOW_DAYS = 5
 WINDOW_CANDLES = WINDOW_DAYS * 24 * 60 // CANDLE_MINUTES  # 1440
@@ -220,7 +228,7 @@ def backtest(events):
 
 def main():
     print("=" * 80)
-    print(f"  BNB/USDT {CANDLE_MINUTES}m WEEKLY DRAWDOWN BACKTEST")
+    print(f"  {PAIR}/USDT {CANDLE_MINUTES}m WEEKLY DRAWDOWN BACKTEST")
     print(f"  Trigger: -{TRIGGER_PCT}% from {WINDOW_DAYS}-day high | {POSITION_PCT:.0f}% capital")
     print("=" * 80)
 
@@ -232,7 +240,7 @@ def main():
     price_start = candles[0]["close"]
     price_end = candles[-1]["close"]
     bnh = ((price_end - price_start) / price_start) * 100
-    print(f"  BNB price: ${price_start:.2f} -> ${price_end:.2f} ({bnh:+.1f}% buy & hold)")
+    print(f"  Price: ${price_start:.2f} -> ${price_end:.2f} ({bnh:+.1f}% buy & hold)")
 
     # ── Compute rolling high ──
     print(f"\n  Computing {WINDOW_DAYS}-day rolling high...")
@@ -297,7 +305,7 @@ def main():
     print("  SUMMARY")
     print("=" * 80)
     print(f"  Period:              {ts_str(candles[0]['ts'])} -> {ts_str(candles[-1]['close_ts'])}")
-    print(f"  BNB price:           ${price_start:.2f} -> ${price_end:.2f} ({bnh:+.1f}% buy & hold)")
+    print(f"  Price:           ${price_start:.2f} -> ${price_end:.2f} ({bnh:+.1f}% buy & hold)")
     print(f"  Trigger threshold:   -{TRIGGER_PCT}% from {WINDOW_DAYS}-day high")
     print(f"  Total events found:  {len(events)}")
     print(f"  Trades executed:     {len(trades)}")
