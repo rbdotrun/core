@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 
 PAIRS = {
     "BNB":  "/tmp/bnb_5m",
+    "BTC":  "/tmp/btc_5m",
     "ETH":  "/tmp/eth_5m",
     "SOL":  "/tmp/sol_5m",
     "XRP":  "/tmp/xrp_5m",
