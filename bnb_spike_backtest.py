@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-BNB/USDT 5m Weekly Drawdown Backtest
+BNB/USDT 5m Weekly Drawdown Backtest (Compounding)
 
 1. Loads 2 years of 5m candles (from Binance data archive CSVs)
-2. Detects drawdowns: price drops >= 10% from its 7-day rolling high
-3. Backtests a simple buy-the-dip strategy:
-   - Trigger: close is >= 10% below the 7-day high
-   - Buy $10 once at the trigger candle's close
-   - Sell when price recovers to the 7-day high (the ref price)
+2. Detects drawdowns: price drops >= 10% from its 5-day rolling high
+3. Backtests a compounding buy-the-dip strategy:
+   - Trigger: close is >= 10% below the 5-day high
+   - Deploy 100% of capital at trigger candle close
+   - Take profit at +10%, stop loss at -7%
    - Starting capital: $100
 """
 
@@ -20,18 +20,18 @@ from datetime import datetime, timezone
 
 DATA_DIR = "/tmp/bnb_5m"
 CANDLE_MINUTES = 5
-WINDOW_DAYS = 7
-WINDOW_CANDLES = WINDOW_DAYS * 24 * 60 // CANDLE_MINUTES  # 2016
+WINDOW_DAYS = 5
+WINDOW_CANDLES = WINDOW_DAYS * 24 * 60 // CANDLE_MINUTES  # 1440
 
 # Binance data archive CSV columns (no header):
 # open_time, open, high, low, close, volume, close_time,
 # quote_volume, num_trades, taker_buy_vol, taker_buy_quote_vol, ignore
 
 TRIGGER_PCT = 10.0
-ORDER_SIZE = 10.0
+POSITION_PCT = 100.0     # deploy 100% of capital per trade (compound)
 INITIAL_CAPITAL = 100.0
 TAKE_PROFIT_PCT = 10.0   # sell when position is +10%
-STOP_LOSS_PCT = 5.0      # sell when position is -5%
+STOP_LOSS_PCT = 7.0      # sell when position is -7%
 MAX_HOLD_DAYS = 60       # max hold before forced exit
 
 
@@ -178,23 +178,24 @@ def detect_drawdowns(candles, rolling_high, min_drop_pct=TRIGGER_PCT):
 
 def backtest(events):
     """
-    Simple backtest: buy $10 at trigger, exit at TP/SL/timeout.
+    Compounding backtest: deploy POSITION_PCT% of capital per trade.
     """
     capital = INITIAL_CAPITAL
     trades = []
 
     for e in events:
-        if capital < ORDER_SIZE:
+        invest = capital * (POSITION_PCT / 100)
+        if invest < 1.0:
             break
 
         buy_price = e["buy_price"]
         sell_price = e["sell_price"]
-        qty = ORDER_SIZE / buy_price
+        qty = invest / buy_price
 
-        capital -= ORDER_SIZE
+        capital -= invest
         revenue = qty * sell_price
-        profit = revenue - ORDER_SIZE
-        pnl_pct = (profit / ORDER_SIZE) * 100
+        profit = revenue - invest
+        pnl_pct = (profit / invest) * 100
         capital += revenue
 
         trades.append({
@@ -205,6 +206,7 @@ def backtest(events):
             "trigger_drop": e["trigger_drop_pct"],
             "max_drop": e["max_drop_pct"],
             "qty": qty,
+            "invested": invest,
             "revenue": revenue,
             "profit": profit,
             "pnl_pct": pnl_pct,
@@ -219,7 +221,7 @@ def backtest(events):
 def main():
     print("=" * 80)
     print(f"  BNB/USDT {CANDLE_MINUTES}m WEEKLY DRAWDOWN BACKTEST")
-    print(f"  Trigger: -{TRIGGER_PCT}% from {WINDOW_DAYS}-day high | Buy ${ORDER_SIZE:.0f} once")
+    print(f"  Trigger: -{TRIGGER_PCT}% from {WINDOW_DAYS}-day high | {POSITION_PCT:.0f}% capital")
     print("=" * 80)
 
     print(f"\nLoading candle data from {DATA_DIR}...")
@@ -265,7 +267,7 @@ def main():
   Strategy Rules:
     Capital:     ${INITIAL_CAPITAL:.0f}
     Trigger:     close >= {TRIGGER_PCT}% below {WINDOW_DAYS}-day rolling high
-    Buy:         ${ORDER_SIZE:.0f} once at trigger candle close
+    Position:    {POSITION_PCT:.0f}% of capital (compounding)
     Take profit: +{TAKE_PROFIT_PCT}% from buy price
     Stop loss:   -{STOP_LOSS_PCT}% from buy price
     Max hold:    {MAX_HOLD_DAYS} days (forced exit at market price)
@@ -274,19 +276,18 @@ def main():
     by_time = sorted(events, key=lambda e: e["idx"])
     trades, final_capital = backtest(by_time)
 
-    hdr2 = (f"{'#':>3} | {'Date':>16} | {'7d Hi':>9} | {'Buy @':>9} | "
-            f"{'Sell @':>9} | {'Drop':>6} | {'Hold':>6} | {'Exit':>4} | "
-            f"{'Profit':>9} | {'P&L':>7} | {'Capital':>9}")
+    hdr2 = (f"{'#':>3} | {'Date':>16} | {'Buy @':>9} | {'Sell @':>9} | "
+            f"{'Invested':>10} | {'Exit':>4} | {'Hold':>6} | "
+            f"{'Profit':>10} | {'P&L':>7} | {'Capital':>10}")
     print(hdr2)
     print("-" * len(hdr2))
 
     for i, t in enumerate(trades, 1):
-        print(f"{i:>3} | {t['time']:>16} | ${t['peak']:>8.2f} | "
-              f"${t['buy_price']:>8.2f} | ${t['sell_price']:>8.2f} | "
-              f"{t['trigger_drop']:>5.1f}% | {t['hold_days']:>4.1f}d | "
-              f"{t['exit_reason']:>4} | "
-              f"${t['profit']:>+8.2f} | {t['pnl_pct']:>+5.1f}%  | "
-              f"${t['capital_after']:>8.2f}")
+        print(f"{i:>3} | {t['time']:>16} | ${t['buy_price']:>8.2f} | "
+              f"${t['sell_price']:>8.2f} | ${t['invested']:>9.2f} | "
+              f"{t['exit_reason']:>4} | {t['hold_days']:>4.1f}d | "
+              f"${t['profit']:>+9.2f} | {t['pnl_pct']:>+5.1f}%  | "
+              f"${t['capital_after']:>9.2f}")
 
     # ── Summary ──
     total_profit = final_capital - INITIAL_CAPITAL
@@ -320,7 +321,7 @@ def main():
                   f"${sum(t['profit'] for t in losers)/len(losers):+.2f}")
         print(f"  Best trade:          ${max(t['profit'] for t in trades):+.2f}")
         print(f"  Worst trade:         ${min(t['profit'] for t in trades):+.2f}")
-        total_invested = sum(ORDER_SIZE for _ in trades)
+        total_invested = sum(t["invested"] for t in trades)
         total_rev = sum(t["revenue"] for t in trades)
         print(f"  Total $ deployed:    ${total_invested:.2f}")
         print(f"  Total $ returned:    ${total_rev:.2f}")
@@ -340,8 +341,7 @@ def main():
         by_profit = sorted(trades, key=lambda t: t["profit"], reverse=True)
         print(f"\n  TOP 5 MOST PROFITABLE TRADES:")
         for i, t in enumerate(by_profit[:5], 1):
-            print(f"    {i}. {t['time']} | bought ${t['buy_price']:.2f} "
-                  f"(7d hi ${t['peak']:.2f}, -{t['trigger_drop']:.1f}%) "
+            print(f"    {i}. {t['time']} | ${t['invested']:.2f} in @ ${t['buy_price']:.2f} "
                   f"| sold ${t['sell_price']:.2f} [{t['exit_reason']}] "
                   f"| held {t['hold_days']:.1f}d "
                   f"| profit ${t['profit']:+.2f} ({t['pnl_pct']:+.1f}%)")
@@ -352,8 +352,7 @@ def main():
         if worst:
             print(f"\n  WORST {len(worst)} TRADES (losses):")
             for i, t in enumerate(worst, 1):
-                print(f"    {i}. {t['time']} | bought ${t['buy_price']:.2f} "
-                      f"(7d hi ${t['peak']:.2f}, -{t['trigger_drop']:.1f}%) "
+                print(f"    {i}. {t['time']} | ${t['invested']:.2f} in @ ${t['buy_price']:.2f} "
                       f"| sold ${t['sell_price']:.2f} [{t['exit_reason']}] "
                       f"| held {t['hold_days']:.1f}d "
                       f"| P&L ${t['profit']:+.2f} ({t['pnl_pct']:+.1f}%)")
