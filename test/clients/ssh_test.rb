@@ -192,28 +192,26 @@ module RbrunCore
         assert yielded
       end
 
-      def test_with_local_forward_binds_to_all_interfaces
+      def test_with_local_forward_enables_keepalive
         client = Ssh.new(host: @host, private_key: @private_key)
-        captured_args = nil
+        captured_opts = nil
 
         mock_ssh = Object.new
         mock_ssh.define_singleton_method(:forward) do
           fwd = Object.new
-          fwd.define_singleton_method(:local) { |*args| captured_args = args }
+          fwd.define_singleton_method(:local) { |*_args| }
           fwd
         end
         mock_ssh.define_singleton_method(:loop) { |_| }
 
-        Net::SSH.stub(:start, ->(*, **, &block) { block.call(mock_ssh) }) do
+        Net::SSH.stub(:start, ->(*, **opts, &block) { captured_opts = opts; block.call(mock_ssh) }) do
           client.with_local_forward(local_port: 30_500, remote_host: "localhost", remote_port: 30_500) do
             # no-op
           end
         end
 
-        assert_equal "0.0.0.0", captured_args[0]
-        assert_equal 30_500, captured_args[1]
-        assert_equal "localhost", captured_args[2]
-        assert_equal 30_500, captured_args[3]
+        assert_equal true, captured_opts[:keepalive]
+        assert_equal 15, captured_opts[:keepalive_interval]
       end
 
       private

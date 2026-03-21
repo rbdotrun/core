@@ -140,7 +140,7 @@ module RbrunCore
 
         thread = Thread.new do
           Net::SSH.start(@host, @user, **ssh_options.merge(port: @port, keepalive: true, keepalive_interval: 15)) do |ssh|
-            ssh.forward.local("0.0.0.0", local_port, remote_host, remote_port)
+            ssh.forward.local(local_port, remote_host, remote_port)
             ready.count_down
 
             ssh.loop(0.1) { !@forward_done }

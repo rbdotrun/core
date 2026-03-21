@@ -60,8 +60,8 @@ module RbrunCore
           def build_and_push!(context_path)
             prefix = @ctx.prefix
             local_tag = "#{prefix}:#{@timestamp}"
-            # Local tunnel tag for build/push (dynamic port)
-            tunnel_tag = "localhost:#{@local_port}/#{prefix}:#{@timestamp}"
+            # Local tunnel tag for build/push (dynamic port, use 127.0.0.1 to avoid IPv6)
+            tunnel_tag = "127.0.0.1:#{@local_port}/#{prefix}:#{@timestamp}"
             # Cluster tag for manifests (fixed NodePort)
             cluster_tag = "localhost:#{REMOTE_REGISTRY_PORT}/#{prefix}:#{@timestamp}"
 
