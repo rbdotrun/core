@@ -117,7 +117,77 @@ module RbrunCore
           assert_equal %w[buildx pull tag tag], docker_commands.map(&:first)
         end
 
+        def test_includes_cache_from_when_env_set
+          step = BuildImage.new(@ctx)
+          docker_commands = []
+
+          with_fake_ssh_tunnel do
+            step.stub(:system, ->(*args, **_opts) {
+              docker_commands << args.drop(1)
+              true
+            }) do
+              with_env("BUILDX_CACHE_FROM" => "type=gha") do
+                step.run
+              end
+            end
+          end
+
+          build_cmd = docker_commands.first
+          cache_idx = build_cmd.index("--cache-from")
+          refute_nil cache_idx, "expected --cache-from flag"
+          assert_equal "type=gha", build_cmd[cache_idx + 1]
+        end
+
+        def test_includes_cache_to_when_env_set
+          step = BuildImage.new(@ctx)
+          docker_commands = []
+
+          with_fake_ssh_tunnel do
+            step.stub(:system, ->(*args, **_opts) {
+              docker_commands << args.drop(1)
+              true
+            }) do
+              with_env("BUILDX_CACHE_TO" => "type=gha,mode=max") do
+                step.run
+              end
+            end
+          end
+
+          build_cmd = docker_commands.first
+          cache_idx = build_cmd.index("--cache-to")
+          refute_nil cache_idx, "expected --cache-to flag"
+          assert_equal "type=gha,mode=max", build_cmd[cache_idx + 1]
+        end
+
+        def test_no_cache_flags_when_env_not_set
+          step = BuildImage.new(@ctx)
+          docker_commands = []
+
+          with_fake_ssh_tunnel do
+            step.stub(:system, ->(*args, **_opts) {
+              docker_commands << args.drop(1)
+              true
+            }) do
+              with_env("BUILDX_CACHE_FROM" => nil, "BUILDX_CACHE_TO" => nil) do
+                step.run
+              end
+            end
+          end
+
+          build_cmd = docker_commands.first
+          refute_includes build_cmd, "--cache-from"
+          refute_includes build_cmd, "--cache-to"
+        end
+
         private
+
+          def with_env(vars)
+            old_values = vars.map { |k, _| [k, ENV[k]] }.to_h
+            vars.each { |k, v| ENV[k] = v }
+            yield
+          ensure
+            old_values.each { |k, v| ENV[k] = v }
+          end
 
           def with_fake_ssh_tunnel(&block)
             fake_client = Object.new

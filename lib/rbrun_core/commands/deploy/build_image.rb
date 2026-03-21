@@ -69,15 +69,18 @@ module RbrunCore
             platform = @ctx.config.app_config.platform
 
             # Build and push via buildx (handles insecure registry)
-            run_docker!(
+            build_args = [
               "buildx", "build",
               "--platform", platform,
               "-f", dockerfile,
               "-t", tunnel_tag,
-              "--output=type=registry,registry.insecure=true",
-              ".",
-              chdir: context_path
-            )
+              "--output=type=registry,registry.insecure=true"
+            ]
+            build_args.push("--cache-from", ENV["BUILDX_CACHE_FROM"]) if ENV["BUILDX_CACHE_FROM"]
+            build_args.push("--cache-to", ENV["BUILDX_CACHE_TO"]) if ENV["BUILDX_CACHE_TO"]
+            build_args.push(".")
+
+            run_docker!(*build_args, chdir: context_path)
 
             # Pull from registry and tag locally (faster than rebuilding)
             run_docker!("pull", "--platform", platform, tunnel_tag)
