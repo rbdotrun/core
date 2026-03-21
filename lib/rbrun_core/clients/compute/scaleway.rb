@@ -34,10 +34,10 @@ module RbrunCore
         def create_server(name:, instance_type:, image:, location: nil, user_data: nil, labels: {},
                           firewall_ids: [], network_ids: [])
           tags = labels_to_tags(labels)
-          image_id = resolve_image(image, instance_type)
+          resolved = resolve_image_with_type(image, instance_type)
           payload = {
-            name:, commercial_type: instance_type, image: image_id, project: @project_id, tags:,
-            volumes: { "0" => { size: @root_volume_size * 1_000_000_000, volume_type: "l_ssd" } }
+            name:, commercial_type: instance_type, image: resolved[:id], project: @project_id, tags:,
+            volumes: { "0" => { size: @root_volume_size * 1_000_000_000, volume_type: resolved[:volume_type] } }
           }
           payload[:security_group] = firewall_ids.first if firewall_ids&.any?
 
@@ -353,18 +353,42 @@ module RbrunCore
             { "X-Auth-Token" => @api_key }
           end
 
+          def uuid?(value)
+            value.is_a?(String) && value.match?(/\A[a-f0-9-]{36}\z/i)
+          end
+
+          def resolve_image_with_type(image, instance_type)
+            image_data = uuid?(image) ? fetch_image(image) : resolve_image(image, instance_type)
+            volume_type = detect_volume_type(image_data)
+            { id: image_data["id"], volume_type: }
+          end
+
+          def fetch_image(image_id)
+            response = get(instance_path("/images/#{image_id}"))
+            response["image"]
+          end
+
           def resolve_image(image, instance_type)
-            # If it looks like a UUID, use it directly
-            return image if image =~ /^[a-f0-9-]{36}$/i
+            return fetch_image(image) if uuid?(image)
 
             # Otherwise, look up by label (e.g., "ubuntu_jammy")
             arch = instance_type_arch(instance_type)
-            # Use query params like working implementation
             response = get("#{instance_path("/images")}?arch=#{arch}&name=#{image}")
             found = response["images"]&.first
             raise Error::Standard, "Image '#{image}' not found for arch #{arch}" unless found
 
-            found["id"]
+            found
+          end
+
+          def detect_volume_type(image_data)
+            root_vol = image_data&.dig("root_volume")
+            return "l_ssd" unless root_vol
+
+            vol_type = root_vol["volume_type"] || root_vol["type"]
+            case vol_type
+            when "sbs_snapshot", "sbs_volume" then "sbs_volume"
+            else "l_ssd"
+            end
           end
 
           def instance_type_arch(instance_type)

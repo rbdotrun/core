@@ -20,46 +20,53 @@ module RbrunCore
       protected
 
         def get(path, params = {})
-          handle_response(connection.get(normalize_path(path), params))
+          normalized = normalize_path(path)
+          handle_response(connection.get(normalized, params), method: :get, path: normalized, body: params)
         end
 
         def post(path, body = {})
-          handle_response(connection.post(normalize_path(path), body))
+          normalized = normalize_path(path)
+          handle_response(connection.post(normalized, body), method: :post, path: normalized, body:)
         end
 
         def put(path, body = {})
-          handle_response(connection.put(normalize_path(path), body))
+          normalized = normalize_path(path)
+          handle_response(connection.put(normalized, body), method: :put, path: normalized, body:)
         end
 
         def patch(path, body = {}, content_type: nil)
+          normalized = normalize_path(path)
           if content_type
-            response = raw_connection.patch(normalize_path(path)) do |req|
+            response = raw_connection.patch(normalized) do |req|
               req.headers["Content-Type"] = content_type
               auth_headers.each { |k, v| req.headers[k] = v }
               req.body = body
             end
-            raise_api_error(response) unless response.success?
+            unless response.success?
+              raise_api_error(response, request_method: :patch, request_path: normalized, request_body: body)
+            end
             response.body
           else
-            handle_response(connection.patch(normalize_path(path), body))
+            handle_response(connection.patch(normalized, body), method: :patch, path: normalized, body:)
           end
         end
 
         def delete(path)
-          response = connection.delete(normalize_path(path))
+          normalized = normalize_path(path)
+          response = connection.delete(normalized)
           return nil if [ 204, 404 ].include?(response.status)
 
-          handle_response(response)
+          handle_response(response, method: :delete, path: normalized, body: nil)
         end
 
         def normalize_path(path)
           path.sub(%r{^/}, "")
         end
 
-        def handle_response(response)
+        def handle_response(response, method: nil, path: nil, body: nil)
           return response.body if response.success?
 
-          raise_api_error(response)
+          raise_api_error(response, request_method: method, request_path: path, request_body: body)
         end
 
         def connection
