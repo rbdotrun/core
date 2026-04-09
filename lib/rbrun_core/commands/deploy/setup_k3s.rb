@@ -21,13 +21,16 @@ module RbrunCore
           install_k3s!(network[:public_ip], network[:private_ip], network[:interface])
           setup_kubeconfig!(network[:private_ip])
           deploy_ingress_controller!
-          setup_worker_nodes!(network[:private_ip]) if multi_server?
+          if multi_server?
+            setup_worker_nodes!(network[:private_ip])
+            verify_cluster_topology!
+          end
         end
 
         private
 
           def multi_server?
-            @ctx.servers.any?
+            @ctx.servers.size > 1
           end
 
           def wait_for_cloud_init!
@@ -46,10 +49,18 @@ module RbrunCore
           def discover_network_info
             @on_step&.call("Network", :in_progress)
             public_ip = @ctx.server_ip
-            private_ip = discover_private_ip || public_ip
+            private_ip = wait_for_private_ip
             interface = discover_interface(private_ip)
             @on_step&.call("Network", :done)
             { public_ip:, private_ip:, interface: }
+          end
+
+          def wait_for_private_ip
+            # Multi-server setups need the private IP for inter-node communication.
+            # The private NIC's DHCP lease may not be ready immediately after attachment.
+            Waiter.poll(max_attempts: 30, interval: 2, message: "Private IP not available after 60s — is a private network attached?") do
+              discover_private_ip
+            end
           end
 
           def discover_private_ip
@@ -109,7 +120,7 @@ module RbrunCore
           end
 
           def k3s_already_installed?
-            cmd = [ "command", "-v", "kubectl", "&&", "kubectl", "get", "nodes", "2>/dev/null", "|", "grep", "-q", "Ready" ].join(" ")
+            cmd = [ "command", "-v", "kubectl", "&&", "kubectl", "get", "nodes", "2>/dev/null", "|", "grep", "-qP", "'\\sReady\\s'" ].join(" ")
             check = @ctx.ssh_client.execute(cmd, raise_on_error: false)
             check[:exit_code].zero?
           end
@@ -134,7 +145,7 @@ module RbrunCore
             Waiter.poll(max_attempts: 30, interval: 5, message: "K3s did not become ready") do
               cmd = [ "sudo", "kubectl", "get", "nodes" ].join(" ")
               exec = @ctx.ssh_client.execute(cmd, raise_on_error: false)
-              exec[:exit_code].zero? && exec[:output].include?("Ready")
+              exec[:exit_code].zero? && exec[:output].match?(/\sReady\s/)
             end
           end
 
@@ -194,7 +205,7 @@ module RbrunCore
               "--type='json'",
               "-p='#{patch_json}'"
             ].join(" ")
-            @ctx.ssh_client.execute(cmd, raise_on_error: false)
+            @ctx.ssh_client.execute(cmd)
           end
 
           def kubeconfig_path
@@ -217,7 +228,7 @@ module RbrunCore
               "#{Naming::LABEL_SERVER_GROUP}=#{server_info[:group]}",
               "--overwrite"
             ].join(" ")
-            @ctx.ssh_client.execute(cmd, raise_on_error: false)
+            @ctx.ssh_client.execute(cmd)
           end
 
           def setup_worker_nodes!(master_private_ip)
@@ -229,6 +240,61 @@ module RbrunCore
             ).run
 
             label_all_nodes!
+          end
+
+          def verify_cluster_topology!
+            @on_step&.call("Verify", :in_progress)
+
+            expected_nodes = @ctx.servers.keys.map { |key| "#{@ctx.prefix}-#{key}" }
+            cmd = [
+              "kubectl", "--kubeconfig=#{kubeconfig_path}",
+              "get", "nodes", "-o", "json"
+            ].join(" ")
+            result = @ctx.ssh_client.execute(cmd)
+            cluster = JSON.parse(result[:output])
+            actual_nodes = cluster["items"] || []
+
+            verify_node_count!(expected_nodes, actual_nodes)
+            verify_nodes_ready!(actual_nodes)
+            verify_node_labels!(actual_nodes)
+
+            @on_step&.call("Verify", :done)
+          end
+
+          def verify_node_count!(expected_nodes, actual_nodes)
+            actual_names = actual_nodes.map { |n| n.dig("metadata", "name") }
+            missing = expected_nodes - actual_names
+
+            return if missing.empty?
+
+            raise Error::Standard,
+                  "Cluster topology mismatch: missing nodes #{missing.join(', ')}. " \
+                  "Expected #{expected_nodes.size} nodes, got #{actual_names.size}."
+          end
+
+          def verify_nodes_ready!(actual_nodes)
+            not_ready = actual_nodes.reject { |n| node_condition_ready?(n) }
+            return if not_ready.empty?
+
+            names = not_ready.map { |n| n.dig("metadata", "name") }
+            raise Error::Standard,
+                  "Nodes not Ready: #{names.join(', ')}. Cannot continue deploy."
+          end
+
+          def verify_node_labels!(actual_nodes)
+            unlabeled = actual_nodes.reject { |n| n.dig("metadata", "labels", Naming::LABEL_SERVER_GROUP) }
+            return if unlabeled.empty?
+
+            names = unlabeled.map { |n| n.dig("metadata", "name") }
+            raise Error::Standard,
+                  "Nodes missing #{Naming::LABEL_SERVER_GROUP} label: #{names.join(', ')}. " \
+                  "Pods with nodeSelector will not schedule."
+          end
+
+          def node_condition_ready?(node)
+            conditions = node.dig("status", "conditions") || []
+            ready = conditions.find { |c| c["type"] == "Ready" }
+            ready && ready["status"] == "True"
           end
       end
     end

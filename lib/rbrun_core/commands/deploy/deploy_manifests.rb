@@ -123,7 +123,8 @@ module RbrunCore
             result = @ctx.ssh_client.execute(cmd, raise_on_error: false)
             pw = result[:output].strip
             pw.empty? ? nil : pw
-          rescue Clients::Ssh::Error
+          rescue Clients::Ssh::ConnectionError
+            # Secret doesn't exist yet on first deploy — that's expected
             nil
           end
 

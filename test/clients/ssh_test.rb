@@ -34,6 +34,7 @@ module RbrunCore
       def test_error_hierarchy_inherits_from_error
         assert_operator Ssh::AuthenticationError, :<, Ssh::Error
         assert_operator Ssh::ConnectionError, :<, Ssh::Error
+        assert_operator Ssh::CommandTimeoutError, :<, Ssh::Error
       end
 
       def test_error_hierarchy_base_classes
@@ -127,6 +128,27 @@ module RbrunCore
         client = Ssh.new(host: @host, private_key: @private_key)
         assert_raises(Ssh::ConnectionError) do
           with_net_ssh_error(Errno::EHOSTUNREACH.new) { client.execute("cmd") }
+        end
+      end
+
+      def test_execute_with_execution_timeout_completes
+        client = Ssh.new(host: @host, private_key: @private_key)
+        result = with_fake_ssh(output: "hello", exit_code: 0) do
+          client.execute("echo hello", execution_timeout: 10)
+        end
+
+        assert_equal "hello", result[:output]
+        assert_equal 0, result[:exit_code]
+      end
+
+      def test_execute_with_execution_timeout_raises_on_hang
+        client = Ssh.new(host: @host, private_key: @private_key)
+
+        hanging_ssh = HangingSsh.new
+        assert_raises(Ssh::CommandTimeoutError) do
+          Net::SSH.stub(:start, ->(*, **, &blk) { blk.call(hanging_ssh) }) do
+            client.execute("sleep 999", execution_timeout: 1)
+          end
         end
       end
 
@@ -243,6 +265,10 @@ module RbrunCore
             channel
           end
 
+          def process(_wait = 0)
+            # no-op, simulates ssh.process for execution_timeout polling
+          end
+
           def scp
             FakeScp.new
           end
@@ -252,6 +278,7 @@ module RbrunCore
           def initialize(output, exit_code)
             @output = output
             @exit_code = exit_code
+            @active = true
           end
 
           def exec(cmd)
@@ -268,10 +295,19 @@ module RbrunCore
 
           def on_request(type)
             yield self, FakeExitData.new(@exit_code)
+            @active = false
           end
 
           def wait
             # no-op
+          end
+
+          def active?
+            @active
+          end
+
+          def close
+            @active = false
           end
         end
 
@@ -282,6 +318,37 @@ module RbrunCore
 
           def read_long
             @code
+          end
+        end
+
+        # Simulates a command that never finishes (channel stays active forever)
+        class HangingSsh
+          def open_channel
+            channel = HangingChannel.new
+            yield channel
+            channel
+          end
+
+          def process(_wait = 0)
+            # no-op
+          end
+        end
+
+        class HangingChannel
+          def exec(cmd)
+            yield self, true
+          end
+
+          def on_data; end
+          def on_extended_data; end
+          def on_request(_type); end
+
+          def active?
+            true # never finishes
+          end
+
+          def close
+            # no-op
           end
         end
 

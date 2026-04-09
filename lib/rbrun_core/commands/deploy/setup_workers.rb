@@ -5,6 +5,9 @@ module RbrunCore
     class Deploy
       class SetupWorkers
         CLOUD_INIT_TIMEOUT = 120
+        CLOUD_INIT_CMD_TIMEOUT = 15
+        JOIN_CLUSTER_TIMEOUT = 300
+        KUBECTL_CMD_TIMEOUT = 30
 
         def initialize(ctx:, master_private_ip:, kubeconfig_path:, on_step: nil)
           @ctx = ctx
@@ -70,8 +73,10 @@ module RbrunCore
           def wait_for_worker_cloud_init(ssh)
             Waiter.poll(max_attempts: CLOUD_INIT_TIMEOUT, interval: 5, message: "Worker cloud-init did not complete") do
               cmd = [ "test", "-f", "/var/lib/cloud/instance/boot-finished", "&&", "echo", "ready" ].join(" ")
-              result = ssh.execute(cmd, raise_on_error: false)
+              result = ssh.execute(cmd, raise_on_error: false, timeout: CLOUD_INIT_CMD_TIMEOUT, execution_timeout: CLOUD_INIT_CMD_TIMEOUT)
               result[:output].include?("ready")
+            rescue Clients::Ssh::ConnectionError, Clients::Ssh::CommandTimeoutError
+              false
             end
           end
 
@@ -88,7 +93,7 @@ module RbrunCore
               "|", "grep", "-oP", "'(?<=inet\\s)10\\.\\d+\\.\\d+\\.\\d+|172\\.(1[6-9]|2[0-9]|3[01])\\.\\d+\\.\\d+|192\\.168\\.\\d+\\.\\d+'",
               "|", "head", "-1"
             ].join(" ")
-            exec = ssh.execute(cmd)
+            exec = ssh.execute(cmd, execution_timeout: CLOUD_INIT_CMD_TIMEOUT)
             exec[:output].strip
           end
 
@@ -98,7 +103,7 @@ module RbrunCore
               "|", "grep", "'#{private_ip}'", "-B2",
               "|", "grep", "-oP", "'(?<=: )[^:@]+(?=:)'"
             ].join(" ")
-            exec = ssh.execute(cmd)
+            exec = ssh.execute(cmd, execution_timeout: CLOUD_INIT_CMD_TIMEOUT)
             exec[:output].strip.split("\n").last || "eth0"
           end
 
@@ -109,7 +114,7 @@ module RbrunCore
               token: cluster_token,
               agent_args:
             )
-            ssh.execute_with_retry(cmd, timeout: 300)
+            ssh.execute_with_retry(cmd, execution_timeout: JOIN_CLUSTER_TIMEOUT)
           end
 
           def build_agent_args(node_name, network_info)
@@ -125,8 +130,8 @@ module RbrunCore
               "kubectl", "--kubeconfig=#{@kubeconfig_path}",
               "get", "node", node_name, "2>/dev/null"
             ].join(" ")
-            result = @ctx.ssh_client.execute(cmd, raise_on_error: false)
-            result[:exit_code].zero? && result[:output].include?("Ready")
+            result = @ctx.ssh_client.execute(cmd, raise_on_error: false, execution_timeout: KUBECTL_CMD_TIMEOUT)
+            result[:exit_code].zero? && node_ready?(result[:output])
           end
 
           def wait_for_node_ready(node_name, max_attempts: 30, interval: 5)
@@ -135,9 +140,13 @@ module RbrunCore
                 "kubectl", "--kubeconfig=#{@kubeconfig_path}",
                 "get", "node", node_name, "2>/dev/null"
               ].join(" ")
-              result = @ctx.ssh_client.execute(cmd, raise_on_error: false)
-              result[:output].include?("Ready")
+              result = @ctx.ssh_client.execute(cmd, raise_on_error: false, execution_timeout: KUBECTL_CMD_TIMEOUT)
+              node_ready?(result[:output])
             end
+          end
+
+          def node_ready?(output)
+            output.match?(/\sReady\s/)
           end
       end
     end

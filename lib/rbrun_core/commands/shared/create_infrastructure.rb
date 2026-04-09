@@ -10,16 +10,16 @@ module RbrunCore
         end
 
         def run
-          firewall = create_firewall_step!
           network = create_network_step!
+          firewall = create_firewall_step!(network:)
           create_servers_step!(firewall_id: firewall.id, network_id: network.id)
         end
 
         private
 
-          def create_firewall_step!
+          def create_firewall_step!(network:)
             @on_step&.call("Firewall", :in_progress)
-            firewall = compute_client.find_or_create_firewall(@ctx.prefix, rules: firewall_rules)
+            firewall = compute_client.find_or_create_firewall(@ctx.prefix, rules: firewall_rules(network:))
             @on_step&.call("Firewall", :done)
             firewall
           end
@@ -201,9 +201,9 @@ module RbrunCore
                   "config=#{configured_type}. Cannot change master type without destroying infrastructure."
           end
 
-          def firewall_rules
+          def firewall_rules(network:)
             rules = [ ssh_firewall_rule ]
-            rules << k3s_firewall_rule unless sandbox?
+            rules << k3s_firewall_rule(network:) unless sandbox?
             rules
           end
 
@@ -211,8 +211,9 @@ module RbrunCore
             { direction: "in", protocol: "tcp", port: "22", source_ips: [ "0.0.0.0/0", "::/0" ] }
           end
 
-          def k3s_firewall_rule
-            { direction: "in", protocol: "tcp", port: "6443", source_ips: [ "10.0.0.0/16" ] }
+          def k3s_firewall_rule(network:)
+            cidr = network.ip_range || "10.0.0.0/16"
+            { direction: "in", protocol: "tcp", port: "6443", source_ips: [ cidr ] }
           end
 
           def sandbox?

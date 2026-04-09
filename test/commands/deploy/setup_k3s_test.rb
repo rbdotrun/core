@@ -54,7 +54,7 @@ module RbrunCore
           setup_multi_server_ctx!
           @ctx.new_servers = Set["worker-1"]
 
-          cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\nTrue\ntoken123") do
+          cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\n Ready \nTrue\ntoken123", output_for: nodes_json_output_for) do
             SetupK3s.new(@ctx).run
           end
 
@@ -67,7 +67,7 @@ module RbrunCore
           setup_multi_server_ctx!
           @ctx.new_servers = Set["worker-1"]
 
-          cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\nTrue\ntoken123") do
+          cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\n Ready \nTrue\ntoken123", output_for: nodes_json_output_for) do
             SetupK3s.new(@ctx).run
           end
 
@@ -79,7 +79,7 @@ module RbrunCore
           @ctx.new_servers = Set["web-1", "worker-1"]
           steps = TestStepCollector.new
 
-          with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\nTrue\ntoken123") do
+          with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\n Ready \nTrue\ntoken123", output_for: nodes_json_output_for) do
             SetupK3s.new(@ctx, on_step: steps).run
           end
 
@@ -92,7 +92,7 @@ module RbrunCore
           @ctx.new_servers = Set.new
           steps = TestStepCollector.new
 
-          with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\ntoken123") do
+          with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\n Ready \ntoken123", output_for: nodes_json_output_for(skip_workers: true)) do
             SetupK3s.new(@ctx, on_step: steps).run
           end
 
@@ -108,7 +108,9 @@ module RbrunCore
           }
           @ctx.new_servers = Set["worker-2"]
 
-          cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\nReady\nTrue\ntoken123") do
+          three_node_json = nodes_json_output_for(nodes: %w[web-1 worker-1 worker-2], groups: %w[web worker worker])
+
+          cmds = with_capturing_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\n Ready \nTrue\ntoken123", output_for: three_node_json) do
             SetupK3s.new(@ctx).run
           end
 
@@ -118,6 +120,66 @@ module RbrunCore
           assert_equal 1, join_cmds.size
         end
 
+        def test_verify_cluster_topology_raises_on_missing_nodes
+          setup_multi_server_ctx!
+          @ctx.new_servers = Set["worker-1"]
+
+          # Return JSON with only web-1, missing worker-1
+          incomplete_json = { "get nodes -o json" => fake_nodes_json(nodes: %w[web-1], groups: %w[web]) }
+
+          error = assert_raises(RbrunCore::Error::Standard) do
+            with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\n Ready \nTrue\ntoken123", output_for: incomplete_json) do
+              SetupK3s.new(@ctx).run
+            end
+          end
+
+          assert_match(/missing nodes/, error.message)
+        end
+
+        def test_verify_cluster_topology_raises_on_not_ready_nodes
+          setup_multi_server_ctx!
+          @ctx.new_servers = Set["worker-1"]
+
+          # Return JSON with worker-1 not ready
+          not_ready_json = { "get nodes -o json" => fake_nodes_json(nodes: %w[web-1 worker-1], groups: %w[web worker], ready: [ true, false ]) }
+
+          error = assert_raises(RbrunCore::Error::Standard) do
+            with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\n Ready \nTrue\ntoken123", output_for: not_ready_json) do
+              SetupK3s.new(@ctx).run
+            end
+          end
+
+          assert_match(/not Ready/, error.message)
+        end
+
+        def test_verify_cluster_topology_raises_on_missing_labels
+          setup_multi_server_ctx!
+          @ctx.new_servers = Set["worker-1"]
+
+          # Return JSON with nodes but no labels
+          unlabeled_json = { "get nodes -o json" => fake_nodes_json(nodes: %w[web-1 worker-1], groups: [ nil, nil ]) }
+
+          error = assert_raises(RbrunCore::Error::Standard) do
+            with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\n Ready \nTrue\ntoken123", output_for: unlabeled_json) do
+              SetupK3s.new(@ctx).run
+            end
+          end
+
+          assert_match(/missing.*label/, error.message)
+        end
+
+        def test_verify_reports_step
+          setup_multi_server_ctx!
+          @ctx.new_servers = Set["worker-1"]
+          steps = TestStepCollector.new
+
+          with_mocked_ssh(output: "ok\nready\n10.0.0.1\neth0\nRunning\n Ready \nTrue\ntoken123", output_for: nodes_json_output_for) do
+            SetupK3s.new(@ctx, on_step: steps).run
+          end
+
+          assert_includes steps, "Verify"
+        end
+
         private
 
           def setup_multi_server_ctx!
@@ -125,6 +187,30 @@ module RbrunCore
               "web-1" => { id: "srv-1", ip: "1.2.3.4", private_ip: nil, group: "web" },
               "worker-1" => { id: "srv-2", ip: "5.6.7.8", private_ip: nil, group: "worker" }
             }
+          end
+
+          def nodes_json_output_for(nodes: nil, groups: nil, skip_workers: false)
+            nodes ||= @ctx.servers.keys
+            groups ||= @ctx.servers.values.map { |s| s[:group] }
+            { "get nodes -o json" => fake_nodes_json(nodes:, groups:) }
+          end
+
+          def fake_nodes_json(nodes:, groups:, ready: nil)
+            ready ||= Array.new(nodes.size, true)
+            items = nodes.each_with_index.map do |name, i|
+              node_name = "#{@ctx.prefix}-#{name}"
+              labels = { "kubernetes.io/hostname" => node_name }
+              labels[RbrunCore::Naming::LABEL_SERVER_GROUP] = groups[i] if groups[i]
+              {
+                "metadata" => { "name" => node_name, "labels" => labels },
+                "status" => {
+                  "conditions" => [
+                    { "type" => "Ready", "status" => ready[i] ? "True" : "False" }
+                  ]
+                }
+              }
+            end
+            JSON.generate({ "items" => items })
           end
       end
     end

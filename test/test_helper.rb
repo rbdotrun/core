@@ -37,34 +37,36 @@ class MockSshClient
   attr_reader :host, :user, :commands
 
   def initialize(host:, private_key:, user: "root", output: "ok",
-                 exit_code: 0, exit_code_for: {}, commands: [], **)
+                 exit_code: 0, exit_code_for: {}, output_for: {}, commands: [], **)
     @host = host
     @user = user
     @output = output
     @exit_code = exit_code
     @exit_code_for = exit_code_for
+    @output_for = output_for
     @commands = commands
   end
 
-  def execute(command, cwd: nil, timeout: nil, raise_on_error: true, &block)
+  def execute(command, cwd: nil, timeout: nil, execution_timeout: nil, raise_on_error: true, &block)
     full_cmd = cwd ? "cd #{Shellwords.escape(cwd)} && #{command}" : command
     @commands << full_cmd
 
     code = @exit_code_for.find { |p, _| full_cmd.include?(p) }&.last || @exit_code
+    out = @output_for.find { |p, _| full_cmd.include?(p) }&.last || @output
 
-    if @output && block_given?
-      @output.to_s.each_line { |line| block.call(line.chomp) }
+    if out && block_given?
+      out.to_s.each_line { |line| block.call(line.chomp) }
     end
 
     if raise_on_error && code != 0
       raise RbrunCore::Clients::Ssh::CommandError.new(
         "Command failed (exit code: #{code}): #{command}",
         exit_code: code,
-        output: @output.to_s.strip
+        output: out.to_s.strip
       )
     end
 
-    { output: @output.to_s.strip, exit_code: code }
+    { output: out.to_s.strip, exit_code: code }
   end
 
   def execute_with_retry(command, retries: 3, backoff: 2, **)
@@ -206,11 +208,11 @@ module RbrunCoreTestSetup
 
     # Stub SSH with MockSshClient. Returns commands array.
     # Pass exit_code_for: { "test -d" => 1 } to vary exit code per command pattern.
-    def with_mocked_ssh(output: "ok", exit_code: 0, exit_code_for: nil, &block)
+    def with_mocked_ssh(output: "ok", exit_code: 0, exit_code_for: nil, output_for: nil, &block)
       commands = []
       RbrunCore::Clients::Ssh.stub(:new, ->(**opts) {
         MockSshClient.new(output:, exit_code:, exit_code_for: exit_code_for || {},
-                          commands:, **opts)
+                          output_for: output_for || {}, commands:, **opts)
       }, &block)
       commands
     end
@@ -220,8 +222,8 @@ module RbrunCoreTestSetup
     end
 
     # Stub SSH and capture executed commands into the returned array.
-    def with_capturing_ssh(output: "ok", exit_code: 0, exit_code_for: nil, &block)
-      with_mocked_ssh(output:, exit_code:, exit_code_for:, &block)
+    def with_capturing_ssh(output: "ok", exit_code: 0, exit_code_for: nil, output_for: nil, &block)
+      with_mocked_ssh(output:, exit_code:, exit_code_for:, output_for:, &block)
     end
 end
 

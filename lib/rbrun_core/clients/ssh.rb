@@ -14,6 +14,7 @@ module RbrunCore
       class Error < StandardError; end
       class AuthenticationError < Error; end
       class ConnectionError < Error; end
+      class CommandTimeoutError < Error; end
 
       class CommandError < Error
         attr_reader :exit_code, :output
@@ -36,7 +37,9 @@ module RbrunCore
       end
 
       # Execute a command on the remote server.
-      def execute(command, cwd: nil, timeout: nil, raise_on_error: true)
+      # +timeout+: SSH connection timeout (seconds).
+      # +execution_timeout+: max seconds the command may run before being killed.
+      def execute(command, cwd: nil, timeout: nil, execution_timeout: nil, raise_on_error: true)
         full_command = build_command(command, cwd:)
         output = String.new
         exit_code = nil
@@ -63,7 +66,20 @@ module RbrunCore
               ch.on_request("exit-status") { |_, data| exit_code = data.read_long }
             end
           end
-          channel.wait
+
+          if execution_timeout
+            deadline = Time.now + execution_timeout
+            while channel.active?
+              ssh.process(0.5)
+              if Time.now > deadline
+                channel.close
+                raise CommandTimeoutError, "Command timed out after #{execution_timeout}s: #{command}"
+              end
+            end
+          else
+            channel.wait
+          end
+
           yield line_buffer.chomp if block_given? && !line_buffer.empty?
         end
 
