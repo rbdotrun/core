@@ -18,6 +18,8 @@ module RbrunCore
       end
 
       class Base
+        DEFAULT_ROOT_VOLUME_SIZE = 20
+
         attr_accessor :location, :image
         attr_reader :master
 
@@ -25,6 +27,10 @@ module RbrunCore
           @master = MasterConfig.new
           @location = nil
           @image = nil
+        end
+
+        def root_volume_size
+          DEFAULT_ROOT_VOLUME_SIZE
         end
 
         def provider_name

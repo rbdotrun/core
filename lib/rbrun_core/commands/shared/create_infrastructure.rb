@@ -221,7 +221,10 @@ module RbrunCore
           end
 
           def create_server!(name:, server_type:, firewall_id:, network_id:)
-            user_data = Generators::CloudInit.generate(ssh_public_key: @ctx.ssh_public_key)
+            user_data = Generators::CloudInit.generate(
+              ssh_public_key: @ctx.ssh_public_key,
+              root_volume_size: @ctx.config.compute_config.root_volume_size
+            )
 
             compute_client.find_or_create_server(
               name:,

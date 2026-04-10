@@ -53,6 +53,32 @@ module RbrunCore
 
         assert_includes result, "name: #{RbrunCore::Naming.default_user}"
       end
+
+      # ── Proportional Swap ──
+
+      def test_swap_defaults_to_1024m_for_20gb_disk
+        result = CloudInit.generate(ssh_public_key: "ssh-rsa AAAA...")
+
+        assert_includes result, "size: 1024M"
+      end
+
+      def test_swap_scales_to_2048m_for_40gb_disk
+        result = CloudInit.generate(ssh_public_key: "ssh-rsa AAAA...", root_volume_size: 40)
+
+        assert_includes result, "size: 2048M"
+      end
+
+      def test_swap_caps_at_2048m_for_large_disks
+        result = CloudInit.generate(ssh_public_key: "ssh-rsa AAAA...", root_volume_size: 100)
+
+        assert_includes result, "size: 2048M"
+      end
+
+      def test_swap_floors_at_512m_for_small_disks
+        result = CloudInit.generate(ssh_public_key: "ssh-rsa AAAA...", root_volume_size: 5)
+
+        assert_includes result, "size: 512M"
+      end
     end
   end
 end
