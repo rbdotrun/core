@@ -578,6 +578,54 @@ module RbrunCore
         assert_equal 5, config.app_config.keep_images
       end
 
+      # ─── Process Resources ───
+
+      def test_loads_process_resources
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          app:
+            processes:
+              web:
+                port: 80
+                resources:
+                  memory: 1536Mi
+                  cpu: "1"
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal "1536Mi", config.app_config.processes[:web].resources["memory"]
+        assert_equal "1", config.app_config.processes[:web].resources["cpu"]
+      end
+
+      def test_process_resources_defaults_to_nil
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          app:
+            processes:
+              web:
+                port: 80
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_nil config.app_config.processes[:web].resources
+      end
+
       def test_loads_env
         yaml = <<~YAML
           name: testapp

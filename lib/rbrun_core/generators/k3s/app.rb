@@ -49,7 +49,19 @@ module RbrunCore
               container[:readinessProbe] = build_readiness_probe(process)
             end
 
+            container[:resources] = build_resources(process) if process.resources
+
             container
+          end
+
+          # Sets both limits and requests to the same values (Guaranteed QoS class).
+          # K8s restarts the pod automatically on OOM kill via the deployment controller.
+          def build_resources(process)
+            limits = {}
+            limits[:memory] = process.resources["memory"] if process.resources["memory"]
+            limits[:cpu] = process.resources["cpu"] if process.resources["cpu"]
+
+            { limits:, requests: limits.dup }
           end
 
           def build_readiness_probe(process)

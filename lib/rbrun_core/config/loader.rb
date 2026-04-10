@@ -190,6 +190,7 @@ module RbrunCore
                 p.env = proc_data["env"] if proc_data["env"]
                 p.setup = proc_data["setup"] || []
                 p.instance_type = proc_data["instance_type"] if proc_data["instance_type"]
+                p.resources = proc_data["resources"] if proc_data["resources"]
               end
             end
           end

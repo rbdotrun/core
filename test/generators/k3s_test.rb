@@ -550,6 +550,60 @@ module RbrunCore
 
         refute_includes manifests, "image-prune"
       end
+
+      # ── Process Resource Limits ──
+
+      def test_process_with_resources_sets_limits_and_requests
+        @config.app do |a|
+          a.process(:web) do |p|
+            p.port = 3000
+            p.resources = { "memory" => "1536Mi", "cpu" => "1" }
+          end
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        web_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
+        container = web_deploy["spec"]["template"]["spec"]["containers"].first
+
+        assert_equal "1536Mi", container["resources"]["limits"]["memory"]
+        assert_equal "1", container["resources"]["limits"]["cpu"]
+        assert_equal "1536Mi", container["resources"]["requests"]["memory"]
+        assert_equal "1", container["resources"]["requests"]["cpu"]
+      end
+
+      def test_process_with_memory_only_resources
+        @config.app do |a|
+          a.process(:worker) do |p|
+            p.command = "bin/jobs"
+            p.resources = { "memory" => "512Mi" }
+          end
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        worker_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-worker" }
+        container = worker_deploy["spec"]["template"]["spec"]["containers"].first
+
+        assert_equal "512Mi", container["resources"]["limits"]["memory"]
+        refute container["resources"]["limits"].key?("cpu")
+      end
+
+      def test_process_without_resources_has_no_limits
+        @config.app do |a|
+          a.process(:web) { |p| p.port = 3000 }
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        web_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
+        container = web_deploy["spec"]["template"]["spec"]["containers"].first
+
+        refute container.key?("resources")
+      end
     end
   end
 end

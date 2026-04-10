@@ -3,7 +3,7 @@
 module RbrunCore
   module Config
     class Process
-      attr_accessor :command, :port, :subdomain, :replicas, :env, :setup, :instance_type
+      attr_accessor :command, :port, :subdomain, :replicas, :env, :setup, :instance_type, :resources
       attr_reader :name
 
       def initialize(name)
@@ -15,6 +15,7 @@ module RbrunCore
         @instance_type = nil
         @env = {}
         @setup = []
+        @resources = nil
       end
 
       def effective_replicas
