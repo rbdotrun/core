@@ -478,6 +478,78 @@ module RbrunCore
         affinity = redis_deploy["spec"]["template"]["spec"]["affinity"]
         refute affinity, "Service without instance_type should not have anti-affinity"
       end
+
+      # ── Image Prune CronJob ──
+
+      def test_generates_image_prune_cronjob_when_app_configured
+        @config.app { |a| a.process(:web) { |p| p.port = 3000 } }
+        gen = K3s.new(@config, prefix: "myapp-staging", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        cronjob = parsed.find { |r| r["kind"] == "CronJob" && r["metadata"]["name"] == "myapp-staging-image-prune" }
+
+        assert cronjob, "Should generate image prune CronJob"
+        assert_equal "30 3 * * *", cronjob["spec"]["schedule"]
+        assert_equal "Forbid", cronjob["spec"]["concurrencyPolicy"]
+      end
+
+      def test_image_prune_runs_on_master_node
+        @config.app { |a| a.process(:web) { |p| p.port = 3000 } }
+        gen = K3s.new(@config, prefix: "myapp-staging", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        cronjob = parsed.find { |r| r["kind"] == "CronJob" && r["metadata"]["name"] == "myapp-staging-image-prune" }
+
+        pod_spec = cronjob.dig("spec", "jobTemplate", "spec", "template", "spec")
+
+        assert_equal "master", pod_spec["nodeSelector"][RbrunCore::Naming::LABEL_SERVER_GROUP]
+      end
+
+      def test_image_prune_uses_host_pid_and_privileged
+        @config.app { |a| a.process(:web) { |p| p.port = 3000 } }
+        gen = K3s.new(@config, prefix: "myapp-staging", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+        parsed = YAML.load_stream(manifests).compact
+        cronjob = parsed.find { |r| r["kind"] == "CronJob" && r["metadata"]["name"] == "myapp-staging-image-prune" }
+
+        pod_spec = cronjob.dig("spec", "jobTemplate", "spec", "template", "spec")
+        container = pod_spec["containers"].first
+
+        assert pod_spec["hostPID"], "Pod should have hostPID enabled"
+        assert container["securityContext"]["privileged"], "Container should be privileged"
+      end
+
+      def test_image_prune_uses_default_keep_count
+        @config.app { |a| a.process(:web) { |p| p.port = 3000 } }
+        gen = K3s.new(@config, prefix: "myapp-staging", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+
+        assert_includes manifests, "KEEP=3"
+        assert_includes manifests, "localhost:30500/myapp-staging"
+      end
+
+      def test_image_prune_respects_custom_keep_count
+        @config.app do |a|
+          a.keep_images = 5
+          a.process(:web) { |p| p.port = 3000 }
+        end
+        gen = K3s.new(@config, prefix: "myapp-staging", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        manifests = gen.generate
+
+        assert_includes manifests, "KEEP=5"
+      end
+
+      def test_no_image_prune_without_app
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com")
+        manifests = gen.generate
+
+        refute_includes manifests, "image-prune"
+      end
     end
   end
 end

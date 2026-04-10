@@ -16,6 +16,7 @@ module RbrunCore
       include Tunnel
       include Backup
       include Registry
+      include ImagePrune
 
       def initialize(config, prefix:, zone:, db_password: nil, registry_tag: nil, tunnel_token: nil, r2_credentials: nil,
                      storage_credentials: nil)
@@ -38,6 +39,7 @@ module RbrunCore
         manifests << tunnel_manifest if @tunnel_token
         manifests.concat(backup_manifests) if @config.database?(:postgres) && @r2_credentials
         manifests.concat(registry_manifest) if @r2_credentials
+        manifests.concat(image_prune_manifests) if @config.app?
         to_yaml(manifests)
       end
 

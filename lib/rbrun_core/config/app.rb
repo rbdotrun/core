@@ -3,13 +3,16 @@
 module RbrunCore
   module Config
     class App
+      DEFAULT_KEEP_IMAGES = 3
+
       attr_reader :processes
-      attr_accessor :dockerfile, :platform
+      attr_accessor :dockerfile, :platform, :keep_images
 
       def initialize
         @processes = {}
         @dockerfile = "Dockerfile"
         @platform = "linux/amd64"
+        @keep_images = DEFAULT_KEEP_IMAGES
       end
 
       def process(name)

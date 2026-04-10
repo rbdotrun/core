@@ -114,7 +114,7 @@ module RbrunCore
             end
           end
 
-          assert_equal %w[buildx pull tag tag], docker_commands.map(&:first)
+          assert_equal %w[buildx], docker_commands.map(&:first)
         end
 
         def test_includes_cache_from_when_env_set

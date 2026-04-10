@@ -533,6 +533,51 @@ module RbrunCore
         assert_match(/web/, error.message)
       end
 
+      # ─── Keep Images ───
+
+      def test_keep_images_defaults_to_3
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          app:
+            processes:
+              web:
+                port: 80
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal 3, config.app_config.keep_images
+      end
+
+      def test_keep_images_can_be_configured
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          app:
+            keep_images: 5
+            processes:
+              web:
+                port: 80
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_equal 5, config.app_config.keep_images
+      end
+
       def test_loads_env
         yaml = <<~YAML
           name: testapp

@@ -169,6 +169,7 @@ module RbrunCore
           def apply_app!(config, app_data)
             config.app do |a|
               a.dockerfile = app_data["dockerfile"] if app_data["dockerfile"]
+              a.keep_images = app_data["keep_images"] if app_data["keep_images"]
               apply_processes!(a, app_data["processes"])
             end
           end

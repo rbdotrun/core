@@ -177,6 +177,10 @@ module RbrunCore
         "#{prefix}-postgres-backup"
       end
 
+      def image_prune(prefix)
+        "#{prefix}-image-prune"
+      end
+
       def cloudflared(prefix)
         "#{prefix}-cloudflared"
       end
