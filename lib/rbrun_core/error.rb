@@ -20,6 +20,7 @@ module RbrunCore
       def not_found? = status == 404
       def unauthorized? = status == 401
       def rate_limited? = status == 429
+      def server_error? = status.is_a?(Integer) && (500..599).cover?(status)
 
       def verbose_message
         parts = [message]

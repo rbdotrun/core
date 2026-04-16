@@ -23,6 +23,16 @@ require "minitest/autorun"
 require "webmock/minitest"
 require "sshkey"
 
+# Make Faraday retry backoff instant in tests. The production middleware
+# uses 0.5s base + exponential backoff with jitter (~3.5s worst case) which
+# would slow the suite for no testing benefit. We still exercise the real
+# retry logic — just skip the actual sleep between attempts.
+Faraday::Retry::Middleware.prepend(
+  Module.new do
+    def sleep(*); end
+  end
+)
+
 # Pre-generate SSH keypair once (avoids 200-500ms per test)
 TEST_SSH_KEY = SSHKey.generate(type: "RSA", bits: 4096, comment: "rbrun-core-test")
 TEST_SSH_KEY_DIR = Dir.mktmpdir("rbrun-core-test-keys")

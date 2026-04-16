@@ -21,6 +21,7 @@ require "logger"
 # External dependencies (gems)
 require "faraday"
 require "faraday/net_http"
+require "faraday/retry"
 
 # Setup and eager load
 RbrunCore.loader.setup

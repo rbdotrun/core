@@ -85,6 +85,48 @@ module RbrunCore
 
         assert_not_requested(:post, /dns_records/)
       end
+
+      # Reproduces the production incident: Cloudflare API briefly returns 502
+      # on GET /zones while the deploy's SetupTunnel step is running. With the
+      # retry middleware wired into Clients::Base, two transient 502s followed
+      # by a 200 must resolve to a successful lookup.
+      def test_get_zone_id_retries_transient_5xx_and_succeeds
+        stub_request(:get, %r{api\.cloudflare\.com/client/v4/zones})
+          .to_return(
+            { status: 502, body: "Bad Gateway" },
+            { status: 502, body: "Bad Gateway" },
+            { status: 200, body: { success: true, result: [ { id: "zone-recovered" } ] }.to_json, headers: json_headers }
+          )
+
+        assert_equal "zone-recovered", @client.get_zone_id("lexago.fr")
+        assert_requested(:get, %r{api\.cloudflare\.com/client/v4/zones}, times: 3)
+      end
+
+      # Once retries are exhausted (max=3 → 4 attempts total), the error must
+      # surface as Error::Api with the original status preserved.
+      def test_get_zone_id_raises_after_exhausting_retries
+        stub_request(:get, %r{api\.cloudflare\.com/client/v4/zones})
+          .to_return(status: 502, body: "Bad Gateway")
+
+        error = assert_raises(RbrunCore::Error::Api) { @client.get_zone_id("lexago.fr") }
+
+        assert_equal 502, error.status
+        assert_predicate error, :server_error?
+        assert_requested(:get, %r{api\.cloudflare\.com/client/v4/zones}, times: 4)
+      end
+
+      # POST is explicitly excluded from retry methods to avoid accidental
+      # double-creation after a 5xx-after-commit. A single 502 on the tunnel
+      # POST must fail fast without retrying.
+      def test_find_or_create_tunnel_does_not_retry_post_on_5xx
+        stub_request(:get, /cfd_tunnel/).to_return(
+          status: 200, body: { success: true, result: [] }.to_json, headers: json_headers
+        )
+        stub_request(:post, /cfd_tunnel/).to_return(status: 502, body: "Bad Gateway")
+
+        assert_raises(RbrunCore::Error::Api) { @client.find_or_create_tunnel("test") }
+        assert_requested(:post, /cfd_tunnel/, times: 1)
+      end
     end
   end
 end

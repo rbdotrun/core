@@ -20,6 +20,7 @@ Gem::Specification.new do |s|
   s.add_dependency 'ed25519', '>= 1.2'
   s.add_dependency 'faraday', '~> 2.0'
   s.add_dependency 'faraday-multipart', '~> 1.0'
+  s.add_dependency 'faraday-retry', '~> 2.0'
   s.add_dependency 'sshkey', '~> 3.0'
   s.add_dependency 'aws-sdk-ec2', '~> 1.0'
   s.add_dependency 'aws-sigv4', '~> 1.0'
