@@ -469,4 +469,60 @@ class ConfigurationTest < Minitest::Test
 
     assert_nil @config.validate!
   end
+
+  # ── rolling_update validation ──
+
+  def test_validate_passes_when_process_has_valid_rolling_update
+    @config.target = :production
+    @config.name = "myapp"
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+    @config.app do |a|
+      a.process(:worker) do |p|
+        p.command = "bin/jobs"
+        p.rolling_update = { "max_surge" => 0, "max_unavailable" => 1 }
+      end
+    end
+
+    assert_nil @config.validate!
+  end
+
+  def test_validate_raises_when_rolling_update_is_not_a_hash
+    @config.target = :production
+    @config.name = "myapp"
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+    @config.app do |a|
+      a.process(:worker) do |p|
+        p.command = "bin/jobs"
+        p.rolling_update = "surge"
+      end
+    end
+
+    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
+    assert_match(/rolling_update must be a hash/, error.message)
+  end
+
+  def test_validate_raises_when_rolling_update_has_unknown_key
+    @config.target = :production
+    @config.name = "myapp"
+    @config.compute(:hetzner) do |c|
+      c.api_key = "k"
+      c.ssh_key_path = TEST_SSH_KEY_PATH
+    end
+    @config.app do |a|
+      a.process(:worker) do |p|
+        p.command = "bin/jobs"
+        p.rolling_update = { "max_surge" => 0, "surge" => 1 } # typo
+      end
+    end
+
+    error = assert_raises(RbrunCore::Error::Configuration) { @config.validate! }
+    assert_match(/unknown key/, error.message)
+    assert_match(/surge/, error.message)
+  end
 end

@@ -32,11 +32,11 @@ module RbrunCore
           #
           # ─────────────────────────────────────────────────────────────────────────────
           def deployment(name:, containers:, volumes: [], replicas: 1, host_network: false, node_selector: nil,
-                         init_containers: [], anti_affinity: false)
+                         init_containers: [], anti_affinity: false, rolling_update: nil)
             spec = build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector,
                                              anti_affinity:)
 
-            strategy = { type: "RollingUpdate" }
+            strategy = build_rolling_update_strategy(rolling_update)
 
             {
               apiVersion: "apps/v1",
@@ -49,6 +49,25 @@ module RbrunCore
                 template: { metadata: { labels: labels(name) }, spec: }
               }
             }
+          end
+
+          # When `rolling_update` is nil → emit plain { type: "RollingUpdate" } and
+          # let K8s apply its defaults (25% surge, 25% unavailable). When set →
+          # emit an explicit rollingUpdate block with the operator's values.
+          # Accepts both string and symbol keys (YAML gives strings; DSL gives symbols).
+          def build_rolling_update_strategy(rolling_update)
+            strategy = { type: "RollingUpdate" }
+            return strategy unless rolling_update
+
+            max_surge = rolling_update[:max_surge] || rolling_update["max_surge"]
+            max_unavailable = rolling_update[:max_unavailable] || rolling_update["max_unavailable"]
+
+            ru = {}
+            ru[:maxSurge] = max_surge unless max_surge.nil?
+            ru[:maxUnavailable] = max_unavailable unless max_unavailable.nil?
+            strategy[:rollingUpdate] = ru unless ru.empty?
+
+            strategy
           end
 
           def build_deployment_pod_spec(containers, init_containers, volumes, host_network, node_selector,

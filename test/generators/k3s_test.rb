@@ -604,6 +604,89 @@ module RbrunCore
 
         refute container.key?("resources")
       end
+
+      # ── rolling_update strategy ─────────────────────────────────────
+
+      def test_process_without_rolling_update_emits_default_strategy
+        @config.app { |a| a.process(:web) { |p| p.port = 3000 } }
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        parsed = YAML.load_stream(gen.generate).compact
+        web_deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
+        strategy = web_deploy["spec"]["strategy"]
+
+        # Backward-compat: identical to pre-change manifest — type only, no rollingUpdate block.
+        assert_equal "RollingUpdate", strategy["type"]
+        refute strategy.key?("rollingUpdate"),
+               "expected no rollingUpdate block when rolling_update is unset (K8s applies defaults)"
+      end
+
+      def test_process_with_rolling_update_sets_strategy_block
+        @config.app do |a|
+          a.process(:system) do |p|
+            p.port = 3000
+            p.rolling_update = { "max_surge" => 0, "max_unavailable" => 1 }
+          end
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        parsed = YAML.load_stream(gen.generate).compact
+        deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-system" }
+        strategy = deploy["spec"]["strategy"]
+
+        assert_equal "RollingUpdate", strategy["type"]
+        assert_equal 0, strategy["rollingUpdate"]["maxSurge"]
+        assert_equal 1, strategy["rollingUpdate"]["maxUnavailable"]
+      end
+
+      def test_process_rolling_update_accepts_symbol_keys
+        @config.app do |a|
+          a.process(:web) do |p|
+            p.port = 3000
+            p.rolling_update = { max_surge: 2, max_unavailable: 0 }
+          end
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        parsed = YAML.load_stream(gen.generate).compact
+        deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
+
+        assert_equal 2, deploy["spec"]["strategy"]["rollingUpdate"]["maxSurge"]
+        assert_equal 0, deploy["spec"]["strategy"]["rollingUpdate"]["maxUnavailable"]
+      end
+
+      def test_process_rolling_update_accepts_percentage_strings
+        @config.app do |a|
+          a.process(:web) do |p|
+            p.port = 3000
+            p.rolling_update = { "max_surge" => "50%", "max_unavailable" => "25%" }
+          end
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        parsed = YAML.load_stream(gen.generate).compact
+        deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-web" }
+
+        assert_equal "50%", deploy["spec"]["strategy"]["rollingUpdate"]["maxSurge"]
+        assert_equal "25%", deploy["spec"]["strategy"]["rollingUpdate"]["maxUnavailable"]
+      end
+
+      def test_process_rolling_update_partial_omits_missing_keys
+        @config.app do |a|
+          a.process(:worker) do |p|
+            p.command = "bin/jobs"
+            p.rolling_update = { "max_surge" => 0 }
+          end
+        end
+        gen = K3s.new(@config, prefix: "myapp", zone: "example.com",
+                               registry_tag: "localhost:5000/app:v1")
+        parsed = YAML.load_stream(gen.generate).compact
+        deploy = parsed.find { |r| r["kind"] == "Deployment" && r["metadata"]["name"] == "myapp-worker" }
+        ru = deploy["spec"]["strategy"]["rollingUpdate"]
+
+        assert_equal 0, ru["maxSurge"]
+        refute ru.key?("maxUnavailable"), "expected K8s to apply its own default when key is omitted"
+      end
     end
   end
 end

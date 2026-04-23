@@ -90,7 +90,8 @@ module RbrunCore
               node_selector: node_selector_for_instance_type(process),
               containers: [ container ],
               init_containers: build_init_containers(process),
-              anti_affinity: !!process.instance_type
+              anti_affinity: !!process.instance_type,
+              rolling_update: process.rolling_update
             )
           end
 

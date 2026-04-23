@@ -605,6 +605,53 @@ module RbrunCore
         assert_equal "1", config.app_config.processes[:web].resources["cpu"]
       end
 
+      def test_loads_process_rolling_update
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          app:
+            processes:
+              worker:
+                command: bin/jobs
+                rolling_update:
+                  max_surge: 0
+                  max_unavailable: 1
+        YAML
+
+        config = load_yaml(yaml)
+        ru = config.app_config.processes[:worker].rolling_update
+
+        assert_equal 0, ru["max_surge"]
+        assert_equal 1, ru["max_unavailable"]
+      end
+
+      def test_process_without_rolling_update_leaves_attr_nil
+        yaml = <<~YAML
+          name: testapp
+          target: production
+          compute:
+            provider: hetzner
+            api_key: test-key
+            ssh_key_path: #{TEST_SSH_KEY_PATH}
+            master:
+              instance_type: cpx11
+          app:
+            processes:
+              worker:
+                command: bin/jobs
+        YAML
+
+        config = load_yaml(yaml)
+
+        assert_nil config.app_config.processes[:worker].rolling_update
+      end
+
       def test_process_resources_defaults_to_nil
         yaml = <<~YAML
           name: testapp

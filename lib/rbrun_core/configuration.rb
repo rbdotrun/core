@@ -120,6 +120,7 @@ module RbrunCore
       validate_cloudflare_required!
       validate_replicas!
       validate_instance_type!
+      validate_rolling_update!
       nil
     end
 
@@ -145,6 +146,31 @@ module RbrunCore
               Error::Configuration,
               "Process #{name} has a subdomain and requires at least 2 replicas for zero-downtime deploys"
             )
+          end
+        end
+      end
+
+      # Shape-check rolling_update configs so typos fail at load time, not at
+      # kubectl apply time. Values pass through verbatim to K8s (it accepts
+      # integers or percentage strings); we only police the key set.
+      ROLLING_UPDATE_KEYS = %w[max_surge max_unavailable].freeze
+
+      def validate_rolling_update!
+        return unless @app_config&.processes
+
+        @app_config.processes.each do |name, p|
+          next unless p.rolling_update
+
+          unless p.rolling_update.is_a?(Hash)
+            raise Error::Configuration,
+                  "Process #{name}: rolling_update must be a hash with max_surge and/or max_unavailable"
+          end
+
+          unknown = p.rolling_update.keys.map(&:to_s) - ROLLING_UPDATE_KEYS
+          unless unknown.empty?
+            raise Error::Configuration,
+                  "Process #{name}: rolling_update has unknown key(s) #{unknown.inspect}. " \
+                  "Allowed: #{ROLLING_UPDATE_KEYS.inspect}"
           end
         end
       end
